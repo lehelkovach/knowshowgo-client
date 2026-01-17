@@ -192,6 +192,223 @@ class KnowShowGoClient:
         """Check API health"""
         return self._request("GET", "/health")
 
+    # ===== Assertions (v0.2.0) =====
+
+    def create_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        truth: float = 1.0,
+        source: str = "user"
+    ) -> Dict[str, Any]:
+        """Create an assertion"""
+        data = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "truth": truth,
+            "source": source
+        }
+        return self._request("POST", "/api/assertions", json=data)
+
+    def get_assertions(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        obj: Optional[Any] = None
+    ) -> List[Dict[str, Any]]:
+        """Get assertions with optional filters"""
+        params = {}
+        if subject:
+            params["subject"] = subject
+        if predicate:
+            params["predicate"] = predicate
+        if obj is not None:
+            params["object"] = obj
+        result = self._request("GET", "/api/assertions", params=params)
+        return result["assertions"]
+
+    def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
+        """Get resolved values for an entity"""
+        result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
+        return result["snapshot"]
+
+    def get_evidence(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all competing assertions for an entity"""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        result = self._request(
+            "GET",
+            f"/api/entities/{entity_id}/evidence",
+            params=params
+        )
+        return result["evidence"]
+
+    # ===== Verification / Hallucination Detection =====
+
+    def store_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        status: str = "verified",
+        confidence: float = 1.0,
+        source: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Store a verified fact for hallucination detection.
+        
+        Args:
+            subject: Subject entity (e.g., "Bell")
+            predicate: Relation (e.g., "invented")
+            obj: Object entity (e.g., "telephone")
+            status: verified|refuted|unverified
+            confidence: Confidence [0,1]
+            source: Provenance source info
+        
+        Returns:
+            Stored fact with UUID
+        """
+        data = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "status": status,
+            "confidence": confidence,
+            "source": source
+        }
+        return self._request("POST", "/api/facts", json=data)
+
+    def store_facts_bulk(
+        self,
+        facts: List[tuple]
+    ) -> Dict[str, Any]:
+        """
+        Store multiple facts at once.
+        
+        Args:
+            facts: List of (subject, predicate, object) tuples
+        
+        Returns:
+            Result with stored count
+        """
+        fact_dicts = [
+            {"subject": f[0], "predicate": f[1], "object": f[2]}
+            for f in facts
+        ]
+        return self._request("POST", "/api/facts/bulk", json={"facts": fact_dicts})
+
+    def verify(
+        self,
+        claim: str,
+        threshold: float = 0.7
+    ) -> Dict[str, Any]:
+        """
+        Verify a claim against stored facts.
+        
+        Args:
+            claim: Natural language claim to verify
+            threshold: Similarity threshold [0,1]
+        
+        Returns:
+            Verification result with status, confidence, reason
+        """
+        data = {
+            "claim": claim,
+            "threshold": threshold
+        }
+        return self._request("POST", "/api/verify", json=data)
+
+    def get_fact_stats(self) -> Dict[str, Any]:
+        """Get statistics about stored facts"""
+        return self._request("GET", "/api/facts/stats")
+
+    # Alias for scp_alg_test compatibility
+    def add_verified_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        sources: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        """
+        Alias for store_fact (scp_alg_test compatible).
+        
+        Args:
+            subject: Subject entity
+            predicate: Relation
+            obj: Object entity
+            sources: List of source dicts with url, trust_score
+        """
+        source = sources[0] if sources else None
+        confidence = source.get("trust_score", 1.0) if source else 1.0
+        return self.store_fact(
+            subject=subject,
+            predicate=predicate,
+            obj=obj,
+            status="verified",
+            confidence=confidence,
+            source=source
+        )
+
+    def check(self, claim: str) -> Dict[str, Any]:
+        """
+        Alias for verify (scp_alg_test compatible).
+        
+        Args:
+            claim: Natural language claim
+        
+        Returns:
+            Verification result
+        """
+        return self.verify(claim)
+
+
+# Alias for scp_alg_test compatibility
+class KSGGroundTruth:
+    """
+    KnowShowGo ground truth adapter for scp_alg_test.
+    
+    Usage:
+        gt = KSGGroundTruth()
+        gt.add_verified_fact("Bell", "invented", "telephone")
+        result = gt.check("Edison invented the telephone")
+    """
+    
+    def __init__(self, url: str = "http://localhost:3000"):
+        self.client = KnowShowGoClient(url)
+    
+    def add_verified_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        sources: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        return self.client.add_verified_fact(subject, predicate, obj, sources)
+    
+    def add_facts_bulk(self, facts: List[tuple]) -> Dict[str, Any]:
+        return self.client.store_facts_bulk(facts)
+    
+    def check(self, claim: str) -> Dict[str, Any]:
+        return self.client.check(claim)
+    
+    def stats(self) -> Dict[str, Any]:
+        return self.client.get_fact_stats()
+    
+    def health_check(self) -> bool:
+        try:
+            result = self.client.health_check()
+            return result.get("status") == "ok"
+        except Exception:
+            return False
+
 
 # Example usage
 if __name__ == "__main__":
