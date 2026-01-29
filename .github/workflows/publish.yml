@@ -1,0 +1,130 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches:
+      - main
+      - release/*
+    paths:
+      - package.json
+      - src/**
+      - .github/workflows/publish.yml
+
+env:
+  NODE_VERSION: 18
+
+jobs:
+  check-version:
+    name: Check Version
+    runs-on: ubuntu-latest
+    outputs:
+      new-version: ${{ steps.version.outputs.new-version }}
+      needs-publish: ${{ steps.version.outputs.needs-publish }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Get versions
+        id: version
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          PUBLISHED=$(npm view @lehelkovach/knowshowgo-client version 2>/dev/null || echo "0.0.0")
+          
+          if [ "$CURRENT" != "$PUBLISHED" ]; then
+            echo "new-version=$CURRENT" >> $GITHUB_OUTPUT
+            echo "needs-publish=true" >> $GITHUB_OUTPUT
+          else
+            echo "needs-publish=false" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    name: Test & Build
+    runs-on: ubuntu-latest
+    needs: check-version
+    if: needs.check-version.outputs.needs-publish == 'true'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      # Install knowshowgo server dependency
+      - name: Install knowshowgo server
+        run: |
+          git clone https://github.com/lehelkovach/knowshowgo.git ../knowshowgo
+          cd ../knowshowgo
+          npm ci
+
+      # Install client
+      - name: Install client
+        run: npm ci
+
+      # Run all tests
+      - name: Run tests
+        run: npm test -- --coverage
+
+      # Run integration tests
+      - name: Run integration tests
+        run: npm run test:integration
+
+      # Build for publishing
+      - name: Build
+        run: npm run build
+
+  publish:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [check-version, test]
+    if: needs.check-version.outputs.needs-publish == 'true'
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: actions/setup-node@v3
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Tag release
+        uses: actions/github-script@v6
+        with:
+          script: |
+            github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'refs/tags/v${{ needs.check-version.outputs.new-version }}',
+              sha: context.sha
+            })
+
+      - name: Create release notes
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.check-version.outputs.new-version }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify knowshowgo
+        run: |
+          echo "Published @lehelkovach/knowshowgo-client@${{ needs.check-version.outputs.new-version }}"
+          echo "Integration tests will verify the workflow on knowshowgo"
