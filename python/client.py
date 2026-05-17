@@ -7,6 +7,7 @@ Provides a Python client for the KnowShowGo REST API.
 import requests
 from typing import Dict, Any, List, Optional
 import json
+from urllib.parse import quote
 
 
 class KnowShowGoClient:
@@ -22,6 +23,11 @@ class KnowShowGoClient:
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
+
+    @staticmethod
+    def _quote(value: str) -> str:
+        """Quote path parameters without allowing slash traversal."""
+        return quote(str(value), safe="")
 
     # ===== Prototype Methods =====
 
@@ -48,7 +54,7 @@ class KnowShowGoClient:
 
     def get_prototype(self, uuid: str) -> Dict[str, Any]:
         """Get a prototype by UUID"""
-        return self._request("GET", f"/api/prototypes/{uuid}")
+        return self._request("GET", f"/api/prototypes/{self._quote(uuid)}")
 
     # ===== Concept Methods =====
 
@@ -71,7 +77,7 @@ class KnowShowGoClient:
 
     def get_concept(self, uuid: str) -> Dict[str, Any]:
         """Get a concept by UUID"""
-        return self._request("GET", f"/api/concepts/{uuid}")
+        return self._request("GET", f"/api/concepts/{self._quote(uuid)}")
 
     def search_concepts(
         self,
@@ -116,7 +122,7 @@ class KnowShowGoClient:
         """Get associations for a concept"""
         result = self._request(
             "GET",
-            f"/api/associations/{uuid}",
+            f"/api/associations/{self._quote(uuid)}",
             params={"direction": direction}
         )
         return result["associations"]
@@ -146,7 +152,7 @@ class KnowShowGoClient:
 
     def update_node_embedding(self, uuid: str) -> None:
         """Update/recompute node embedding"""
-        self._request("POST", f"/api/nodes/{uuid}/embedding")
+        self._request("POST", f"/api/nodes/{self._quote(uuid)}/embedding")
 
     # ===== ORM Methods =====
 
@@ -171,7 +177,7 @@ class KnowShowGoClient:
         data = {"properties": properties}
         return self._request(
             "POST",
-            f"/api/orm/{prototype_name}/create",
+            f"/api/orm/{self._quote(prototype_name)}/create",
             json=data
         )
 
@@ -183,8 +189,289 @@ class KnowShowGoClient:
         """Get a concept instance via ORM"""
         return self._request(
             "GET",
-            f"/api/orm/{prototype_name}/{uuid}"
+            f"/api/orm/{self._quote(prototype_name)}/{self._quote(uuid)}"
         )
+
+    # ===== Topics / Tags =====
+
+    def resolve_tag(
+        self,
+        tag: Optional[str] = None,
+        phrase: Optional[str] = None,
+        language: str = "und",
+        top_k: int = 10,
+        create_if_missing: bool = False
+    ) -> Dict[str, Any]:
+        """Resolve a phrase/tag to canonical tag and topic candidates."""
+        data = {
+            "tag": tag,
+            "phrase": phrase,
+            "language": language,
+            "topK": top_k,
+            "createIfMissing": create_if_missing
+        }
+        return self._request("POST", "/api/topics/resolve-tag", json=data)
+
+    def create_topic(
+        self,
+        label: Optional[str] = None,
+        phrase: Optional[str] = None,
+        summary: str = "",
+        aliases: Optional[List[str]] = None,
+        kind: str = "topic",
+        language: str = "und",
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create or resolve a semantic topic."""
+        data = {
+            "label": label,
+            "phrase": phrase,
+            "summary": summary,
+            "aliases": aliases or [],
+            "kind": kind,
+            "language": language,
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/topics", json=data)
+
+    def get_topic(self, uuid: str) -> Dict[str, Any]:
+        """Get a semantic topic by UUID."""
+        return self._request("GET", f"/api/topics/{self._quote(uuid)}")
+
+    # ===== Object Categories =====
+
+    def create_category(
+        self,
+        name: str,
+        description: str = "",
+        context: str = "object-category",
+        parent_prototype_uuid: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        source: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create or resolve an object category prototype."""
+        data = {
+            "name": name,
+            "description": description,
+            "context": context,
+            "parentPrototypeUuid": parent_prototype_uuid,
+            "parentCategoryName": parent_category_name,
+            "properties": properties or [],
+            "source": source
+        }
+        return self._request("POST", "/api/object-categories", json=data)
+
+    def upsert_category(
+        self,
+        name: str,
+        description: str = "",
+        context: str = "object-category",
+        parent_prototype_uuid: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        source: Optional[str] = None,
+        category_lineage_key: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a versioned object category or update its latest version."""
+        data = {
+            "name": name,
+            "description": description,
+            "context": context,
+            "parentPrototypeUuid": parent_prototype_uuid,
+            "parentCategoryName": parent_category_name,
+            "properties": properties or [],
+            "source": source,
+            "categoryLineageKey": category_lineage_key
+        }
+        return self._request("POST", "/api/object-categories/upsert", json=data)
+
+    def get_category(self, uuid: str) -> Dict[str, Any]:
+        """Get an object category by UUID."""
+        return self._request("GET", f"/api/object-categories/{self._quote(uuid)}")
+
+    # ===== Objects / ConceptObjects =====
+
+    def upsert_object(
+        self,
+        title: str,
+        category_prototype_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        summary: str = "",
+        tags: Optional[List[Any]] = None,
+        default_tag_language: str = "und",
+        properties: Optional[List[Dict[str, Any]]] = None,
+        previous_object_uuid: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        knowledge_kind: str = "personal",
+        sensitivity: str = "normal",
+        privacy_override: Optional[Dict[str, Any]] = None,
+        private: Optional[bool] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a new object version with tags and property assertions."""
+        data = {
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "defaultTagLanguage": default_tag_language,
+            "properties": properties or [],
+            "previousObjectUuid": previous_object_uuid,
+            "objectLineageKey": object_lineage_key,
+            "provenance": provenance,
+            "knowledgeKind": knowledge_kind,
+            "sensitivity": sensitivity,
+            "privacyOverride": privacy_override,
+            "private": private,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id
+        }
+        return self._request("POST", "/api/objects/upsert", json=data)
+
+    def get_object(self, uuid: str) -> Dict[str, Any]:
+        """Get an object with resolved property JSON."""
+        return self._request("GET", f"/api/objects/{self._quote(uuid)}")
+
+    def resolve_object(
+        self,
+        object_lineage_key: Optional[str] = None,
+        category_prototype_uuid: Optional[str] = None,
+        title: Optional[str] = None,
+        private: bool = False,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Resolve the latest object version by lineage key or title."""
+        data = {
+            "objectLineageKey": object_lineage_key,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "private": private,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id
+        }
+        return self._request("POST", "/api/objects/resolve", json=data)
+
+    def suggest(
+        self,
+        text: Optional[str] = None,
+        query: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10,
+        create_tag_if_missing: bool = False
+    ) -> Dict[str, Any]:
+        """Suggest concept objects for smart-tag autocomplete."""
+        data = {
+            "text": text,
+            "query": query,
+            "context": context or {},
+            "topK": top_k,
+            "createTagIfMissing": create_tag_if_missing
+        }
+        return self._request("POST", "/api/concept-objects/suggest", json=data)
+
+    def suggest_concept_objects(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+        """Alias for suggest."""
+        return self.suggest(*args, **kwargs)
+
+    def search_concept_objects(
+        self,
+        query: str,
+        text: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
+    ) -> Dict[str, Any]:
+        """Search concept objects by semantic query or tag."""
+        data = {
+            "query": query,
+            "text": text,
+            "context": context or {},
+            "topK": top_k
+        }
+        return self._request("POST", "/api/concept-objects/search", json=data)
+
+    # ===== Procedures =====
+
+    def create_procedure(
+        self,
+        title: str,
+        description: str = "",
+        steps: Optional[List[Dict[str, Any]]] = None,
+        dependencies: Optional[List[List[int]]] = None,
+        guards: Optional[Dict[str, Any]] = None,
+        extra_props: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a procedure DAG."""
+        data = {
+            "title": title,
+            "description": description,
+            "steps": steps or [],
+            "dependencies": dependencies or [],
+            "guards": guards,
+            "extraProps": extra_props
+        }
+        return self._request("POST", "/api/procedures", json=data)
+
+    def get_procedure(self, uuid: str) -> Dict[str, Any]:
+        """Get a compiled procedure DAG."""
+        return self._request("GET", f"/api/procedures/{self._quote(uuid)}")
+
+    def insert_procedure_step(
+        self,
+        uuid: str,
+        title: str,
+        payload: Optional[Any] = None,
+        tool: Optional[str] = None,
+        guard_text: Optional[str] = None,
+        guard: Optional[Any] = None,
+        on_fail: Optional[Any] = None,
+        after_step_uuid: Optional[str] = None,
+        before_step_uuid: Optional[str] = None,
+        order: Optional[int] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Insert a new step into an existing procedure DAG."""
+        data = {
+            "title": title,
+            "payload": payload,
+            "tool": tool,
+            "guard_text": guard_text,
+            "guard": guard,
+            "on_fail": on_fail,
+            "afterStepUuid": after_step_uuid,
+            "beforeStepUuid": before_step_uuid,
+            "order": order,
+            "provenance": provenance
+        }
+        return self._request("POST", f"/api/procedures/{self._quote(uuid)}/steps", json=data)
+
+    def generalize_procedure(
+        self,
+        uuid: str,
+        title: str,
+        description: str = "",
+        mode: str = "schema_only",
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a generalized reusable procedure variant."""
+        data = {
+            "title": title,
+            "description": description,
+            "mode": mode,
+            "provenance": provenance
+        }
+        return self._request("POST", f"/api/procedures/{self._quote(uuid)}/generalize", json=data)
+
+    def search_procedures(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+        """Search procedure nodes."""
+        result = self._request("POST", "/api/procedures/search", json={"query": query, "topK": top_k})
+        return result["results"]
 
     # ===== Health Check =====
 
@@ -231,7 +518,7 @@ class KnowShowGoClient:
 
     def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
         """Get resolved values for an entity"""
-        result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
+        result = self._request("GET", f"/api/entities/{self._quote(entity_id)}/snapshot")
         return result["snapshot"]
 
     def get_evidence(
@@ -245,7 +532,7 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         result = self._request(
             "GET",
-            f"/api/entities/{entity_id}/evidence",
+            f"/api/entities/{self._quote(entity_id)}/evidence",
             params=params
         )
         return result["evidence"]
