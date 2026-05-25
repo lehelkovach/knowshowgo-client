@@ -7,6 +7,7 @@ Provides a Python client for the KnowShowGo REST API.
 import requests
 from typing import Dict, Any, List, Optional
 import json
+from urllib.parse import quote
 
 
 class KnowShowGoClient:
@@ -22,6 +23,123 @@ class KnowShowGoClient:
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
+
+    @staticmethod
+    def _quote(value: str) -> str:
+        return quote(str(value), safe="")
+
+    # ===== Topic Registry / Phrase Tags =====
+
+    def create_topic(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or resolve a semantic topic."""
+        return self._request("POST", "/api/topics", json=payload)
+
+    def get_topic(self, uuid: str) -> Dict[str, Any]:
+        """Get a semantic topic by UUID."""
+        return self._request("GET", f"/api/topics/{self._quote(uuid)}")
+
+    def resolve_topic_tag(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve a phrase/tag to canonical topic candidates."""
+        return self._request("POST", "/api/topics/resolve-tag", json=payload)
+
+    def resolve_topic(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for resolve_topic_tag."""
+        return self.resolve_topic_tag(payload)
+
+    # ===== Object Categories / Prototypes =====
+
+    def create_category(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create an object category prototype."""
+        return self._request("POST", "/api/object-categories", json=payload)
+
+    def create_object_category(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for create_category."""
+        return self.create_category(payload)
+
+    def upsert_category(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a versioned object category prototype."""
+        return self._request("POST", "/api/object-categories/upsert", json=payload)
+
+    def upsert_object_category(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for upsert_category."""
+        return self.upsert_category(payload)
+
+    def get_category(self, uuid: str) -> Dict[str, Any]:
+        """Get an object category prototype."""
+        return self._request("GET", f"/api/object-categories/{self._quote(uuid)}")
+
+    def get_object_category(self, uuid: str) -> Dict[str, Any]:
+        """Alias for get_category."""
+        return self.get_category(uuid)
+
+    # ===== Semantic Object Instances =====
+
+    def upsert_object(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or version a semantic object."""
+        return self._request("POST", "/api/objects/upsert", json=payload)
+
+    def get_object(
+        self,
+        uuid: str,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Get a semantic object by UUID."""
+        params = {}
+        if owner_user_id:
+            params["ownerUserId"] = owner_user_id
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return self._request("GET", f"/api/objects/{self._quote(uuid)}", params=params)
+
+    def resolve_object(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve the latest object by lineage key or title."""
+        return self._request("POST", "/api/objects/resolve", json=payload)
+
+    def generalize_object(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Generalize a source object into reusable public knowledge."""
+        return self._request("POST", "/api/objects/generalize", json=payload)
+
+    # ===== ConceptObject Suggestion / Search =====
+
+    def suggest_concept_objects(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Suggest ConceptObjects for autocomplete or fuzzy tag lookup."""
+        return self._request("POST", "/api/concept-objects/suggest", json=payload)
+
+    def search_concept_objects(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Search ConceptObjects."""
+        return self._request("POST", "/api/concept-objects/search", json=payload)
+
+    def suggest_prototypes(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Suggest category prototypes for object-like property sets."""
+        return self._request("POST", "/api/concept-objects/suggest-prototypes", json=payload)
+
+    def suggest_concept_object_prototypes(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for suggest_prototypes."""
+        return self.suggest_prototypes(payload)
+
+    # ===== Composite ConceptObjects =====
+
+    def create_composite(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a composite object and component objects."""
+        return self._request("POST", "/api/composites", json=payload)
+
+    def get_composite(self, uuid: str) -> Dict[str, Any]:
+        """Get a composite object."""
+        return self._request("GET", f"/api/composites/{self._quote(uuid)}")
+
+    def update_composite_component(
+        self,
+        composite_uuid: str,
+        component_uuid: str,
+        payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a new component version within a composite."""
+        endpoint = (
+            f"/api/composites/{self._quote(composite_uuid)}"
+            f"/components/{self._quote(component_uuid)}/update"
+        )
+        return self._request("POST", endpoint, json=payload)
 
     # ===== Prototype Methods =====
 
@@ -186,6 +304,91 @@ class KnowShowGoClient:
             f"/api/orm/{prototype_name}/{uuid}"
         )
 
+    # ===== Procedure DAGs =====
+
+    def create_procedure(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a procedure DAG."""
+        return self._request("POST", "/api/procedures", json=payload)
+
+    def get_procedure(self, uuid: str) -> Dict[str, Any]:
+        """Get a compiled procedure DAG."""
+        return self._request("GET", f"/api/procedures/{self._quote(uuid)}")
+
+    def insert_procedure_step(self, uuid: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Insert a step into a procedure DAG."""
+        return self._request("POST", f"/api/procedures/{self._quote(uuid)}/steps", json=payload)
+
+    def generalize_procedure(self, uuid: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a generalized reusable procedure variant."""
+        return self._request("POST", f"/api/procedures/{self._quote(uuid)}/generalize", json=payload)
+
+    def import_procedure_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Import a JSON procedure definition."""
+        return self._request("POST", "/api/procedures/import-json", json=payload)
+
+    def import_json_procedure(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Alias for import_procedure_json."""
+        return self.import_procedure_json(payload)
+
+    def repair_procedure_selector(self, uuid: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Record repaired selector evidence for a procedure step."""
+        return self._request("POST", f"/api/procedures/{self._quote(uuid)}/repair-selector", json=payload)
+
+    def search_procedures(
+        self,
+        query: Any,
+        top_k: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Search procedure DAGs."""
+        payload = query.copy() if isinstance(query, dict) else {"query": query}
+        if top_k is not None:
+            payload["topK"] = top_k
+        return self._request("POST", "/api/procedures/search", json=payload)
+
+    # ===== Logic DAGs =====
+
+    def create_syllogism(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a predicate-logic syllogism DAG."""
+        return self._request("POST", "/api/logic/syllogisms", json=payload)
+
+    def get_syllogism(self, uuid: str) -> Dict[str, Any]:
+        """Get a compiled syllogism DAG."""
+        return self._request("GET", f"/api/logic/syllogisms/{self._quote(uuid)}")
+
+    # ===== App Scenario Primitives =====
+
+    def register_market_match(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Register a market offer/want intent."""
+        return self._request("POST", "/api/market/matches/register", json=payload)
+
+    def search_market_matches(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Search matching market intents."""
+        return self._request("POST", "/api/market/matches/search", json=payload)
+
+    def subscribe_channel(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Subscribe an actor to a concept-tag channel."""
+        return self._request("POST", "/api/channels/subscribe", json=payload)
+
+    def post_channel_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Post a message to a concept-tag channel."""
+        return self._request("POST", "/api/channels/messages", json=payload)
+
+    def get_channel_feed(self, actor_id: str) -> Dict[str, Any]:
+        """Get a channel feed for an actor."""
+        return self._request("GET", "/api/channels/feed", params={"actorId": actor_id})
+
+    def create_repeating_event(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a repeating event object."""
+        return self._request("POST", "/api/events/repeating", json=payload)
+
+    def rate_entity(self, uuid: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """Rate a ConceptObject."""
+        return self._request("POST", f"/api/ratings/{self._quote(uuid)}", json=payload)
+
+    def get_ratings(self, uuid: str) -> Dict[str, Any]:
+        """Get rating summary and evidence for a ConceptObject."""
+        return self._request("GET", f"/api/ratings/{self._quote(uuid)}")
+
     # ===== Health Check =====
 
     def health_check(self) -> Dict[str, Any]:
@@ -200,7 +403,13 @@ class KnowShowGoClient:
         predicate: str,
         obj: Any,
         truth: float = 1.0,
-        source: str = "user"
+        source: str = "user",
+        strength: Optional[float] = None,
+        vote_score: Optional[float] = None,
+        source_rel: Optional[str] = None,
+        status: Optional[str] = None,
+        prev_assertion_id: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Create an assertion"""
         data = {
@@ -208,7 +417,13 @@ class KnowShowGoClient:
             "predicate": predicate,
             "object": obj,
             "truth": truth,
-            "source": source
+            "source": source,
+            "strength": strength,
+            "voteScore": vote_score,
+            "sourceRel": source_rel,
+            "status": status,
+            "prevAssertionId": prev_assertion_id,
+            "provenance": provenance
         }
         return self._request("POST", "/api/assertions", json=data)
 
@@ -229,9 +444,17 @@ class KnowShowGoClient:
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
 
+    def vote_assertion(self, assertion_id: str, delta: float = 1) -> Dict[str, Any]:
+        """Adjust vote score for an assertion."""
+        return self._request(
+            "POST",
+            f"/api/assertions/{self._quote(assertion_id)}/vote",
+            json={"delta": delta}
+        )
+
     def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
         """Get resolved values for an entity"""
-        result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
+        result = self._request("GET", f"/api/entities/{self._quote(entity_id)}/snapshot")
         return result["snapshot"]
 
     def get_evidence(
@@ -245,10 +468,33 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         result = self._request(
             "GET",
-            f"/api/entities/{entity_id}/evidence",
+            f"/api/entities/{self._quote(entity_id)}/evidence",
             params=params
         )
         return result["evidence"]
+
+    def explain_entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Explain resolved values for an entity."""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"/api/entities/{self._quote(entity_id)}/explain",
+            params=params
+        )
+
+    def get_explain(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Alias for explain_entity."""
+        return self.explain_entity(entity_id, predicate)
 
     # ===== Verification / Hallucination Detection =====
 
