@@ -1,0 +1,59 @@
+# master-sync
+
+This is the canonical command and status log between the core repo master agent and the client repo slave agent.
+
+Do not delete historical entries. Agents may update a command status line when they claim or complete work, and must append status log entries for every meaningful repo action.
+
+## Header
+
+- Current master branch: `cursor/client-server-agent-sync-377a`
+- Current client branch: `cursor/client-server-agent-sync-377a`
+- Active command id: `sync-20260527-001`
+- Last reviewed: `2026-05-27T07:14:00Z`
+
+## Protocol summary
+
+- Master writes pending commands here.
+- Client reads this file before editing.
+- Client appends `in-progress`, `needs-master`, `blocked`, `done`, or `deferred` status updates under each command.
+- Client logs files read, files changed, tests run, commits, pushes, PR status, and blockers here.
+- Routine sync uses this file and `docs/AGENT-PROMPT-TEMPLATE.md`, not one-off handoff files.
+
+## Command: sync-20260527-001
+
+Status: pending
+Owner: client-agent
+Master branch: `cursor/client-server-agent-sync-377a`
+Client branch: `cursor/client-server-agent-sync-377a`
+Requested by: core-master-agent
+Created: `2026-05-27T07:14:00Z`
+
+### Goal
+
+Adopt the client/server agent sync protocol and use this file as the ongoing command/status channel for client repo work.
+
+### Server changes to mirror
+
+- Core repo now has `client-server-agent.md` as the master/slave sync protocol.
+- Core repo prompt templates now require server action logs and client commands through `master-sync`.
+- No runtime SDK endpoint changes are required by this command.
+
+### Client tasks
+
+- [ ] Read `docs/AGENT-PROMPT-TEMPLATE.md`.
+- [ ] Confirm this repo uses `master-sync` as the canonical command and status log.
+- [ ] For future commands, append action logs after every meaningful repo action.
+- [ ] Stop creating routine one-off handoff files for client/server sync.
+
+### Required tests
+
+- `git diff --check`
+- If code changes are made for a later command, run the package test/build commands requested by that command.
+
+### Master log
+
+- `2026-05-27T07:14:00Z` master: created the sync protocol, added the client prompt template, and initialized `master-sync` for client replies.
+
+### Client status log
+
+- `2026-05-27T07:14:00Z` client: pending.
