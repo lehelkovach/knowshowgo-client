@@ -4,6 +4,243 @@
  * Mirrors the Python client in `api/python/client.py`.
  */
 
+const KSG_OBJECT_TARGET = Symbol.for('knowshowgo.KSGObject.target');
+const READ_ONLY_OBJECT_MESSAGE =
+  'KSGObject is snapshot-backed and read-only; use $assert() or $associate() for append-only writes';
+
+function pruneUndefined(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined));
+}
+
+function knownEntityId(ref = {}) {
+  return ref.uuid || ref.id || ref.objectUuid || ref.selectedObjectUuid || ref.object?.uuid || null;
+}
+
+function normalizeObjectRef(ref = {}) {
+  if (ref && typeof ref === 'object' && ref[KSG_OBJECT_TARGET]) {
+    return { uuid: ref[KSG_OBJECT_TARGET].$id };
+  }
+  if (typeof ref === 'string') return { uuid: ref };
+  if (!ref || typeof ref !== 'object') return {};
+  const normalized = { ...ref };
+  const uuid = knownEntityId(normalized);
+  if (uuid) normalized.uuid = uuid;
+  return normalized;
+}
+
+function normalizeTextArgs(queryOrOptions = {}, options = {}) {
+  if (typeof queryOrOptions === 'string') {
+    return { ...options, query: queryOrOptions, text: queryOrOptions };
+  }
+  return { ...queryOrOptions, ...options };
+}
+
+function normalizeAssertionArgs(predicateOrAssertion, object, options = {}) {
+  if (predicateOrAssertion && typeof predicateOrAssertion === 'object' && !Array.isArray(predicateOrAssertion)) {
+    return { ...predicateOrAssertion };
+  }
+  return { ...options, predicate: predicateOrAssertion, object };
+}
+
+function normalizeAssociationArgs(targetOrOptions, relationType, options = {}) {
+  const isOptionsObject =
+    targetOrOptions &&
+    typeof targetOrOptions === 'object' &&
+    !targetOrOptions[KSG_OBJECT_TARGET] &&
+    !Array.isArray(targetOrOptions) &&
+    relationType === undefined &&
+    ('target' in targetOrOptions || 'to' in targetOrOptions || 'toConceptUuid' in targetOrOptions);
+
+  if (isOptionsObject) {
+    return { ...targetOrOptions };
+  }
+  return { ...options, target: targetOrOptions, relationType };
+}
+
+async function resolveEntityId(client, ref) {
+  if (ref && typeof ref === 'object' && ref[KSG_OBJECT_TARGET]) {
+    return ref[KSG_OBJECT_TARGET].$entityId();
+  }
+
+  const normalized = normalizeObjectRef(ref);
+  const uuid = knownEntityId(normalized);
+  if (uuid) return uuid;
+
+  const object = new KSGObject(client, normalized);
+  return object.$entityId();
+}
+
+const KSG_OBJECT_PROXY_HANDLER = {
+  get(target, prop, receiver) {
+    if (prop === KSG_OBJECT_TARGET) return target;
+    if (prop === Symbol.toStringTag) return 'KSGObject';
+    if (prop === 'then') return undefined;
+
+    if (Reflect.has(target, prop)) {
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === 'function' ? value.bind(target) : value;
+    }
+
+    if (typeof prop === 'string' && !prop.startsWith('$')) {
+      return target.$get(prop);
+    }
+
+    return undefined;
+  },
+
+  set() {
+    throw new TypeError(READ_ONLY_OBJECT_MESSAGE);
+  },
+
+  deleteProperty() {
+    throw new TypeError(READ_ONLY_OBJECT_MESSAGE);
+  },
+
+  defineProperty() {
+    throw new TypeError(READ_ONLY_OBJECT_MESSAGE);
+  }
+};
+
+export class KSGObject {
+  constructor(client, ref = {}) {
+    if (!client || typeof client._request !== 'function') {
+      throw new TypeError('KSGObject requires a KnowShowGoClient instance');
+    }
+
+    this.$client = client;
+    this.$ref = normalizeObjectRef(ref);
+    this.$snapshotCache = null;
+    this.$resolvedPayload = null;
+
+    const proxy = new Proxy(this, KSG_OBJECT_PROXY_HANDLER);
+    this.$proxy = proxy;
+    return proxy;
+  }
+
+  get $id() {
+    return knownEntityId(this.$ref);
+  }
+
+  get $uuid() {
+    return this.$id;
+  }
+
+  get $resolved() {
+    return this.$resolvedPayload;
+  }
+
+  async $entityId() {
+    const existing = this.$id;
+    if (existing) return existing;
+
+    await this.$resolve();
+    const resolved = this.$id;
+    if (!resolved) throw new Error('KSGObject could not resolve an entity id');
+    return resolved;
+  }
+
+  async $resolve(options = {}) {
+    const nextRef = { ...this.$ref, ...normalizeObjectRef(options) };
+    if (!nextRef.objectLineageKey && !nextRef.title) {
+      this.$ref = nextRef;
+      if (!this.$id) throw new Error('$resolve requires an id, title, or objectLineageKey');
+      return this.$proxy;
+    }
+
+    const payload = await this.$client.resolveObject({
+      objectLineageKey: nextRef.objectLineageKey,
+      categoryPrototypeUuid: nextRef.categoryPrototypeUuid,
+      title: nextRef.title,
+      private: nextRef.private,
+      ownerUserId: nextRef.ownerUserId,
+      agentSessionId: nextRef.agentSessionId
+    });
+
+    this.$resolvedPayload = payload;
+    this.$ref = normalizeObjectRef({ ...nextRef, ...payload });
+    this.$snapshotCache = payload.snapshot || null;
+    return this.$proxy;
+  }
+
+  async $snapshot({ refresh = false } = {}) {
+    if (!this.$snapshotCache || refresh) {
+      this.$snapshotCache = await this.$client.snapshot(await this.$entityId());
+    }
+    return this.$snapshotCache;
+  }
+
+  async $get(property, options = {}) {
+    const snapshot = await this.$snapshot(options);
+    return snapshot?.[property];
+  }
+
+  async $assert(predicateOrAssertion, object, options = {}) {
+    const assertion = normalizeAssertionArgs(predicateOrAssertion, object, options);
+    const subject = await this.$entityId();
+    if (assertion.subject && assertion.subject !== subject) {
+      throw new Error('$assert subject must match the KSGObject entity id');
+    }
+    if (!assertion.predicate) throw new Error('$assert requires a predicate');
+    if (assertion.object === undefined) throw new Error('$assert requires an object value');
+
+    const result = await this.$client.createAssertion({
+      truth: 1.0,
+      source: 'client',
+      ...assertion,
+      subject
+    });
+    this.$snapshotCache = null;
+    return result;
+  }
+
+  async $associate(targetOrOptions, relationType = undefined, options = {}) {
+    const association = normalizeAssociationArgs(targetOrOptions, relationType, options);
+    const target = association.target ?? association.toConceptUuid ?? association.to;
+    if (!target) throw new Error('$associate requires a target object or entity id');
+
+    return this.$client.addAssociation({
+      fromConceptUuid: await this.$entityId(),
+      toConceptUuid: await resolveEntityId(this.$client, target),
+      relationType: association.relationType || association.relation_type || 'related_to',
+      strength: association.strength ?? 1.0
+    });
+  }
+
+  async $explain(predicate = null) {
+    return this.$client.explain(await this.$entityId(), { predicate });
+  }
+
+  async $query(filters = {}) {
+    return this.$client.getAssertions({
+      ...filters,
+      subject: await this.$entityId()
+    });
+  }
+
+  async $match(queryOrOptions = {}, options = {}) {
+    const args = normalizeTextArgs(queryOrOptions, options);
+    return this.$client.suggest({
+      ...args,
+      context: {
+        ...(args.context || {}),
+        subject: await this.$entityId()
+      }
+    });
+  }
+
+  async $similar(queryOrOptions = {}, options = {}) {
+    const args = normalizeTextArgs(queryOrOptions, options);
+    const query = args.query || args.text || (await this.$get('name')) || (await this.$get('title')) || (await this.$entityId());
+    return this.$client.searchConceptObjects(query, {
+      ...args,
+      context: {
+        ...(args.context || {}),
+        subject: await this.$entityId()
+      }
+    });
+  }
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -13,6 +250,39 @@ export class KnowShowGoClient {
   constructor({ baseUrl = 'http://localhost:3000', fetchImpl } = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.fetch = fetchImpl ?? fetch;
+  }
+
+  object(ref = {}) {
+    return new KSGObject(this, ref);
+  }
+
+  ksgObject(ref = {}) {
+    return this.object(ref);
+  }
+
+  $object(ref = {}) {
+    return this.object(ref);
+  }
+
+  async $resolve(ref = {}) {
+    const object = this.object(ref);
+    return object.$resolve();
+  }
+
+  $match(queryOrOptions = {}, options = {}) {
+    return this.suggest(normalizeTextArgs(queryOrOptions, options));
+  }
+
+  $query(queryOrOptions = {}, options = {}) {
+    const args = normalizeTextArgs(queryOrOptions, options);
+    if (args.subject || args.predicate || args.object !== undefined) {
+      return this.getAssertions(args);
+    }
+    return this.searchConceptObjects(args.query || args.text, args);
+  }
+
+  $similar(queryOrOptions = {}, options = {}) {
+    return this.$query(queryOrOptions, options);
   }
 
   async _request(method, endpoint, { json, params } = {}) {
@@ -100,11 +370,20 @@ export class KnowShowGoClient {
 
   // ===== Associations =====
   add_association({ from_concept_uuid, to_concept_uuid, relation_type, strength = 1.0 }) {
+    return this.addAssociation({
+      fromConceptUuid: from_concept_uuid,
+      toConceptUuid: to_concept_uuid,
+      relationType: relation_type,
+      strength
+    });
+  }
+
+  addAssociation({ fromConceptUuid, toConceptUuid, relationType, strength = 1.0 }) {
     return this._request('POST', '/api/associations', {
       json: {
-        fromConceptUuid: from_concept_uuid,
-        toConceptUuid: to_concept_uuid,
-        relationType: relation_type,
+        fromConceptUuid,
+        toConceptUuid,
+        relationType,
         strength
       }
     });
@@ -357,6 +636,60 @@ export class KnowShowGoClient {
 
   get_evidence(entityId, predicate = null) {
     return this.evidence(entityId, { predicate });
+  }
+
+  explain(entityId, { predicate = null } = {}) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entityId)}/explain`, {
+      params: { predicate }
+    });
+  }
+
+  get_explain(entityId, predicate = null) {
+    return this.explain(entityId, { predicate });
+  }
+
+  createAssertion({
+    subject,
+    predicate,
+    object,
+    truth = 1.0,
+    source = 'user',
+    strength = undefined,
+    voteScore = undefined,
+    sourceRel = undefined,
+    status = undefined,
+    prevAssertionId = undefined,
+    provenance = undefined
+  } = {}) {
+    return this._request('POST', '/api/assertions', {
+      json: pruneUndefined({
+        subject,
+        predicate,
+        object,
+        truth,
+        source,
+        strength,
+        voteScore,
+        sourceRel,
+        status,
+        prevAssertionId,
+        provenance
+      })
+    });
+  }
+
+  create_assertion({ subject, predicate, object, truth = 1.0, source = 'user', ...rest } = {}) {
+    return this.createAssertion({ subject, predicate, object, truth, source, ...rest });
+  }
+
+  getAssertions({ subject = null, predicate = null, object = undefined } = {}) {
+    return this._request('GET', '/api/assertions', {
+      params: { subject, predicate, object }
+    }).then(r => r.assertions);
+  }
+
+  get_assertions(options = {}) {
+    return this.getAssertions(options);
   }
 
   // ===== Procedures =====

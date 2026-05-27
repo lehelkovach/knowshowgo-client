@@ -1,2 +1,2 @@
-export { KnowShowGoClient } from '../js/client.js';
+export { KSGObject, KnowShowGoClient } from '../js/client.js';
 
