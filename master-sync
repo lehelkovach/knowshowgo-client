@@ -42,6 +42,8 @@ Refactor the client SDK API/ORM around the best ideas from the legacy OSL embedd
 - New core exports: `WorkingMemoryGraph`, `LongTermReplicator`.
 - Node/ConceptObject metadata now carries `prototypeIds`, `payload`, `embeddingRef`, `weight`, and `contextIds`.
 - KSG core now has `accessAssociation()` and `flushWorkingMemory()` for reinforced working-memory access.
+- KSG core now has `assignPrototypeKind()` for fuzzy duck-typed prototype membership.
+- KSG core exports `CachedGraphMemory` for read-through/write-behind memory caching around long-term storage.
 - Seed ontology now includes legacy/core prototypes such as `Association`, `User`, `Context`, `Undefined`, `Set`, and `Quantity`, in addition to `ConceptObject`, `Prototype`, `Concept`, `DAG`, `Procedure`, `Word`, `Tag`, and `Language`.
 
 ### Client tasks
@@ -51,6 +53,8 @@ Refactor the client SDK API/ORM around the best ideas from the legacy OSL embedd
 - [ ] Preserve the clean ORM-like feel of legacy `api.py`: `ensureCorePrototypes`, `createPrototypeVersion`, `createNode`, `addAssociation`, `addObjectProperty`, `addTag`.
 - [ ] Map legacy names to current server terms: `Node` -> `ConceptObject`, `Prototype` -> prototype ConceptObject, `Association` -> weighted edge.
 - [ ] Add typed result helpers where useful for `prototypeIds`, `payload`, `contextIds`, `embeddingRef`, `weight`, and version fields.
+- [ ] Add client coverage for dynamic `kind` / `conceptKind` prototype membership from fuzzy duck typing.
+- [ ] Document optional local cache/write-behind usage if the client package exposes core classes directly.
 - [ ] Add tests that call a running/current KSG API or mock fetch layer for ontology seed, sub-prototype creation, ConceptObject versioning, object upsert/resolve, and association access.
 - [ ] Update README/package examples for MVP 1 client usage.
 
