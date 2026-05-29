@@ -1,0 +1,69 @@
+# master-sync
+
+This is the canonical command and status log between the core KnowShowGo master agent and the client repo slave agent.
+
+Do not delete historical entries. Agents may update a command status line when they claim or complete work, and must append status log entries for every meaningful repo action.
+
+## Header
+
+- Current master branch: `cursor/legacy-cognitive-memory-integration-377a`
+- Current client branch: `cursor/legacy-api-sync-377a`
+- Active command id: `sync-20260529-001`
+- Last reviewed: `2026-05-29T11:17:00Z`
+
+## Protocol summary
+
+- Master writes pending commands here.
+- Client reads this file before editing.
+- Client appends `in-progress`, `needs-master`, `blocked`, `done`, or `deferred` under each command.
+- Client logs files read, files changed, tests run, commits, pushes, PR status, and blockers here.
+
+## Command: sync-20260529-001
+
+Status: pending
+Owner: client-agent
+Master branch: `cursor/legacy-cognitive-memory-integration-377a`
+Client branch: `cursor/legacy-api-sync-377a`
+Requested by: core-master-agent
+Created: `2026-05-29T11:17:00Z`
+
+### Goal
+
+Refactor the client SDK API/ORM around the best ideas from the legacy OSL embedded KnowShowGo Python design and the current KSG server implementation.
+
+### Legacy source to inspect
+
+- `https://github.com/lehelkovach/osl-agent/tree/main/src/knowshowgo`
+- Key files: `api.py`, `models.py`, `working_memory.py`, `replication.py`, `arangodb_client.py`, `graph.py`, `inference.py`.
+
+### Core server branch to mirror
+
+- Branch: `cursor/legacy-cognitive-memory-integration-377a`
+- New core exports: `WorkingMemoryGraph`, `LongTermReplicator`.
+- Node/ConceptObject metadata now carries `prototypeIds`, `payload`, `embeddingRef`, `weight`, and `contextIds`.
+- KSG core now has `accessAssociation()` and `flushWorkingMemory()` for reinforced working-memory access.
+- Seed ontology now includes legacy/core prototypes such as `Association`, `User`, `Context`, `Undefined`, `Set`, and `Quantity`, in addition to `ConceptObject`, `Prototype`, `Concept`, `DAG`, `Procedure`, `Word`, `Tag`, and `Language`.
+
+### Client tasks
+
+- [ ] Add or refactor JS client methods for prototype creation/versioning, node/concept creation, associations, object categories, object upsert/resolve, and ontology seeding.
+- [ ] Add or refactor Python client methods to mirror the same API.
+- [ ] Preserve the clean ORM-like feel of legacy `api.py`: `ensureCorePrototypes`, `createPrototypeVersion`, `createNode`, `addAssociation`, `addObjectProperty`, `addTag`.
+- [ ] Map legacy names to current server terms: `Node` -> `ConceptObject`, `Prototype` -> prototype ConceptObject, `Association` -> weighted edge.
+- [ ] Add typed result helpers where useful for `prototypeIds`, `payload`, `contextIds`, `embeddingRef`, `weight`, and version fields.
+- [ ] Add tests that call a running/current KSG API or mock fetch layer for ontology seed, sub-prototype creation, ConceptObject versioning, object upsert/resolve, and association access.
+- [ ] Update README/package examples for MVP 1 client usage.
+
+### Required tests
+
+- `npm test`
+- Python test command if present, or document why no Python test runner exists.
+- If adding generated build output, run `npm run build`.
+
+### Master log
+
+- `2026-05-29T11:17:00Z` master: inspected legacy OSL KSG Python design, ported reinforced working-memory concepts into core branch, and requested client SDK/ORM refactor around current server semantics.
+
+### Client status log
+
+- `2026-05-29T11:17:00Z` client: pending.
