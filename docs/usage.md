@@ -33,6 +33,72 @@ KSGClient.prototype.withTrace = function withTrace(label) {
 client.withTrace("agent-run");
 ```
 
+## Fuzzy Duck Typing Runtime
+
+Use `createNoShogoRuntime()` when you want NoShogo concepts to act like live JavaScript
+objects whose prototype is selected by semantic matching.
+
+```js
+import { createNoShogoRuntime } from "<package-name>";
+
+const runtime = createNoShogoRuntime({ client });
+
+runtime.definePrototype("Person", {
+  id: "prototype-person",
+  match: { has: ["name", "email"] },
+  methods: {
+    displayName() {
+      return `${this.name} <${this.email}>`;
+    }
+  }
+});
+
+runtime.definePrototype("Document", {
+  id: "prototype-document",
+  match: { has: ["title", "body"] },
+  methods: {
+    summary() {
+      return this.title;
+    }
+  }
+});
+
+const concept = runtime.hydrateConcept({
+  uuid: "concept-uuid",
+  jsonObj: {
+    name: "Ada",
+    email: "ada@example.test",
+    title: "Research notes"
+  }
+});
+
+await concept.rematch({ remote: false });
+
+concept.kind;          // "Person"
+concept.displayName(); // "Ada <ada@example.test>"
+concept.matches;       // ranked prototype matches
+```
+
+Winner-take-all rematching sets the primary JavaScript prototype. Alternate matched
+prototypes can be accessed as cast views:
+
+```js
+const documentView = concept.as("Document");
+documentView.summary();
+```
+
+Persist the selected kind and ranked matches back through the configured client:
+
+```js
+await concept.save();
+// or rematch and save together:
+await concept.rematch({ persist: true });
+```
+
+The runtime stores `kind`, `prototypeId`, `matches`, and `metadata` as concept metadata.
+`toPlainConcept(concept)` serializes only the own concept properties, not prototype methods
+or runtime metadata.
+
 ## Prototypes
 
 ```js

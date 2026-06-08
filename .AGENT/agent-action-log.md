@@ -4,6 +4,34 @@ Append meaningful agent activity here in reverse chronological order. Keep entri
 and factual so future agents and maintainers can understand what changed, how it was
 verified, and what remains.
 
+## 2026-06-08 - Add fuzzy duck typing runtime layer
+
+1) Timestamp
+	a) 2026-06-08 22:27 UTC
+2) Agent
+	a) Cursor cloud coding agent
+3) Role
+	a) Master repo agent
+4) Branch
+	a) cursor/agent-persistence-release-docs-bedf
+5) Scope
+	a) NoShogo runtime object layer, docs, and tests
+6) Actions
+	a) Added a vanilla JavaScript runtime layer with a root object prototype, local semantic
+	   prototype registry, concept hydration, WTA rematching, polymorphic casts, and
+	   persistence of selected kind plus ranked prototype matches.
+	b) Added guarded plain-object serialization so runtime metadata and prototype methods do
+	   not pollute concept property payloads.
+	c) Documented fuzzy duck typing as runtime prototype selection from semantic prototype
+	   matches.
+7) Verification
+	a) Ran `npm test`, `npm run test:integration`, `npm run build`, `npm pack --dry-run`,
+	   `python3 .AGENT/tests/agent_architecture_smoke.py`, and `git diff --check`; all
+	   passed. The live integration test skipped because no KSG service URL was configured.
+8) Follow-ups
+	a) Wire remote rematching to an authoritative service match response once the service
+	   publishes a stable schema.
+
 ## 2026-06-08 - Refactor SDK to vanilla prototype-based JavaScript
 
 1) Timestamp

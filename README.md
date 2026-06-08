@@ -69,6 +69,47 @@ KSGClient.prototype.createLocalPrototype = function createLocalPrototype(shape) 
 };
 ```
 
+## Fuzzy Duck Typing Runtime
+
+The package also exports a small NoShogo runtime layer for the prototype-OOP model:
+
+```js
+import { createNoShogoRuntime } from "<package-name>";
+
+const runtime = createNoShogoRuntime({ client });
+
+runtime.definePrototype("Person", {
+  match: { has: ["name", "email"] },
+  methods: {
+    displayName() {
+      return `${this.name} <${this.email}>`;
+    }
+  }
+});
+
+const concept = runtime.hydrateConcept({
+  uuid: "concept-uuid",
+  jsonObj: { name: "Ada", email: "ada@example.test" }
+});
+
+await concept.rematch({ remote: false, persist: true });
+
+concept.kind;          // "Person"
+concept.displayName(); // dynamic method from the matched JS prototype
+```
+
+In this model, fuzzy duck typing means:
+
+1. A concept starts as a plain JavaScript object.
+2. Its properties are scored against known prototypes.
+3. The best match becomes the primary `kind`.
+4. The object receives that prototype through JavaScript's runtime prototype chain.
+5. Other matched prototypes remain available through explicit polymorphic casts:
+
+```js
+const asDocument = concept.as("Document");
+```
+
 ## Core Interface Coverage
 
 The client includes helpers for:
