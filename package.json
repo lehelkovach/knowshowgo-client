@@ -4,7 +4,6 @@
   "description": "JavaScript and Python client SDKs for KSG semantic memory engine",
   "type": "module",
   "main": "src/index.js",
-  "types": "src/types/index.d.ts",
   "exports": {
     ".": {
       "import": "./src/index.js",

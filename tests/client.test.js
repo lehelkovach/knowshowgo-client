@@ -74,6 +74,15 @@ test("creates, fetches, upserts, and lists prototypes", async () => {
   assert.equal(calls[0].headers.authorization, "Bearer test-token");
 });
 
+test("exposes client behavior through the JavaScript prototype chain", () => {
+  const { client } = makeClient();
+
+  assert.equal(Object.hasOwn(client, "createPrototype"), false);
+  assert.equal(KnowShowGoClient.prototype.createPrototype, client.createPrototype); // pragma: allowlist secret
+  assert.equal(KnowShowGoClient.prototype.fuzzyDuckTypeConcept, client.fuzzyDuckTypeConcept); // pragma: allowlist secret
+  assert.equal(typeof client.createPrototype, "function");
+});
+
 test("creates, upserts, queries, and searches concepts and nodes", async () => {
   const { client, calls } = makeClient({ uuid: "concept-1", results: [{ uuid: "concept-1" }] });
 

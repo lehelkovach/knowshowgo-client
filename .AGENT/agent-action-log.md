@@ -4,6 +4,35 @@ Append meaningful agent activity here in reverse chronological order. Keep entri
 and factual so future agents and maintainers can understand what changed, how it was
 verified, and what remains.
 
+## 2026-06-08 - Refactor SDK to vanilla prototype-based JavaScript
+
+1) Timestamp
+	a) 2026-06-08 22:15 UTC
+2) Agent
+	a) Cursor cloud coding agent
+3) Role
+	a) Master repo agent
+4) Branch
+	a) cursor/agent-persistence-release-docs-bedf
+5) Scope
+	a) JavaScript SDK implementation, package metadata, docs, and contract tests
+6) Actions
+	a) Replaced ES class syntax with explicit constructor functions and runtime prototype
+	   method assignments so the SDK uses vanilla JavaScript prototype mechanics.
+	b) Removed the TypeScript declaration file and `package.json` `types` field so the npm
+	   package no longer presents a TypeScript API surface.
+	c) Updated README and usage docs to explain that concept/prototype payloads stay
+	   typeless plain data and matching remains a service/runtime concern.
+	d) Added a contract test proving public client behavior is exposed through the
+	   JavaScript prototype chain.
+7) Verification
+	a) Ran `npm test`, `npm run test:integration`, `npm run build`, `npm pack --dry-run`,
+	   `python3 .AGENT/tests/agent_architecture_smoke.py`, and `git diff --check`; all
+	   passed. The live integration test skipped because no KSG service URL was configured.
+8) Follow-ups
+	a) Keep future client-side helpers focused on typeless payload construction and avoid
+	   TypeScript schema enforcement unless explicitly requested.
+
 ## 2026-06-08 - Import agent boilerplate and prepare SDK release plan
 
 1) Timestamp

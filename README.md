@@ -5,6 +5,10 @@ JavaScript and Python client SDKs for the KSG semantic memory engine.
 This package currently publishes the JavaScript SDK to npm and keeps the Python client in
 `python/client.py` as a source reference.
 
+The JavaScript SDK is intentionally vanilla JavaScript. It does not ship TypeScript
+declarations and does not validate concept/prototype shapes in the client. Concept data stays
+typeless and prototype matching remains a service/runtime concern.
+
 ## Install
 
 ```sh
@@ -54,6 +58,16 @@ const matches = await client.searchConcepts("mathematician", {
 
 The SDK keeps the existing snake_case method names and also exposes camelCase aliases for
 JavaScript callers.
+
+Internally the SDK uses constructor functions and `KSGClient.prototype`-style method
+dispatch, so advanced users can extend or override behavior with normal JavaScript prototype
+mechanics:
+
+```js
+KSGClient.prototype.createLocalPrototype = function createLocalPrototype(shape) {
+  return Object.assign(Object.create(shape), { createdAt: new Date().toISOString() });
+};
+```
 
 ## Core Interface Coverage
 

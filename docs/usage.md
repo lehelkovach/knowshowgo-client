@@ -15,6 +15,24 @@ const client = new KSGClient({
 If `baseUrl` is omitted, the client reads `KSG_BASE_URL` and then falls back to
 `http://localhost:8787` for local development.
 
+## Prototype-Based JavaScript Design
+
+The SDK is written as vanilla JavaScript. It exports a constructor function with methods on
+the runtime prototype chain rather than a TypeScript API model. The client does not coerce or
+type-check concept/prototype objects; those payloads remain plain data for service-side
+matching.
+
+```js
+const client = new KSGClient();
+
+KSGClient.prototype.withTrace = function withTrace(label) {
+  this.headers["x-ksg-trace"] = label;
+  return this;
+};
+
+client.withTrace("agent-run");
+```
+
 ## Prototypes
 
 ```js
