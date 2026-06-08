@@ -3,11 +3,16 @@ name: Publish to NPM
 on:
   push:
     branches:
+      - dev
       - main
       - release/*
     paths:
       - package.json
       - src/**
+      - tests/**
+      - README.md
+      - LICENSE
+      - .npmignore
       - .github/workflows/publish.yml
 
 env:
@@ -18,24 +23,38 @@ jobs:
     name: Check Version
     runs-on: ubuntu-latest
     outputs:
-      new-version: ${{ steps.version.outputs.new-version }}
+      publish-version: ${{ steps.version.outputs.publish-version }}
+      npm-tag: ${{ steps.version.outputs.npm-tag }}
       needs-publish: ${{ steps.version.outputs.needs-publish }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Get versions
         id: version
         run: |
+          PACKAGE=$(jq -r '.name' package.json)
           CURRENT=$(jq -r '.version' package.json)
-          PUBLISHED=$(npm view @lehelkovach/knowshowgo-client version 2>/dev/null || echo "0.0.0")
-          
+
+          if [ "${GITHUB_REF_NAME}" = "dev" ]; then
+            DEV_VERSION="${CURRENT}-dev.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"
+            echo "publish-version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+            echo "npm-tag=dev" >> "$GITHUB_OUTPUT"
+            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          PUBLISHED=$(npm view "$PACKAGE" version 2>/dev/null || echo "0.0.0")
+
           if [ "$CURRENT" != "$PUBLISHED" ]; then
-            echo "new-version=$CURRENT" >> $GITHUB_OUTPUT
-            echo "needs-publish=true" >> $GITHUB_OUTPUT
+            echo "publish-version=$CURRENT" >> "$GITHUB_OUTPUT"
+            echo "npm-tag=latest" >> "$GITHUB_OUTPUT"
+            echo "needs-publish=true" >> "$GITHUB_OUTPUT"
           else
-            echo "needs-publish=false" >> $GITHUB_OUTPUT
+            echo "publish-version=$CURRENT" >> "$GITHUB_OUTPUT"
+            echo "npm-tag=latest" >> "$GITHUB_OUTPUT"
+            echo "needs-publish=false" >> "$GITHUB_OUTPUT"
           fi
 
   test:
@@ -45,23 +64,20 @@ jobs:
     if: needs.check-version.outputs.needs-publish == 'true'
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
 
       - name: Install client
-        run: npm ci
+        run: npm install
 
       - name: Run tests
-        run: npm test -- --coverage
-        continue-on-error: true
+        run: npm test
 
       - name: Build
         run: npm run build
-        continue-on-error: true
 
   publish:
     name: Publish to NPM
@@ -74,31 +90,42 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
           registry-url: https://registry.npmjs.org/
 
       - name: Install
-        run: npm ci
+        run: npm install
+
+      - name: Set publish version
+        run: |
+          CURRENT=$(jq -r '.version' package.json)
+          PUBLISH_VERSION="${{ needs.check-version.outputs.publish-version }}"
+          if [ "$CURRENT" != "$PUBLISH_VERSION" ]; then
+            npm version "$PUBLISH_VERSION" --no-git-tag-version --allow-same-version
+          fi
+
+      - name: Test
+        run: npm test
 
       - name: Build
         run: npm run build
 
       - name: Publish to npm
-        run: npm publish
+        run: npm publish --tag "${{ needs.check-version.outputs.npm-tag }}"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Create release
-        uses: actions/github-script@v6
+      - name: Create release tag
+        if: needs.check-version.outputs.npm-tag == 'latest'
+        uses: actions/github-script@v7
         with:
           script: |
             const version = require('./package.json').version;
-            github.rest.git.createRef({
+            await github.rest.git.createRef({
               owner: context.repo.owner,
               repo: context.repo.repo,
               ref: `refs/tags/v${version}`,
@@ -107,4 +134,4 @@ jobs:
 
       - name: Notify completion
         run: |
-          echo "Published @lehelkovach/knowshowgo-client@${{ needs.check-version.outputs.new-version }}"
+          echo "Published $(jq -r '.name' package.json)@${{ needs.check-version.outputs.publish-version }} with tag ${{ needs.check-version.outputs.npm-tag }}"

@@ -1,7 +1,8 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
   "version": "0.2.1",
-  "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
+  "description": "JavaScript and Python client SDKs for KSG semantic memory engine",
+  "type": "module",
   "main": "src/index.js",
   "types": "src/types/index.d.ts",
   "exports": {
@@ -27,23 +28,16 @@
   ],
   "author": "Leh Kovach",
   "license": "MIT",
-  "peerDependencies": {
-    "knowshowgo": "^0.2.1"
-  },
-  "dependencies": {
-    "node-fetch": "^2.6.0"
-  },
   "devDependencies": {
-    "jest": "^29.0.0",
-    "esbuild": "^0.17.0"
+    "esbuild": "^0.28.0"
   },
   "scripts": {
-    "test": "jest",
-    "test:integration": "jest --testPathPattern=integration",
-    "test:coverage": "jest --coverage",
-    "build": "esbuild src/index.js --bundle --platform=node --outfile=dist/index.cjs",
+    "test": "node --test tests/*.test.js",
+    "test:integration": "node --test tests/integration/*.test.js",
+    "test:coverage": "node --test --experimental-test-coverage tests/*.test.js",
+    "build": "esbuild src/index.js --bundle --platform=node --format=cjs --outfile=dist/index.cjs",
     "prepack": "npm run build && npm run test",
-    "prepublishOnly": "npm run test && npm run test:integration"
+    "prepublishOnly": "npm run test"
   },
   "files": [
     "src",

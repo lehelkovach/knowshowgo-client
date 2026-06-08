@@ -1,0 +1,8 @@
+node_modules/
+dist/
+package-lock.json
+coverage/
+*.log
+.DS_Store
+.env
+.env.*
