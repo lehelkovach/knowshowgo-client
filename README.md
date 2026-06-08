@@ -110,6 +110,11 @@ In this model, fuzzy duck typing means:
 const asDocument = concept.as("Document");
 ```
 
+When top matches tie, the MVP keeps ambiguity metadata on the concept. The default policy
+still collapses deterministically to one operational kind, while `collapsePolicy: "defer"`
+can preserve the root object kind until later context resolves the tie. Context preferences
+or prototype weights can bias a later collapse.
+
 ## Core Interface Coverage
 
 The client includes helpers for:

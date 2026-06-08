@@ -24,13 +24,19 @@ verified, and what remains.
 	   not pollute concept property payloads.
 	c) Documented fuzzy duck typing as runtime prototype selection from semantic prototype
 	   matches.
+	d) Added normalized match strengths, ambiguity metadata, deterministic WTA collapse,
+	   deferred collapse policy, context-biased collapse, and persistence of ambiguity and
+	   collapse metadata.
+	e) Attempted to inspect the private KSG repo at the exact owner/name supplied by
+	   the maintainer, but this agent's GitHub integration token received Repository Not
+	   Found/Not Accessible responses.
 7) Verification
 	a) Ran `npm test`, `npm run test:integration`, `npm run build`, `npm pack --dry-run`,
 	   `python3 .AGENT/tests/agent_architecture_smoke.py`, and `git diff --check`; all
 	   passed. The live integration test skipped because no KSG service URL was configured.
 8) Follow-ups
-	a) Wire remote rematching to an authoritative service match response once the service
-	   publishes a stable schema.
+	a) Wire remote rematching to an authoritative private KSG service match response
+	   once this agent has access to the private repo or a copied interface/spec.
 
 ## 2026-06-08 - Refactor SDK to vanilla prototype-based JavaScript
 

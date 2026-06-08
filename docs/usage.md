@@ -99,6 +99,66 @@ The runtime stores `kind`, `prototypeId`, `matches`, and `metadata` as concept m
 `toPlainConcept(concept)` serializes only the own concept properties, not prototype methods
 or runtime metadata.
 
+### Ambiguity and Collapse Policy
+
+Prototype matches are stored as a ranked set with normalized `strength` values. If two
+prototypes match equally, the MVP keeps the ambiguity visible while still allowing one
+operational kind when needed.
+
+Default behavior is deterministic winner-take-all:
+
+```js
+await concept.rematch({ remote: false });
+
+concept.kind;                // selected operational kind
+concept.matches;             // all ranked matches with normalized strengths
+concept.ambiguity.ambiguous; // true when the top set tied
+concept.collapse;            // selected winner metadata
+```
+
+If context should decide later, defer collapse:
+
+```js
+const runtime = createNoShogoRuntime({ collapsePolicy: "defer" });
+await concept.rematch({ remote: false });
+
+concept.kind;      // remains "Object"
+concept.collapse;  // null
+concept.ambiguity; // tied candidates are retained
+```
+
+Use context to bias an otherwise ambiguous match:
+
+```js
+await concept.rematch({
+  remote: false,
+  collapsePolicy: "wta",
+  context: {
+    prefer: "Agent",
+    prototypeWeights: {
+      Agent: 0.25
+    }
+  }
+});
+```
+
+The resolution metadata is persisted with the concept payload when `save()` or
+`rematch({ persist: true })` is used.
+
+### Current Private KSG Alignment
+
+The current authoritative source repo was identified as private. This agent attempted to
+inspect the exact owner/name supplied by the maintainer, but the current GitHub integration
+token received Repository Not Found/Not Accessible responses. The MVP runtime is therefore
+aligned to the described behavior and should be reconciled against the private service source
+or interface spec when access is available:
+
+1. Concept instances are plain JavaScript objects.
+2. Semantic prototypes provide match features plus runtime methods.
+3. Fuzzy duck typing scores concept properties against prototypes.
+4. The runtime can collapse to one operational kind or defer ambiguous ties.
+5. The database-facing payload carries kind, match set, ambiguity, and collapse metadata.
+
 ## Prototypes
 
 ```js

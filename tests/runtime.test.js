@@ -107,6 +107,97 @@ test("persists kind and match metadata through the configured client", async () 
   assert.deepEqual(calls[0].payload.jsonObj.name, "Ada");
 });
 
+test("records ambiguity when equal matches collapse by deterministic WTA", async () => {
+  const runtime = createNoShogoRuntime();
+  runtime.definePrototype("Person", {
+    match: { has: ["name"] },
+    methods: { label() { return `person:${this.name}`; } }
+  });
+  runtime.definePrototype("Agent", {
+    match: { has: ["name"] },
+    methods: { label() { return `agent:${this.name}`; } }
+  });
+
+  const concept = runtime.hydrateConcept({ jsonObj: { name: "Ada" } });
+  await concept.rematch({ remote: false });
+
+  assert.equal(concept.kind, "Person");
+  assert.equal(concept.label(), "person:Ada");
+  assert.equal(concept.ambiguity.ambiguous, true);
+  assert.equal(concept.ambiguity.state, "collapsed");
+  assert.equal(concept.ambiguity.candidates.length, 2);
+  assert.equal(concept.matches[0].strength, 0.5);
+  assert.equal(concept.matches[1].strength, 0.5);
+  assert.equal(concept.collapse.kind, "Person");
+});
+
+test("can defer collapse when ambiguity should be resolved by later context", async () => {
+  const runtime = createNoShogoRuntime({ collapsePolicy: "defer" });
+  runtime.definePrototype("Person", {
+    match: { has: ["name"] },
+    methods: { displayName() { return this.name; } }
+  });
+  runtime.definePrototype("Agent", {
+    match: { has: ["name"] },
+    methods: { callsign() { return this.name.toUpperCase(); } }
+  });
+
+  const concept = runtime.hydrateConcept({ jsonObj: { name: "Ada" } });
+  await concept.rematch({ remote: false });
+
+  assert.equal(concept.kind, "Object");
+  assert.equal(concept.collapse, null);
+  assert.equal(concept.ambiguity.ambiguous, true);
+  assert.equal(concept.ambiguity.state, "deferred");
+  assert.equal(typeof concept.displayName, "undefined");
+});
+
+test("uses context preferences to collapse otherwise equal matches", async () => {
+  const runtime = createNoShogoRuntime({ collapsePolicy: "defer" });
+  runtime.definePrototype("Person", {
+    match: { has: ["name"] },
+    methods: { displayName() { return this.name; } }
+  });
+  runtime.definePrototype("Agent", {
+    match: { has: ["name"] },
+    methods: { callsign() { return this.name.toUpperCase(); } }
+  });
+
+  const concept = runtime.hydrateConcept({ jsonObj: { name: "Ada" } });
+  await concept.rematch({
+    remote: false,
+    collapsePolicy: "wta",
+    context: { prefer: "Agent" }
+  });
+
+  assert.equal(concept.kind, "Agent");
+  assert.equal(concept.callsign(), "ADA");
+  assert.equal(concept.ambiguity.ambiguous, false);
+  assert.equal(concept.ambiguity.reason, "clear-winner");
+  assert.equal(concept.collapse.kind, "Agent");
+  assert.ok(concept.matches[0].adjustedScore > concept.matches[1].adjustedScore);
+});
+
+test("persists ambiguity and collapse metadata", async () => {
+  const calls = [];
+  const client = {
+    upsertConcept(uuid, payload) {
+      calls.push({ uuid, payload });
+      return Promise.resolve({ ok: true });
+    }
+  };
+  const runtime = createNoShogoRuntime({ client });
+  runtime.definePrototype("Person", { match: { has: ["name"] } });
+  runtime.definePrototype("Agent", { match: { has: ["name"] } });
+
+  const concept = runtime.hydrateConcept({ uuid: "concept-1", jsonObj: { name: "Ada" } });
+  await concept.rematch({ remote: false, persist: true });
+
+  assert.equal(calls[0].payload.ambiguity.ambiguous, true);
+  assert.equal(calls[0].payload.ambiguity.state, "collapsed");
+  assert.equal(calls[0].payload.collapse.kind, "Person");
+});
+
 test("plain concept serialization excludes behavior and unsafe prototype keys", () => {
   const runtime = createNoShogoRuntime();
   runtime.definePrototype("Person", {

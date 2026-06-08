@@ -2,7 +2,16 @@ const RUNTIME = Symbol("noShogoRuntime");
 const PROTOTYPE_DESCRIPTOR = Symbol("noShogoPrototypeDescriptor");
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
-const RUNTIME_KEYS = new Set(["uuid", "kind", "prototypeId", "matches", "metadata", "sourceConcept"]);
+const RUNTIME_KEYS = new Set([
+  "uuid",
+  "kind",
+  "prototypeId",
+  "matches",
+  "metadata",
+  "ambiguity",
+  "collapse",
+  "sourceConcept"
+]);
 
 function safeAssign(target, source = {}) {
   for (const [key, value] of Object.entries(source)) {
@@ -69,7 +78,61 @@ function normalizeMatches(matches) {
   const list = Array.isArray(matches)
     ? matches
     : matches?.results ?? matches?.matches ?? matches?.prototypes ?? [];
-  return list.map(normalizeMatch).filter(Boolean).sort((a, b) => b.score - a.score);
+  return normalizeStrengths(list.map(normalizeMatch).filter(Boolean).sort((a, b) => b.score - a.score));
+}
+
+function normalizeStrengths(matches) {
+  const total = matches.reduce((sum, match) => sum + Math.max(0, match.adjustedScore ?? match.score ?? 0), 0);
+  if (!matches.length) return matches;
+
+  if (total <= 0) {
+    const equal = 1 / matches.length;
+    return matches.map((match) => ({ ...match, strength: equal }));
+  }
+
+  return matches.map((match) => ({
+    ...match,
+    strength: Math.max(0, match.adjustedScore ?? match.score ?? 0) / total
+  }));
+}
+
+function descriptorSpecificity(descriptor) {
+  if (typeof descriptor.specificity === "number") return descriptor.specificity;
+  const match = descriptor.match;
+  if (!match || typeof match !== "object") return 0;
+  return (match.has ?? match.properties ?? []).length;
+}
+
+function preferenceList(context = {}) {
+  const prefer = context.prefer ?? context.preferKind ?? context.preferPrototypeId ?? [];
+  return Array.isArray(prefer) ? prefer : [prefer];
+}
+
+function contextBias(match, descriptor, context = {}) {
+  let bias = 0;
+  const preferences = preferenceList(context).filter(Boolean);
+  const preferenceIndex = preferences.findIndex((item) => (
+    item === match.kind ||
+    item === match.prototypeId ||
+    item === descriptor?.name ||
+    item === descriptor?.id
+  ));
+  if (preferenceIndex >= 0) bias += 1 / (preferenceIndex + 1);
+
+  const weights = context.prototypeWeights ?? context.weights ?? context.bias ?? {};
+  for (const key of [match.prototypeId, match.kind, descriptor?.id, descriptor?.name]) {
+    if (key && typeof weights[key] === "number") bias += weights[key];
+  }
+
+  return bias;
+}
+
+function compareMatches(a, b) {
+  if (b.adjustedScore !== a.adjustedScore) return b.adjustedScore - a.adjustedScore;
+  if (b.specificity !== a.specificity) return b.specificity - a.specificity;
+  if (b.priority !== a.priority) return b.priority - a.priority;
+  if (a.ordinal !== b.ordinal) return a.ordinal - b.ordinal;
+  return String(a.kind).localeCompare(String(b.kind));
 }
 
 function ownSerializableEntries(concept) {
@@ -121,14 +184,28 @@ Object.defineProperties(NoShogoObject, {
     value: function prototypeDescriptor() {
       return getDescriptor(Object.getPrototypeOf(this));
     }
+  },
+  collapseMatch: {
+    enumerable: false,
+    value: function collapseMatch(options = {}) {
+      return getRuntime(this).collapseConcept(this, options);
+    }
   }
 });
 
-export function NoShogoRuntime({ client = null, matcher = null } = {}) {
+export function NoShogoRuntime({
+  client = null,
+  matcher = null,
+  collapsePolicy = "wta",
+  tieEpsilon = 1e-9
+} = {}) {
   this.client = client;
   this.matcher = matcher;
+  this.collapsePolicy = collapsePolicy;
+  this.tieEpsilon = tieEpsilon;
   this.rootPrototype = Object.create(NoShogoObject);
   this.prototypes = new Map();
+  this.prototypeDescriptors = [];
   this.definePrototype("Object", {
     id: "Object",
     methods: {},
@@ -150,6 +227,9 @@ NoShogoRuntime.prototype.definePrototype = function definePrototype(name, defini
     match: definition.match ?? null,
     defaults: definition.defaults ?? {},
     metadata: definition.metadata ?? {},
+    priority: definition.priority ?? 0,
+    specificity: definition.specificity,
+    ordinal: this.prototypeDescriptors.length,
     prototypeObject
   };
 
@@ -159,6 +239,7 @@ NoShogoRuntime.prototype.definePrototype = function definePrototype(name, defini
   this.prototypes.set(id, descriptor);
   this.prototypes.set(name, descriptor);
   if (definition.uuid) this.prototypes.set(definition.uuid, descriptor);
+  this.prototypeDescriptors.push(descriptor);
   return descriptor;
 };
 
@@ -178,6 +259,8 @@ NoShogoRuntime.prototype.hydrateConcept = function hydrateConcept(record = {}, o
   concept.kind = descriptor.name;
   concept.prototypeId = descriptor.id;
   concept.matches = matches;
+  concept.ambiguity = options.ambiguity ?? record.ambiguity ?? null;
+  concept.collapse = options.collapse ?? record.collapse ?? null;
   concept.metadata = { ...(record.metadata ?? {}), ...(options.metadata ?? {}) };
   defineHidden(concept, RUNTIME, this);
   return concept;
@@ -199,7 +282,7 @@ NoShogoRuntime.prototype.matchConceptLocally = function matchConceptLocally(conc
   const seen = new Set();
   const matches = [];
 
-  for (const descriptor of this.prototypes.values()) {
+  for (const descriptor of this.prototypeDescriptors) {
     if (seen.has(descriptor.id)) continue;
     seen.add(descriptor.id);
     const score = this.scorePrototype(concept, descriptor);
@@ -208,12 +291,74 @@ NoShogoRuntime.prototype.matchConceptLocally = function matchConceptLocally(conc
         prototypeId: descriptor.id,
         kind: descriptor.name,
         score,
+        adjustedScore: score,
+        specificity: descriptorSpecificity(descriptor),
+        priority: descriptor.priority,
+        ordinal: descriptor.ordinal,
         source: "local"
       });
     }
   }
 
-  return matches.sort((a, b) => b.score - a.score);
+  return normalizeStrengths(matches.sort(compareMatches));
+};
+
+NoShogoRuntime.prototype.resolveMatches = function resolveMatches(matches, options = {}) {
+  const context = options.context ?? {};
+  const collapsePolicy = options.collapsePolicy ?? this.collapsePolicy;
+  const tieEpsilon = options.tieEpsilon ?? this.tieEpsilon;
+  const enriched = normalizeMatches(matches).map((match) => {
+    const descriptor = this.getPrototype(match.prototypeId) ?? this.getPrototype(match.kind);
+    const adjustedScore = match.score + contextBias(match, descriptor, context);
+    return {
+      ...match,
+      adjustedScore,
+      specificity: match.specificity ?? descriptorSpecificity(descriptor),
+      priority: match.priority ?? descriptor?.priority ?? 0,
+      ordinal: match.ordinal ?? descriptor?.ordinal ?? Number.MAX_SAFE_INTEGER
+    };
+  }).sort(compareMatches);
+  const normalized = normalizeStrengths(enriched);
+  const top = normalized[0] ?? null;
+  const candidates = top
+    ? normalized.filter((match) => Math.abs(match.adjustedScore - top.adjustedScore) <= tieEpsilon)
+    : [];
+  const ambiguous = candidates.length > 1;
+  const defer = collapsePolicy === "defer" || collapsePolicy === "ambiguous";
+  const winner = ambiguous && defer ? null : top;
+  const runnerUp = normalized.find((match) => match !== top) ?? null;
+
+  return {
+    winner,
+    matches: normalized,
+    ambiguity: {
+      ambiguous,
+      state: ambiguous ? (winner ? "collapsed" : "deferred") : (winner ? "resolved" : "unmatched"),
+      reason: ambiguous ? "tie" : (winner ? "clear-winner" : "no-match"),
+      policy: collapsePolicy,
+      margin: top && runnerUp ? top.adjustedScore - runnerUp.adjustedScore : null,
+      tieEpsilon,
+      candidates
+    }
+  };
+};
+
+NoShogoRuntime.prototype.collapseConcept = function collapseConcept(concept, options = {}) {
+  const resolution = this.resolveMatches(concept.matches ?? [], options);
+  concept.matches = resolution.matches;
+  concept.ambiguity = resolution.ambiguity;
+  concept.collapse = resolution.winner
+    ? {
+        kind: resolution.winner.kind,
+        prototypeId: resolution.winner.prototypeId,
+        score: resolution.winner.score,
+        adjustedScore: resolution.winner.adjustedScore,
+        strength: resolution.winner.strength,
+        policy: resolution.ambiguity.policy
+      }
+    : null;
+  if (resolution.winner) this.applyPrototype(concept, resolution.winner);
+  return concept;
 };
 
 NoShogoRuntime.prototype.applyPrototype = function applyPrototype(concept, matchOrKind) {
@@ -237,7 +382,7 @@ NoShogoRuntime.prototype.rematchConcept = async function rematchConcept(concept,
 
   if (!matches.length) matches = this.matchConceptLocally(concept);
   concept.matches = matches;
-  if (matches[0]) this.applyPrototype(concept, matches[0]);
+  this.collapseConcept(concept, options);
 
   if (options.persist) await this.saveConcept(concept, options.saveOptions ?? {});
   return concept;
@@ -251,6 +396,8 @@ NoShogoRuntime.prototype.castConcept = function castConcept(concept, kind) {
   view.kind = descriptor.name;
   view.prototypeId = descriptor.id;
   view.matches = concept.matches ?? [];
+  view.ambiguity = concept.ambiguity ?? null;
+  view.collapse = concept.collapse ?? null;
   view.metadata = concept.metadata ?? {};
   defineHidden(view, RUNTIME, this);
   defineHidden(view, "sourceConcept", concept);
@@ -265,6 +412,8 @@ NoShogoRuntime.prototype.saveConcept = async function saveConcept(concept, optio
     kind: concept.kind,
     prototypeId: concept.prototypeId,
     matches: concept.matches ?? [],
+    ambiguity: concept.ambiguity ?? null,
+    collapse: concept.collapse ?? null,
     metadata: concept.metadata ?? {}
   };
 
@@ -280,7 +429,9 @@ NoShogoRuntime.prototype.saveConcept = async function saveConcept(concept, optio
       metadata: {
         ...payload.metadata,
         kind: payload.kind,
-        matches: payload.matches
+        matches: payload.matches,
+        ambiguity: payload.ambiguity,
+        collapse: payload.collapse
       }
     });
     if (typeof created === "string") concept.uuid = created;
