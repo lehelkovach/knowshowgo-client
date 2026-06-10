@@ -74,3 +74,26 @@ Development notes for future agent support files and agent infrastructure.
 	b) When merging prompt updates, preserve other agents' log entries and pending
 	   run-once items.
 	c) Release coordination changes should update both human docs and action-log evidence.
+
+## Cross-Repository Access Handoff
+
+1) Current State
+	a) This branch has been synced with latest `origin/main`; the merge added
+	   `CLIENT_AGENT_BOOTSTRAP.md` and `scripts/agent-access-check.sh`.
+	b) The current agent can read and push this client repo origin.
+	c) The current agent could not read the private upstream repo variants supplied by the
+	   maintainer through `gh repo view`, `git ls-remote`, or the access-check script.
+	d) The maintainer showed that the Cursor GitHub app is configured for all repositories,
+	   so future failures are likely session/environment/token propagation issues rather
+	   than repository code issues.
+
+2) Next Agent Startup
+	a) Start the next agent with this client repo as the root repository.
+	b) In the prompt, explicitly tell the agent to verify private upstream access before
+	   making API-contract changes.
+	c) Use `UPSTREAM_PRIVATE_REPO=<private upstream git URL> ./scripts/agent-access-check.sh`
+	   from the repo root.
+	d) If upstream access fails, report the exact command output and do not assume the
+	   upstream does not exist.
+	e) If upstream access succeeds, clone or inspect it read-only and reconcile this client
+	   runtime/API MVP against the private upstream service contract.
