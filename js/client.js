@@ -151,5 +151,130 @@ export class KnowShowGoClient {
   get_instance(prototype_name, uuid) {
     return this._request('GET', `/api/orm/${encodeURIComponent(prototype_name)}/${encodeURIComponent(uuid)}`);
   }
+
+  // ===== Assertions (v0.2.0/v0.2.1) =====
+  create_assertion({
+    subject,
+    predicate,
+    obj,
+    truth = 1.0,
+    source = 'user',
+    strength = null,
+    vote_score = null,
+    source_rel = null,
+    status = null,
+    prev_assertion_id = null,
+    provenance = null
+  }) {
+    return this._request('POST', '/api/assertions', {
+      json: {
+        subject,
+        predicate,
+        object: obj,
+        truth,
+        source,
+        strength,
+        voteScore: vote_score,
+        sourceRel: source_rel,
+        status,
+        prevAssertionId: prev_assertion_id,
+        provenance
+      }
+    });
+  }
+
+  get_assertions({ subject = null, predicate = null, obj = undefined } = {}) {
+    const params = {};
+    if (subject !== null && subject !== undefined) params.subject = subject;
+    if (predicate !== null && predicate !== undefined) params.predicate = predicate;
+    if (obj !== undefined) params.object = obj;
+    return this._request('GET', '/api/assertions', { params }).then(r => r.assertions);
+  }
+
+  vote_assertion(assertion_id, { delta = 1 } = {}) {
+    return this._request('POST', `/api/assertions/${encodeURIComponent(assertion_id)}/vote`, {
+      json: { delta }
+    }).then(r => r.assertion);
+  }
+
+  get_snapshot(entity_id) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/snapshot`).then(r => r.snapshot);
+  }
+
+  get_evidence(entity_id, { predicate = null } = {}) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/evidence`, {
+      params: { predicate }
+    }).then(r => r.evidence);
+  }
+
+  explain_entity(entity_id, { predicate = null } = {}) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/explain`, {
+      params: { predicate }
+    });
+  }
+
+  // ===== Verification / Hallucination Detection =====
+  store_fact({
+    subject,
+    predicate,
+    obj,
+    status = 'verified',
+    confidence = 1.0,
+    source = null
+  }) {
+    return this._request('POST', '/api/facts', {
+      json: { subject, predicate, object: obj, status, confidence, source }
+    });
+  }
+
+  store_facts_bulk(facts) {
+    const normalizedFacts = (facts || []).map((fact) => {
+      if (Array.isArray(fact)) {
+        return {
+          subject: fact[0],
+          predicate: fact[1],
+          object: fact[2]
+        };
+      }
+      const { obj, ...rest } = fact || {};
+      return {
+        ...rest,
+        object: rest.object ?? obj
+      };
+    });
+
+    return this._request('POST', '/api/facts/bulk', {
+      json: { facts: normalizedFacts }
+    });
+  }
+
+  verify(claim, { threshold = 0.7 } = {}) {
+    return this._request('POST', '/api/verify', {
+      json: { claim, threshold }
+    });
+  }
+
+  get_fact_stats() {
+    return this._request('GET', '/api/facts/stats');
+  }
+
+  // Alias for scp_alg_test compatibility
+  add_verified_fact({ subject, predicate, obj, sources = [] }) {
+    const source = sources.length > 0 ? sources[0] : null;
+    const confidence = source?.trust_score ?? 1.0;
+    return this.store_fact({
+      subject,
+      predicate,
+      obj,
+      status: 'verified',
+      confidence,
+      source
+    });
+  }
+
+  // Alias for scp_alg_test compatibility
+  check(claim) {
+    return this.verify(claim);
+  }
 }
 

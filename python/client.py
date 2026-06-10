@@ -229,6 +229,19 @@ class KnowShowGoClient:
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
 
+    def vote_assertion(
+        self,
+        assertion_id: str,
+        delta: float = 1.0
+    ) -> Dict[str, Any]:
+        """Adjust vote score for an assertion (v0.2.1)"""
+        result = self._request(
+            "POST",
+            f"/api/assertions/{assertion_id}/vote",
+            json={"delta": delta}
+        )
+        return result["assertion"]
+
     def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
         """Get resolved values for an entity"""
         result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
@@ -249,6 +262,21 @@ class KnowShowGoClient:
             params=params
         )
         return result["evidence"]
+
+    def explain_entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Explain assertion resolution for an entity (v0.2.1)"""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"/api/entities/{entity_id}/explain",
+            params=params
+        )
 
     # ===== Verification / Hallucination Detection =====
 
