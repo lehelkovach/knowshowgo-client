@@ -1,0 +1,253 @@
+{
+  "scenario": "invoice-submission-assistant",
+  "topics": [
+    {
+      "topicUuid": "topic:invoice-submission",
+      "label": "Invoice submission workflow",
+      "aliases": [
+        "#[submit invoice workflow]",
+        "#[invoice submission helper]"
+      ],
+      "description": "Canonical topic for invoice portal submission tasks."
+    },
+    {
+      "topicUuid": "topic:vendor-management",
+      "label": "Vendor management",
+      "aliases": [
+        "#[vendor]",
+        "#[accounts payable]"
+      ],
+      "description": "Vendor and payable process context."
+    }
+  ],
+  "objectCategoryPrototypes": [
+    {
+      "categoryPrototypeUuid": "cat:person:v1",
+      "name": "Person",
+      "version": "1.0.0",
+      "properties": [
+        { "name": "name", "type": "string", "required": true },
+        { "name": "email", "type": "string", "required": false },
+        { "name": "role", "type": "string", "required": false }
+      ]
+    },
+    {
+      "categoryPrototypeUuid": "cat:organization:v1",
+      "name": "Organization",
+      "version": "1.0.0",
+      "properties": [
+        { "name": "name", "type": "string", "required": true },
+        { "name": "domain", "type": "string", "required": false }
+      ]
+    },
+    {
+      "categoryPrototypeUuid": "cat:invoice:v1",
+      "name": "Invoice",
+      "version": "1.0.0",
+      "properties": [
+        { "name": "invoiceNumber", "type": "string", "required": true },
+        { "name": "vendor", "type": "string", "required": true },
+        { "name": "amount", "type": "number", "required": true },
+        { "name": "currency", "type": "string", "required": true },
+        { "name": "status", "type": "string", "required": true },
+        { "name": "dueDate", "type": "string", "required": false }
+      ]
+    },
+    {
+      "categoryPrototypeUuid": "cat:portal-resource:v1",
+      "name": "PortalResource",
+      "version": "1.0.0",
+      "properties": [
+        { "name": "url", "type": "string", "required": true },
+        { "name": "ownerOrg", "type": "string", "required": false },
+        { "name": "authKind", "type": "string", "required": false }
+      ]
+    },
+    {
+      "categoryPrototypeUuid": "cat:procedure-template:v1",
+      "name": "ProcedureTemplate",
+      "version": "1.0.0",
+      "properties": [
+        { "name": "title", "type": "string", "required": true },
+        { "name": "goal", "type": "string", "required": true },
+        { "name": "riskLevel", "type": "string", "required": false }
+      ]
+    }
+  ],
+  "objects": [
+    {
+      "objectUuid": "obj:person:alex-jones",
+      "categoryPrototypeUuid": "cat:person:v1",
+      "title": "Alex Jones",
+      "tags": [
+        "#[accounts payable analyst]"
+      ],
+      "knowledgeKind": "fact",
+      "properties": [
+        { "name": "name", "type": "string", "value": "Alex Jones" },
+        { "name": "email", "type": "string", "value": "alex@example.test" },
+        { "name": "role", "type": "string", "value": "Accounts Payable Analyst" }
+      ],
+      "metadata": {
+        "ownerUserId": "user:alex",
+        "agentSessionId": "session:bootstrap"
+      }
+    },
+    {
+      "objectUuid": "obj:org:acme-supplies",
+      "categoryPrototypeUuid": "cat:organization:v1",
+      "title": "Acme Supplies Ltd",
+      "tags": [
+        "#[vendor]",
+        "#[accounts payable]"
+      ],
+      "knowledgeKind": "fact",
+      "properties": [
+        { "name": "name", "type": "string", "value": "Acme Supplies Ltd" },
+        { "name": "domain", "type": "string", "value": "acme-supplies.example" }
+      ]
+    },
+    {
+      "objectUuid": "obj:invoice:inv-2026-0018",
+      "categoryPrototypeUuid": "cat:invoice:v1",
+      "title": "Invoice INV-2026-0018",
+      "tags": [
+        "#[invoice]",
+        "#[submit invoice workflow]"
+      ],
+      "knowledgeKind": "fact",
+      "properties": [
+        { "name": "invoiceNumber", "type": "string", "value": "INV-2026-0018" },
+        { "name": "vendor", "type": "string", "value": "Acme Supplies Ltd" },
+        { "name": "amount", "type": "number", "value": 3150.45 },
+        { "name": "currency", "type": "string", "value": "USD" },
+        { "name": "status", "type": "string", "value": "pending_submission" },
+        { "name": "dueDate", "type": "string", "value": "2026-06-20" }
+      ]
+    },
+    {
+      "objectUuid": "obj:portal:vendor-portal",
+      "categoryPrototypeUuid": "cat:portal-resource:v1",
+      "title": "Vendor Portal",
+      "tags": [
+        "#[portal]",
+        "#[invoice submission helper]"
+      ],
+      "knowledgeKind": "context",
+      "properties": [
+        { "name": "url", "type": "string", "value": "https://portal.example.test/login" },
+        { "name": "ownerOrg", "type": "string", "value": "Example Corp" },
+        { "name": "authKind", "type": "string", "value": "password+otp" }
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "subject": "obj:invoice:inv-2026-0018",
+      "predicate": "belongs_to_vendor",
+      "object": "obj:org:acme-supplies",
+      "truth": 1.0,
+      "source": "seed"
+    },
+    {
+      "subject": "obj:invoice:inv-2026-0018",
+      "predicate": "requires_procedure",
+      "object": "proc:submit-invoice:v1",
+      "truth": 1.0,
+      "source": "seed"
+    },
+    {
+      "subject": "obj:person:alex-jones",
+      "predicate": "uses_resource",
+      "object": "obj:portal:vendor-portal",
+      "truth": 0.95,
+      "source": "seed"
+    },
+    {
+      "subject": "proc:submit-invoice:v1",
+      "predicate": "has_topic",
+      "object": "topic:invoice-submission",
+      "truth": 1.0,
+      "source": "seed"
+    }
+  ],
+  "procedures": [
+    {
+      "procedure_uuid": "proc:submit-invoice:v1",
+      "title": "Submit invoice",
+      "summary": "Upload and submit an invoice in the vendor portal.",
+      "tags": [
+        "#[submit invoice workflow]",
+        "#[accounts payable]"
+      ],
+      "topicRefs": [
+        "topic:invoice-submission"
+      ],
+      "steps": [
+        {
+          "stepUuid": "step:open-portal",
+          "title": "Open vendor portal",
+          "tool": "browser.open",
+          "payload": {
+            "url": "https://portal.example.test/login"
+          }
+        },
+        {
+          "stepUuid": "step:authenticate",
+          "title": "Authenticate account",
+          "tool": "browser.login",
+          "payload": {
+            "usernameRef": "obj:person:alex-jones",
+            "mfa": true
+          }
+        },
+        {
+          "stepUuid": "step:open-invoice-page",
+          "title": "Open invoice submission page",
+          "tool": "browser.click",
+          "payload": {
+            "selector": "[data-test='nav-invoices']"
+          }
+        },
+        {
+          "stepUuid": "step:fill-form",
+          "title": "Fill invoice form",
+          "tool": "browser.fill_form",
+          "payload": {
+            "invoiceObjectRef": "obj:invoice:inv-2026-0018"
+          }
+        },
+        {
+          "stepUuid": "step:submit",
+          "title": "Submit invoice",
+          "tool": "browser.click",
+          "payload": {
+            "selector": "[data-test='submit-invoice']"
+          }
+        }
+      ],
+      "dependencies": [
+        [0, 1],
+        [1, 2],
+        [2, 3],
+        [3, 4]
+      ],
+      "postconditions": [
+        {
+          "predicate": "status_is",
+          "object": "submitted"
+        }
+      ]
+    }
+  ],
+  "suggestedQueries": {
+    "conceptSearch": {
+      "query": "invoice submission helper for vendor portal",
+      "topK": 5
+    },
+    "procedureSearch": {
+      "query": "submit invoice in portal",
+      "topK": 3
+    }
+  }
+}

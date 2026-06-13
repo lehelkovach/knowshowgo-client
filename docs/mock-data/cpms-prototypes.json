@@ -1,0 +1,173 @@
+{
+  "conceptPrototypes": [
+    {
+      "concept_id": "concept:invoice@1.0.0",
+      "kind": "cpms.concept",
+      "features": {
+        "required_keys": [
+          "invoiceNumber",
+          "vendor",
+          "amount",
+          "currency"
+        ],
+        "optional_keys": [
+          "dueDate",
+          "status"
+        ],
+        "keywords": [
+          "invoice",
+          "vendor",
+          "amount",
+          "payable"
+        ]
+      },
+      "metadata": {
+        "ksgCategoryPrototypeUuid": "cat:invoice:v1"
+      }
+    },
+    {
+      "concept_id": "concept:portal-action@1.0.0",
+      "kind": "cpms.concept",
+      "features": {
+        "required_keys": [
+          "tool",
+          "payload"
+        ],
+        "optional_keys": [
+          "selector",
+          "url"
+        ],
+        "keywords": [
+          "click",
+          "open",
+          "submit",
+          "portal"
+        ]
+      },
+      "metadata": {
+        "ksgCategoryPrototypeUuid": "cat:procedure-template:v1"
+      }
+    }
+  ],
+  "patternPrototypes": [
+    {
+      "pattern_id": "pattern:invoice-submit-sequence@1.0.0",
+      "kind": "cpms.pattern",
+      "slots": [
+        {
+          "name": "open_portal",
+          "expects": "concept:portal-action@1.0.0",
+          "constraints": {
+            "tool_any_of": [
+              "browser.open",
+              "browser.goto"
+            ]
+          }
+        },
+        {
+          "name": "fill_invoice",
+          "expects": "concept:portal-action@1.0.0",
+          "constraints": {
+            "tool_any_of": [
+              "browser.fill_form",
+              "browser.type"
+            ]
+          }
+        },
+        {
+          "name": "submit_invoice",
+          "expects": "concept:portal-action@1.0.0",
+          "constraints": {
+            "tool_any_of": [
+              "browser.click"
+            ],
+            "payload_selector_contains": "submit"
+          }
+        }
+      ],
+      "relations": [
+        {
+          "type": "before",
+          "from": "open_portal",
+          "to": "fill_invoice"
+        },
+        {
+          "type": "before",
+          "from": "fill_invoice",
+          "to": "submit_invoice"
+        }
+      ]
+    }
+  ],
+  "observations": [
+    {
+      "observation_id": "obs:invoice-object:1",
+      "payload": {
+        "title": "Invoice INV-2026-0018",
+        "invoiceNumber": "INV-2026-0018",
+        "vendor": "Acme Supplies Ltd",
+        "amount": 3150.45,
+        "currency": "USD",
+        "status": "pending_submission"
+      },
+      "expectedConceptMatches": [
+        {
+          "concept_id": "concept:invoice@1.0.0",
+          "min_strength": 0.8
+        }
+      ]
+    },
+    {
+      "observation_id": "obs:procedure-steps:1",
+      "payload": {
+        "steps": [
+          {
+            "tool": "browser.open",
+            "payload": {
+              "url": "https://portal.example.test/login"
+            }
+          },
+          {
+            "tool": "browser.fill_form",
+            "payload": {
+              "invoiceNumber": "INV-2026-0018"
+            }
+          },
+          {
+            "tool": "browser.click",
+            "payload": {
+              "selector": "[data-test='submit-invoice']"
+            }
+          }
+        ]
+      },
+      "expectedPatternMatches": [
+        {
+          "pattern_id": "pattern:invoice-submit-sequence@1.0.0",
+          "min_strength": 0.7
+        }
+      ]
+    }
+  ],
+  "routePayloadExamples": {
+    "match": {
+      "conceptPrototype": "concept:invoice@1.0.0",
+      "observationRef": "obs:invoice-object:1"
+    },
+    "match_explain": {
+      "conceptPrototype": "concept:invoice@1.0.0",
+      "observationRef": "obs:invoice-object:1"
+    },
+    "match_pattern": {
+      "patternPrototype": "pattern:invoice-submit-sequence@1.0.0",
+      "conceptPrototypes": [
+        "concept:portal-action@1.0.0"
+      ],
+      "observationRef": "obs:procedure-steps:1"
+    },
+    "detect_form": {
+      "html": "<form><input type=\"email\" /><input name=\"invoiceNumber\" /><button type=\"submit\">Submit</button></form>",
+      "url": "https://portal.example.test/invoices/new"
+    }
+  }
+}
