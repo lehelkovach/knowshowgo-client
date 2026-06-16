@@ -276,5 +276,261 @@ export class KnowShowGoClient {
   check(claim) {
     return this.verify(claim);
   }
+
+  // ===== Topics (v0.2.2) =====
+  create_topic({ label = null, phrase = null, summary = '', aliases = [], kind = 'topic', language, provenance = null } = {}) {
+    return this._request('POST', '/api/topics', {
+      json: { label, phrase, summary, aliases, kind, language, provenance }
+    });
+  }
+
+  get_topic(uuid) {
+    return this._request('GET', `/api/topics/${encodeURIComponent(uuid)}`).then(r => r.topic);
+  }
+
+  resolve_topic_tag({ tag = null, phrase = null, language, top_k = 10, create_if_missing = false } = {}) {
+    return this._request('POST', '/api/topics/resolve-tag', {
+      json: { tag, phrase, language, topK: top_k, createIfMissing: create_if_missing }
+    });
+  }
+
+  // ===== Object Categories (v0.2.2) =====
+  create_object_category({
+    name,
+    description = '',
+    context = 'object-category',
+    parent_prototype_uuid = null,
+    parent_category_name = null,
+    properties = [],
+    source = null
+  }) {
+    return this._request('POST', '/api/object-categories', {
+      json: {
+        name,
+        description,
+        context,
+        parentPrototypeUuid: parent_prototype_uuid,
+        parentCategoryName: parent_category_name,
+        properties,
+        source
+      }
+    });
+  }
+
+  upsert_object_category({
+    name,
+    description = '',
+    context = 'object-category',
+    parent_prototype_uuid = null,
+    parent_category_name = null,
+    properties = [],
+    source = null,
+    category_lineage_key = null
+  }) {
+    return this._request('POST', '/api/object-categories/upsert', {
+      json: {
+        name,
+        description,
+        context,
+        parentPrototypeUuid: parent_prototype_uuid,
+        parentCategoryName: parent_category_name,
+        properties,
+        source,
+        categoryLineageKey: category_lineage_key
+      }
+    });
+  }
+
+  get_object_category(uuid) {
+    return this._request('GET', `/api/object-categories/${encodeURIComponent(uuid)}`);
+  }
+
+  // ===== Objects (v0.2.2) =====
+  upsert_object({
+    title,
+    category_prototype_uuid = null,
+    category_name = null,
+    parent_category_name = null,
+    summary = '',
+    tags = [],
+    properties = [],
+    previous_object_uuid = null,
+    object_lineage_key = null,
+    provenance = null,
+    knowledge_kind = 'personal',
+    sensitivity = 'normal',
+    privacy_override = null,
+    private: is_private,
+    owner_user_id = null,
+    agent_session_id = null
+  }) {
+    return this._request('POST', '/api/objects/upsert', {
+      json: {
+        title,
+        categoryPrototypeUuid: category_prototype_uuid,
+        categoryName: category_name,
+        parentCategoryName: parent_category_name,
+        summary,
+        tags,
+        properties,
+        previousObjectUuid: previous_object_uuid,
+        objectLineageKey: object_lineage_key,
+        provenance,
+        knowledgeKind: knowledge_kind,
+        sensitivity,
+        privacyOverride: privacy_override,
+        private: is_private,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id
+      }
+    });
+  }
+
+  get_object(uuid, { owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
+      params: { ownerUserId: owner_user_id, agentSessionId: agent_session_id }
+    });
+  }
+
+  resolve_object({
+    object_lineage_key = null,
+    category_prototype_uuid = null,
+    title = null,
+    private: is_private = false,
+    owner_user_id = null,
+    agent_session_id = null
+  } = {}) {
+    return this._request('POST', '/api/objects/resolve', {
+      json: {
+        objectLineageKey: object_lineage_key,
+        categoryPrototypeUuid: category_prototype_uuid,
+        title,
+        private: is_private,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id
+      }
+    });
+  }
+
+  generalize_object({
+    source_object_uuid = null,
+    source_object_lineage_key = null,
+    owner_user_id = null,
+    agent_session_id = null,
+    target_category_prototype_uuid = null,
+    target_category_name = null,
+    target_parent_category_name = null,
+    target_title = null,
+    target_tags = [],
+    include_properties = null,
+    exclude_properties = null,
+    mode = 'safe',
+    object_lineage_key = null,
+    publish_assertion = false,
+    assertion_predicate = 'generalized_fact',
+    assertion_truth = 0.9,
+    provenance = null
+  } = {}) {
+    return this._request('POST', '/api/objects/generalize', {
+      json: {
+        sourceObjectUuid: source_object_uuid,
+        sourceObjectLineageKey: source_object_lineage_key,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        targetCategoryPrototypeUuid: target_category_prototype_uuid,
+        targetCategoryName: target_category_name,
+        targetParentCategoryName: target_parent_category_name,
+        targetTitle: target_title,
+        targetTags: target_tags,
+        includeProperties: include_properties,
+        excludeProperties: exclude_properties,
+        mode,
+        objectLineageKey: object_lineage_key,
+        publishAssertion: publish_assertion,
+        assertionPredicate: assertion_predicate,
+        assertionTruth: assertion_truth,
+        provenance
+      }
+    });
+  }
+
+  // ===== Procedures (v0.2.2) =====
+  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props } = {}) {
+    return this._request('POST', '/api/procedures', {
+      json: { title, description, steps, dependencies, guards, extraProps: extra_props }
+    });
+  }
+
+  get_procedure(uuid) {
+    return this._request('GET', `/api/procedures/${encodeURIComponent(uuid)}`);
+  }
+
+  add_procedure_step(procedure_uuid, {
+    title,
+    payload,
+    tool,
+    guard_text,
+    guard,
+    on_fail,
+    after_step_uuid,
+    before_step_uuid,
+    order,
+    provenance
+  } = {}) {
+    return this._request('POST', `/api/procedures/${encodeURIComponent(procedure_uuid)}/steps`, {
+      json: {
+        title,
+        payload,
+        tool,
+        guard_text,
+        guard,
+        on_fail,
+        afterStepUuid: after_step_uuid,
+        beforeStepUuid: before_step_uuid,
+        order,
+        provenance
+      }
+    });
+  }
+
+  generalize_procedure(procedure_uuid, { title, description = '', mode = 'schema_only', provenance = null } = {}) {
+    return this._request('POST', `/api/procedures/${encodeURIComponent(procedure_uuid)}/generalize`, {
+      json: { title, description, mode, provenance }
+    });
+  }
+
+  repair_procedure_selector(procedure_uuid, {
+    step_uuid,
+    form_element_uuid,
+    repaired_selector,
+    failed_selector = null,
+    provenance = null
+  } = {}) {
+    return this._request('POST', `/api/procedures/${encodeURIComponent(procedure_uuid)}/repair-selector`, {
+      json: {
+        stepUuid: step_uuid,
+        formElementUuid: form_element_uuid,
+        failedSelector: failed_selector,
+        repairedSelector: repaired_selector,
+        provenance
+      }
+    });
+  }
+
+  search_procedures(query, { top_k = 5 } = {}) {
+    return this._request('POST', '/api/procedures/search', {
+      json: { query, topK: top_k }
+    }).then(r => r.results);
+  }
+
+  import_procedure_json({ procedure, form_element_category_prototype_uuid = null, provenance = null } = {}) {
+    return this._request('POST', '/api/procedures/import-json', {
+      json: {
+        procedure,
+        formElementCategoryPrototypeUuid: form_element_category_prototype_uuid,
+        provenance
+      }
+    });
+  }
 }
 
