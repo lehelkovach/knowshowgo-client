@@ -83,3 +83,55 @@ Append-only. Newest entries go at the bottom.
   - Cover remaining v0.2.2 surface areas not yet wrapped: concept-objects
     (suggest/search/suggest-prototypes), composites, logic/syllogisms,
     market/channels/events/ratings. Implement incrementally with parity tests.
+
+## 2026-06-16T16:23:20Z
+
+- Agent: client subagent takeover (branch consolidation + dev-API sync)
+- Start branch/commit: `cursor/knowshowgo-client-dev-api-sync-e7ec` based on `origin/main` @ `15369bb`
+- Access check:
+  - `./scripts/agent-access-check.sh` (pass)
+- Files read:
+  - `.AGENT/README.md`, `.AGENT/handoffs/latest.md`, `.AGENT/resume-log.md`,
+    `CLIENT_AGENT_BOOTSTRAP.md` (no `AGENTS.md` present in this repo)
+  - `js/client.js`, `python/client.py`, `js/client.test.mjs`, `python/test_client.py`
+  - knowshowgo `origin/dev` via worktree: `src/server/rest-api.js`, `README.md`
+- Branch consolidation (off `origin/main`):
+  - Merged: `cursor/knowshowgo-client-endpoint-parity-e7ec` (own prior work, fast-forward).
+  - Skipped (competing full rewrites of client.js/client.py -> merge conflicts /
+    duplicate method defs; would discard parity work): `cursor/client-semantic-api-f16c`,
+    `ksg-dev-api-client-methods`, `cursor/sync-ksg-dev-api-client`.
+  - Skipped (not aligned with API parity / dev sync): `cursor/legacy-api-sync-377a`
+    and `cursor/client-server-agent-sync-377a` (docs + `master-sync` file only),
+    `cursor/semantic-procedural-memory-foundation-5f17` (docs + mock fixtures only),
+    `cursor/agent-persistence-release-docs-bedf` (invasive SDK refactor; moves
+    js/client.js -> src/client.js, changes build/test layout).
+- Dev-API sync (authoritative = knowshowgo `origin/dev`):
+  - Brought up dev server via `git worktree add /tmp/ksg-dev origin/dev`, `npm ci`,
+    `PORT=3010 KSG_MEMORY_BACKEND=in-memory npm start`; confirmed `/health` on :3010.
+    The pre-existing :3000 server (tmux `ksg-server`) was left untouched.
+  - Dev `src/server/rest-api.js` is byte-identical to the previously-referenced
+    spec -> no drift in already-wrapped endpoints.
+  - Added wrappers (JS + Python parity) for the missing documented surface:
+    concept-objects (suggest/search/suggest-prototypes), composites
+    (create/get/update-component), logic/syllogisms (create/get), market
+    (register/search), channels (subscribe/message/feed), events (repeating),
+    ratings (rate/get).
+  - Live-validated all new wrappers against :3010 with a throwaway script (not committed).
+- Files changed:
+  - `js/client.js`, `python/client.py`, `js/client.test.mjs`, `python/test_client.py`
+  - `.AGENT/resume-log.md`, `.AGENT/handoffs/latest.md`
+- Tests:
+  - `node --test js/client.test.mjs` (pass: 37/37)
+  - `python3 -m unittest python/test_client.py -v` (pass: 35/35)
+  - `python3 -m py_compile python/client.py` (pass)
+- Cleanup:
+  - Stopped :3010 dev server, killed tmux `ksg-dev-3010`, removed worktree
+    (`git worktree remove /tmp/ksg-dev --force`), removed throwaway scripts/logs.
+- End commit/push:
+  - Work commit: `b323ecb`
+  - Branch: `cursor/knowshowgo-client-dev-api-sync-e7ec`
+  - Push: see handoff (pushed via `git push -u origin`)
+- Next pending task:
+  - Optionally wrap dev's newer experimental routes not in the documented MVP
+    surface: `/api/knodes`, `/api/query`, `/api/vaults`, `/api/personal/*`,
+    `/api/private/payment*`. Confirm intended client scope before wrapping.
