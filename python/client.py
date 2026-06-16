@@ -756,6 +756,253 @@ class KnowShowGoClient:
         }
         return self._request("POST", "/api/procedures/import-json", json=data)
 
+    # ===== Concept Objects (v0.2.2) =====
+
+    def suggest_concept_objects(
+        self,
+        text: Optional[str] = None,
+        query: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10,
+        create_tag_if_missing: bool = False
+    ) -> Dict[str, Any]:
+        """Suggest existing concept objects for a phrase/context"""
+        data = {
+            "text": text,
+            "query": query,
+            "context": context or {},
+            "topK": top_k,
+            "createTagIfMissing": create_tag_if_missing
+        }
+        return self._request("POST", "/api/concept-objects/suggest", json=data)
+
+    def search_concept_objects(
+        self,
+        query: Optional[str] = None,
+        text: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Search concept objects by semantic similarity"""
+        data = {
+            "query": query,
+            "text": text,
+            "context": context or {},
+            "topK": top_k
+        }
+        result = self._request("POST", "/api/concept-objects/search", json=data)
+        return result["results"]
+
+    def suggest_concept_object_prototypes(
+        self,
+        label: str = "",
+        properties: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        category_prototype_uuids: Optional[List[str]] = None,
+        top_k: int = 5
+    ) -> Dict[str, Any]:
+        """Suggest category prototypes for a labelled property set"""
+        data = {
+            "label": label,
+            "properties": properties or [],
+            "context": context or {},
+            "categoryPrototypeUuids": category_prototype_uuids,
+            "topK": top_k
+        }
+        return self._request("POST", "/api/concept-objects/suggest-prototypes", json=data)
+
+    # ===== Composites (v0.2.2) =====
+
+    def create_composite(
+        self,
+        category_prototype_uuid: str,
+        title: str,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        components: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a composite object with components"""
+        data = {
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "components": components or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/composites", json=data)
+
+    def get_composite(self, uuid: str) -> Dict[str, Any]:
+        """Get a composite object by UUID"""
+        return self._request("GET", f"/api/composites/{uuid}")
+
+    def update_composite_component(
+        self,
+        composite_uuid: str,
+        component_uuid: str,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a new version of a composite component"""
+        data = {
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request(
+            "POST",
+            f"/api/composites/{composite_uuid}/components/{component_uuid}/update",
+            json=data
+        )
+
+    # ===== Logic / Syllogisms (v0.2.2) =====
+
+    def create_syllogism(
+        self,
+        title: str,
+        description: str = "",
+        premises: Optional[List[Dict[str, Any]]] = None,
+        conclusion: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a syllogism DAG with premises and a conclusion"""
+        data = {
+            "title": title,
+            "description": description,
+            "premises": premises or [],
+            "conclusion": conclusion,
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/logic/syllogisms", json=data)
+
+    def get_syllogism(self, uuid: str) -> Dict[str, Any]:
+        """Get a compiled syllogism DAG by UUID"""
+        return self._request("GET", f"/api/logic/syllogisms/{uuid}")
+
+    # ===== Market Matching (v0.2.2) =====
+
+    def register_market_match(
+        self,
+        kind: str,
+        actor_id: str,
+        object_uuid: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Register an offer/want market intent"""
+        data = {
+            "kind": kind,
+            "actorId": actor_id,
+            "objectUuid": object_uuid,
+            "tags": tags or [],
+            "properties": properties or []
+        }
+        return self._request("POST", "/api/market/matches/register", json=data)
+
+    def search_market_matches(
+        self,
+        kind: str,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Search for counterparty market intents"""
+        data = {
+            "kind": kind,
+            "tags": tags or [],
+            "properties": properties or []
+        }
+        result = self._request("POST", "/api/market/matches/search", json=data)
+        return result["matches"]
+
+    # ===== Channels (v0.2.2) =====
+
+    def subscribe_channel(
+        self,
+        channel_tag: str,
+        actor_id: str
+    ) -> Dict[str, Any]:
+        """Subscribe an actor to a concept-tag channel"""
+        data = {"channelTag": channel_tag, "actorId": actor_id}
+        return self._request("POST", "/api/channels/subscribe", json=data)
+
+    def post_channel_message(
+        self,
+        channel_tag: str,
+        actor_id: str,
+        message: str,
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Post a message to a concept-tag channel"""
+        data = {
+            "channelTag": channel_tag,
+            "actorId": actor_id,
+            "message": message,
+            "tags": tags or []
+        }
+        return self._request("POST", "/api/channels/messages", json=data)
+
+    def get_channel_feed(self, actor_id: str) -> List[Dict[str, Any]]:
+        """Get the channel feed for an actor's subscriptions"""
+        result = self._request(
+            "GET",
+            "/api/channels/feed",
+            params={"actorId": actor_id}
+        )
+        return result["items"]
+
+    # ===== Repeating Events (v0.2.2) =====
+
+    def create_repeating_event(
+        self,
+        category_prototype_uuid: str,
+        title: str,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a public repeating event object"""
+        data = {
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/events/repeating", json=data)
+
+    # ===== Ratings (v0.2.2) =====
+
+    def rate_entity(
+        self,
+        uuid: str,
+        actor_id: str,
+        value: float,
+        metric: str = "overall",
+        scale: float = 5,
+        comment: str = ""
+    ) -> Dict[str, Any]:
+        """Record a rating assertion for an entity"""
+        data = {
+            "actorId": actor_id,
+            "metric": metric,
+            "value": value,
+            "scale": scale,
+            "comment": comment
+        }
+        return self._request("POST", f"/api/ratings/{uuid}", json=data)
+
+    def get_ratings(self, uuid: str) -> Dict[str, Any]:
+        """Get aggregated ratings for an entity"""
+        return self._request("GET", f"/api/ratings/{uuid}")
+
 
 # Alias for scp_alg_test compatibility
 class KSGGroundTruth:

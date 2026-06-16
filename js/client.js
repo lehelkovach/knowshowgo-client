@@ -532,5 +532,112 @@ export class KnowShowGoClient {
       }
     });
   }
+
+  // ===== Concept Objects (v0.2.2) =====
+  suggest_concept_objects({ text = null, query = null, context = {}, top_k = 10, create_tag_if_missing = false } = {}) {
+    return this._request('POST', '/api/concept-objects/suggest', {
+      json: { text, query, context, topK: top_k, createTagIfMissing: create_tag_if_missing }
+    });
+  }
+
+  search_concept_objects({ query = null, text = null, context = {}, top_k = 10 } = {}) {
+    return this._request('POST', '/api/concept-objects/search', {
+      json: { query, text, context, topK: top_k }
+    }).then(r => r.results);
+  }
+
+  suggest_concept_object_prototypes({ label = '', properties = [], context = {}, category_prototype_uuids = null, top_k = 5 } = {}) {
+    return this._request('POST', '/api/concept-objects/suggest-prototypes', {
+      json: { label, properties, context, categoryPrototypeUuids: category_prototype_uuids, topK: top_k }
+    });
+  }
+
+  // ===== Composites (v0.2.2) =====
+  create_composite({ category_prototype_uuid, title, summary = '', tags = [], properties = [], components = [], provenance = null }) {
+    return this._request('POST', '/api/composites', {
+      json: {
+        categoryPrototypeUuid: category_prototype_uuid,
+        title,
+        summary,
+        tags,
+        properties,
+        components,
+        provenance
+      }
+    });
+  }
+
+  get_composite(uuid) {
+    return this._request('GET', `/api/composites/${encodeURIComponent(uuid)}`);
+  }
+
+  update_composite_component(composite_uuid, component_uuid, { title, summary, tags = [], properties = [], provenance = null } = {}) {
+    return this._request(
+      'POST',
+      `/api/composites/${encodeURIComponent(composite_uuid)}/components/${encodeURIComponent(component_uuid)}/update`,
+      { json: { title, summary, tags, properties, provenance } }
+    );
+  }
+
+  // ===== Logic / Syllogisms (v0.2.2) =====
+  create_syllogism({ title, description = '', premises = [], conclusion = null, provenance = null }) {
+    return this._request('POST', '/api/logic/syllogisms', {
+      json: { title, description, premises, conclusion, provenance }
+    });
+  }
+
+  get_syllogism(uuid) {
+    return this._request('GET', `/api/logic/syllogisms/${encodeURIComponent(uuid)}`);
+  }
+
+  // ===== Market Matching (v0.2.2) =====
+  register_market_match({ kind, actor_id, object_uuid = null, tags = [], properties = [] }) {
+    return this._request('POST', '/api/market/matches/register', {
+      json: { kind, actorId: actor_id, objectUuid: object_uuid, tags, properties }
+    });
+  }
+
+  search_market_matches({ kind, tags = [], properties = [] }) {
+    return this._request('POST', '/api/market/matches/search', {
+      json: { kind, tags, properties }
+    }).then(r => r.matches);
+  }
+
+  // ===== Channels (v0.2.2) =====
+  subscribe_channel({ channel_tag, actor_id }) {
+    return this._request('POST', '/api/channels/subscribe', {
+      json: { channelTag: channel_tag, actorId: actor_id }
+    });
+  }
+
+  post_channel_message({ channel_tag, actor_id, message, tags = [] }) {
+    return this._request('POST', '/api/channels/messages', {
+      json: { channelTag: channel_tag, actorId: actor_id, message, tags }
+    });
+  }
+
+  get_channel_feed(actor_id) {
+    return this._request('GET', '/api/channels/feed', {
+      params: { actorId: actor_id }
+    }).then(r => r.items);
+  }
+
+  // ===== Repeating Events (v0.2.2) =====
+  create_repeating_event({ category_prototype_uuid, title, tags = [], properties = [], provenance = null }) {
+    return this._request('POST', '/api/events/repeating', {
+      json: { categoryPrototypeUuid: category_prototype_uuid, title, tags, properties, provenance }
+    });
+  }
+
+  // ===== Ratings (v0.2.2) =====
+  rate_entity(uuid, { actor_id, value, metric = 'overall', scale = 5, comment = '' } = {}) {
+    return this._request('POST', `/api/ratings/${encodeURIComponent(uuid)}`, {
+      json: { actorId: actor_id, metric, value, scale, comment }
+    });
+  }
+
+  get_ratings(uuid) {
+    return this._request('GET', `/api/ratings/${encodeURIComponent(uuid)}`);
+  }
 }
 

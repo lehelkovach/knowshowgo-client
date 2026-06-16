@@ -437,3 +437,280 @@ test('import_procedure_json maps form element category field', async () => {
   assert.equal(body.procedure.title, 'Apply');
   assert.equal(body.formElementCategoryPrototypeUuid, 'fe-cat-1');
 });
+
+// ===== Concept Objects =====
+test('suggest_concept_objects maps text/top_k/create flag', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, candidates: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.suggest_concept_objects({ text: 'Bowie', top_k: 5, create_tag_if_missing: true });
+  assert.equal(calls[0].url, 'https://example.test/api/concept-objects/suggest');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.text, 'Bowie');
+  assert.equal(body.topK, 5);
+  assert.equal(body.createTagIfMissing, true);
+});
+
+test('search_concept_objects unwraps results and maps top_k', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, results: [{ uuid: 'o1' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const results = await client.search_concept_objects({ query: 'Bowie', top_k: 3 });
+  assert.equal(results[0].uuid, 'o1');
+  assert.equal(calls[0].url, 'https://example.test/api/concept-objects/search');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.query, 'Bowie');
+  assert.equal(body.topK, 3);
+});
+
+test('suggest_concept_object_prototypes maps category uuids and top_k', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, selected: null, candidates: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.suggest_concept_object_prototypes({
+    label: 'Person',
+    properties: [{ name: 'name', type: 'string' }],
+    category_prototype_uuids: ['cat-1'],
+    top_k: 4
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/concept-objects/suggest-prototypes');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.label, 'Person');
+  assert.deepEqual(body.categoryPrototypeUuids, ['cat-1']);
+  assert.equal(body.topK, 4);
+});
+
+// ===== Composites =====
+test('create_composite maps category and components', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, composite: { object: { uuid: 'comp-1' } } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.create_composite({
+    category_prototype_uuid: 'cat-1',
+    title: 'Band',
+    components: [{ categoryPrototypeUuid: 'cat-1', title: 'Member' }]
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/composites');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.categoryPrototypeUuid, 'cat-1');
+  assert.equal(body.title, 'Band');
+  assert.equal(body.components.length, 1);
+});
+
+test('get_composite targets composite uuid endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, components: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.get_composite('comp-1');
+  assert.equal(calls[0].url, 'https://example.test/api/composites/comp-1');
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+test('update_composite_component builds nested component update URL', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, previous_component_uuid: 'cmp-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.update_composite_component('comp-1', 'cmp-1', { title: 'Member v2' });
+  assert.equal(calls[0].url, 'https://example.test/api/composites/comp-1/components/cmp-1/update');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.title, 'Member v2');
+});
+
+// ===== Logic / Syllogisms =====
+test('create_syllogism posts premises and conclusion', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, syllogism_uuid: 'syl-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.create_syllogism({
+    title: 'Mortality',
+    premises: [{ text: 'All men are mortal' }],
+    conclusion: { text: 'Socrates is mortal' }
+  });
+  assert.equal(result.syllogism_uuid, 'syl-1');
+  assert.equal(calls[0].url, 'https://example.test/api/logic/syllogisms');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.premises.length, 1);
+  assert.deepEqual(body.conclusion, { text: 'Socrates is mortal' });
+});
+
+test('get_syllogism targets syllogism uuid endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, steps: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.get_syllogism('syl-1');
+  assert.equal(calls[0].url, 'https://example.test/api/logic/syllogisms/syl-1');
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+// ===== Market =====
+test('register_market_match maps actor_id and object_uuid', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, intent_uuid: 'intent-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.register_market_match({ kind: 'offer', actor_id: 'actor-1', object_uuid: 'obj-1', tags: ['#[guitar]'] });
+  assert.equal(calls[0].url, 'https://example.test/api/market/matches/register');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.kind, 'offer');
+  assert.equal(body.actorId, 'actor-1');
+  assert.equal(body.objectUuid, 'obj-1');
+});
+
+test('search_market_matches unwraps matches array', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, matches: [{ score: 2 }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const matches = await client.search_market_matches({ kind: 'offer', tags: ['#[guitar]'] });
+  assert.equal(matches[0].score, 2);
+  assert.equal(calls[0].url, 'https://example.test/api/market/matches/search');
+});
+
+// ===== Channels =====
+test('subscribe_channel maps channel_tag and actor_id', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, subscription_uuid: 'sub-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.subscribe_channel({ channel_tag: '#[news]', actor_id: 'actor-1' });
+  assert.equal(calls[0].url, 'https://example.test/api/channels/subscribe');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.channelTag, '#[news]');
+  assert.equal(body.actorId, 'actor-1');
+});
+
+test('post_channel_message maps message fields', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, message_uuid: 'msg-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.post_channel_message({ channel_tag: '#[news]', actor_id: 'actor-2', message: 'hi', tags: ['#[t]'] });
+  assert.equal(calls[0].url, 'https://example.test/api/channels/messages');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.channelTag, '#[news]');
+  assert.equal(body.actorId, 'actor-2');
+  assert.equal(body.message, 'hi');
+});
+
+test('get_channel_feed passes actorId param and unwraps items', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, items: [{ uuid: 'm1' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const items = await client.get_channel_feed('actor-1');
+  assert.equal(items[0].uuid, 'm1');
+  assert.match(calls[0].url, /\/api\/channels\/feed\?/);
+  assert.match(calls[0].url, /actorId=actor-1/);
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+// ===== Events =====
+test('create_repeating_event maps category and title', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, event_uuid: 'evt-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.create_repeating_event({ category_prototype_uuid: 'cat-1', title: 'Standup', tags: ['#[standup]'] });
+  assert.equal(result.event_uuid, 'evt-1');
+  assert.equal(calls[0].url, 'https://example.test/api/events/repeating');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.categoryPrototypeUuid, 'cat-1');
+  assert.equal(body.title, 'Standup');
+});
+
+// ===== Ratings =====
+test('rate_entity maps actor_id/value/metric to rating endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, rating: { id: 'a1' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.rate_entity('obj-1', { actor_id: 'actor-1', value: 4, metric: 'quality' });
+  assert.equal(calls[0].url, 'https://example.test/api/ratings/obj-1');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.actorId, 'actor-1');
+  assert.equal(body.value, 4);
+  assert.equal(body.metric, 'quality');
+  assert.equal(body.scale, 5);
+});
+
+test('get_ratings targets ratings uuid endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, summary: {}, evidence: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.get_ratings('obj-1');
+  assert.equal(calls[0].url, 'https://example.test/api/ratings/obj-1');
+  assert.equal(calls[0].options.method, 'GET');
+});

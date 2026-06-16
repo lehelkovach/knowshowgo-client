@@ -387,6 +387,315 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
 
+    # ===== Concept Objects =====
+
+    def test_suggest_concept_objects_maps_fields(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "candidates": []})
+        )
+
+        client.suggest_concept_objects(text="Bowie", top_k=5, create_tag_if_missing=True)
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/concept-objects/suggest",
+            json={
+                "text": "Bowie",
+                "query": None,
+                "context": {},
+                "topK": 5,
+                "createTagIfMissing": True,
+            },
+        )
+
+    def test_search_concept_objects_unwraps_results(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "results": [{"uuid": "o1"}]})
+        )
+
+        results = client.search_concept_objects(query="Bowie", top_k=3)
+
+        self.assertEqual(results[0]["uuid"], "o1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/concept-objects/search",
+            json={"query": "Bowie", "text": None, "context": {}, "topK": 3},
+        )
+
+    def test_suggest_concept_object_prototypes_maps_fields(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selected": None, "candidates": []})
+        )
+
+        client.suggest_concept_object_prototypes(
+            label="Person",
+            properties=[{"name": "name", "type": "string"}],
+            category_prototype_uuids=["cat-1"],
+            top_k=4,
+        )
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/concept-objects/suggest-prototypes",
+            json={
+                "label": "Person",
+                "properties": [{"name": "name", "type": "string"}],
+                "context": {},
+                "categoryPrototypeUuids": ["cat-1"],
+                "topK": 4,
+            },
+        )
+
+    # ===== Composites =====
+
+    def test_create_composite_maps_category_and_components(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "composite": {"object": {"uuid": "comp-1"}}})
+        )
+
+        client.create_composite(
+            category_prototype_uuid="cat-1",
+            title="Band",
+            components=[{"categoryPrototypeUuid": "cat-1", "title": "Member"}],
+        )
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/composites",
+            json={
+                "categoryPrototypeUuid": "cat-1",
+                "title": "Band",
+                "summary": "",
+                "tags": [],
+                "properties": [],
+                "components": [{"categoryPrototypeUuid": "cat-1", "title": "Member"}],
+                "provenance": None,
+            },
+        )
+
+    def test_get_composite_targets_uuid(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "components": []})
+        )
+
+        client.get_composite("comp-1")
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/composites/comp-1",
+        )
+
+    def test_update_composite_component_builds_nested_url(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "previous_component_uuid": "cmp-1"})
+        )
+
+        client.update_composite_component("comp-1", "cmp-1", title="Member v2")
+
+        called_args = client.session.request.call_args.args
+        self.assertEqual(
+            called_args[1],
+            "https://example.test/api/composites/comp-1/components/cmp-1/update",
+        )
+        self.assertEqual(client.session.request.call_args.kwargs["json"]["title"], "Member v2")
+
+    # ===== Logic / Syllogisms =====
+
+    def test_create_syllogism_posts_premises_and_conclusion(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "syllogism_uuid": "syl-1"})
+        )
+
+        result = client.create_syllogism(
+            title="Mortality",
+            premises=[{"text": "All men are mortal"}],
+            conclusion={"text": "Socrates is mortal"},
+        )
+
+        self.assertEqual(result["syllogism_uuid"], "syl-1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/logic/syllogisms",
+            json={
+                "title": "Mortality",
+                "description": "",
+                "premises": [{"text": "All men are mortal"}],
+                "conclusion": {"text": "Socrates is mortal"},
+                "provenance": None,
+            },
+        )
+
+    def test_get_syllogism_targets_uuid(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "steps": []})
+        )
+
+        client.get_syllogism("syl-1")
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/logic/syllogisms/syl-1",
+        )
+
+    # ===== Market =====
+
+    def test_register_market_match_maps_actor_and_object(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "intent_uuid": "intent-1"})
+        )
+
+        client.register_market_match(
+            kind="offer", actor_id="actor-1", object_uuid="obj-1", tags=["#[guitar]"]
+        )
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/market/matches/register",
+            json={
+                "kind": "offer",
+                "actorId": "actor-1",
+                "objectUuid": "obj-1",
+                "tags": ["#[guitar]"],
+                "properties": [],
+            },
+        )
+
+    def test_search_market_matches_unwraps_matches(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "matches": [{"score": 2}]})
+        )
+
+        matches = client.search_market_matches(kind="offer", tags=["#[guitar]"])
+
+        self.assertEqual(matches[0]["score"], 2)
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/market/matches/search",
+            json={"kind": "offer", "tags": ["#[guitar]"], "properties": []},
+        )
+
+    # ===== Channels =====
+
+    def test_subscribe_channel_maps_fields(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "subscription_uuid": "sub-1"})
+        )
+
+        client.subscribe_channel(channel_tag="#[news]", actor_id="actor-1")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/channels/subscribe",
+            json={"channelTag": "#[news]", "actorId": "actor-1"},
+        )
+
+    def test_post_channel_message_maps_fields(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "message_uuid": "msg-1"})
+        )
+
+        client.post_channel_message(
+            channel_tag="#[news]", actor_id="actor-2", message="hi", tags=["#[t]"]
+        )
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/channels/messages",
+            json={
+                "channelTag": "#[news]",
+                "actorId": "actor-2",
+                "message": "hi",
+                "tags": ["#[t]"],
+            },
+        )
+
+    def test_get_channel_feed_passes_param_and_unwraps_items(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "items": [{"uuid": "m1"}]})
+        )
+
+        items = client.get_channel_feed("actor-1")
+
+        self.assertEqual(items[0]["uuid"], "m1")
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/channels/feed",
+            params={"actorId": "actor-1"},
+        )
+
+    # ===== Events =====
+
+    def test_create_repeating_event_maps_category_and_title(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "event_uuid": "evt-1"})
+        )
+
+        result = client.create_repeating_event(
+            category_prototype_uuid="cat-1", title="Standup", tags=["#[standup]"]
+        )
+
+        self.assertEqual(result["event_uuid"], "evt-1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/events/repeating",
+            json={
+                "categoryPrototypeUuid": "cat-1",
+                "title": "Standup",
+                "tags": ["#[standup]"],
+                "properties": [],
+                "provenance": None,
+            },
+        )
+
+    # ===== Ratings =====
+
+    def test_rate_entity_maps_fields(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "rating": {"id": "a1"}})
+        )
+
+        client.rate_entity("obj-1", actor_id="actor-1", value=4, metric="quality")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/ratings/obj-1",
+            json={
+                "actorId": "actor-1",
+                "metric": "quality",
+                "value": 4,
+                "scale": 5,
+                "comment": "",
+            },
+        )
+
+    def test_get_ratings_targets_uuid(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "summary": {}, "evidence": []})
+        )
+
+        client.get_ratings("obj-1")
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/ratings/obj-1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
