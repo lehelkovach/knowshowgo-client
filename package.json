@@ -1,13 +1,16 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
-  "version": "0.2.1",
+  "version": "0.2.3-dev-client",
   "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
-  "main": "src/index.js",
-  "types": "src/types/index.d.ts",
+  "type": "module",
+  "main": "js/index.js",
+  "types": "js/client.js",
   "exports": {
     ".": {
-      "import": "./src/index.js",
-      "require": "./dist/index.cjs"
+      "import": "./js/index.js"
+    },
+    "./client": {
+      "import": "./js/client.js"
     }
   },
   "repository": {
@@ -28,7 +31,7 @@
   "author": "Leh Kovach",
   "license": "MIT",
   "peerDependencies": {
-    "knowshowgo": "^0.2.1"
+    "knowshowgo": "0.2.3-dev"
   },
   "dependencies": {
     "node-fetch": "^2.6.0"
@@ -38,15 +41,18 @@
     "esbuild": "^0.17.0"
   },
   "scripts": {
-    "test": "jest",
-    "test:integration": "jest --testPathPattern=integration",
+    "test": "node --test js/client.test.mjs",
+    "test:integration": "node --test scripts/live-contract-smoke.js",
+    "test:integration:live": "node scripts/live-contract-smoke.js",
     "test:coverage": "jest --coverage",
-    "build": "esbuild src/index.js --bundle --platform=node --outfile=dist/index.cjs",
+    "build": "esbuild js/index.js --bundle --platform=node --format=esm --outfile=dist/index.js",
     "prepack": "npm run build && npm run test",
     "prepublishOnly": "npm run test && npm run test:integration"
   },
   "files": [
-    "src",
+    "js",
+    "python",
+    "scripts",
     "dist",
     "README.md",
     "LICENSE"
