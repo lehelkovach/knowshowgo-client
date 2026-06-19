@@ -395,14 +395,15 @@ class TestKnowShowGoClient(unittest.TestCase):
             return_value=FakeResponse({"ok": True, "candidates": []})
         )
 
-        client.suggest_concept_objects(text="Bowie", top_k=5, create_tag_if_missing=True)
+        result = client.suggest_concept_objects(text="Bowie", top_k=5, create_tag_if_missing=True)
+        self.assertEqual(result["suggestions"], [])
 
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/concept-objects/suggest",
             json={
                 "text": "Bowie",
-                "query": None,
+                "query": "Bowie",
                 "context": {},
                 "topK": 5,
                 "createTagIfMissing": True,
@@ -695,6 +696,31 @@ class TestKnowShowGoClient(unittest.TestCase):
             "GET",
             "https://example.test/api/ratings/obj-1",
         )
+
+    def test_connect_validates_release_manifest(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "channel": "dev",
+                "release": "v0.2.3-dev",
+                "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
+            })
+        )
+        manifest = client.connect()
+        self.assertEqual(manifest["channel"], "dev")
+
+    def test_resolve_object_adds_object_uuid_alias(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selectedObjectUuid": "obj-9"})
+        )
+        result = client.resolve_object(object_lineage_key="line-1")
+        self.assertEqual(result["objectUuid"], "obj-9")
+
+    def test_suggest_concept_objects_requires_text(self):
+        client = KnowShowGoClient("https://example.test")
+        with self.assertRaises(ValueError):
+            client.suggest_concept_objects()
 
 
 if __name__ == "__main__":

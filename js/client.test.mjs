@@ -452,6 +452,7 @@ test('suggest_concept_objects maps text/top_k/create flag', async () => {
   assert.equal(calls[0].url, 'https://example.test/api/concept-objects/suggest');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.text, 'Bowie');
+  assert.equal(body.query, 'Bowie');
   assert.equal(body.topK, 5);
   assert.equal(body.createTagIfMissing, true);
 });
@@ -713,4 +714,49 @@ test('get_ratings targets ratings uuid endpoint', async () => {
   await client.get_ratings('obj-1');
   assert.equal(calls[0].url, 'https://example.test/api/ratings/obj-1');
   assert.equal(calls[0].options.method, 'GET');
+});
+
+test('connect validates release manifest channel', async () => {
+  const fetchMock = async (url) => {
+    if (url.endsWith('/api/release')) {
+      return makeJsonResponse({
+        channel: 'dev',
+        release: 'v0.2.3-dev',
+        surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
+      });
+    }
+    return makeJsonResponse({ status: 'ok' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.3-dev' });
+  assert.equal(manifest.channel, 'dev');
+});
+
+test('suggest_concept_objects adds suggestions alias from candidates', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, candidates: [{ uuid: 'c1' }] });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.suggest_concept_objects({ text: 'bike' });
+  assert.deepEqual(result.suggestions, [{ uuid: 'c1' }]);
+});
+
+test('resolve_object adds objectUuid alias', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, selectedObjectUuid: 'obj-9' });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.resolve_object({ object_lineage_key: 'line-1' });
+  assert.equal(result.objectUuid, 'obj-9');
+});
+
+test('resolve_tag delegates to resolve_topic_tag', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ topics: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.resolve_tag({ phrase: '#[test]' });
+  assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
 });

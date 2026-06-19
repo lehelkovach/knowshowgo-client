@@ -12,16 +12,59 @@ import json
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
-    def __init__(self, base_url: str = "http://localhost:3000"):
+    def __init__(self, base_url: str = "http://localhost:3000", enforce_contract: bool = False):
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
+        self._contract = None
+        self._enforce_contract = enforce_contract
+
+    @staticmethod
+    def _merge_aliases(body: Dict[str, Any], aliases: Dict[str, str]) -> Dict[str, Any]:
+        out = dict(body)
+        for alias, source in aliases.items():
+            if alias not in out and source in out:
+                out[alias] = out[source]
+        return out
+
+    def _assert_contract_path(self, method: str, path: str) -> None:
+        if not self._enforce_contract or not self._contract:
+            return
+        prefix = path.split('/:')[0] if '/:' in path else path
+        allowed = any(
+            entry.get('method') == method
+            and (entry.get('path') == path or entry.get('path', '').startswith(prefix))
+            for entry in self._contract
+        )
+        if not allowed:
+            raise ValueError(f'endpoint not in dev contract: {method} {path}')
 
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to API"""
+        self._assert_contract_path(method, endpoint)
         url = f"{self.base_url}{endpoint}"
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
+
+    def get_release_manifest(self) -> Dict[str, Any]:
+        """Fetch server release manifest and supported endpoint contract"""
+        return self._request('GET', '/api/release')
+
+    def connect(
+        self,
+        expected_channel: str = 'dev',
+        expected_release: str = 'v0.2.3-dev',
+        enforce_contract: bool = False
+    ) -> Dict[str, Any]:
+        """Verify dev channel/release and optionally cache contract for path guard"""
+        manifest = self.get_release_manifest()
+        if expected_channel and manifest.get('channel') != expected_channel:
+            raise ValueError(f"expected channel {expected_channel}, got {manifest.get('channel')}")
+        if expected_release and manifest.get('release') != expected_release:
+            raise ValueError(f"expected release {expected_release}, got {manifest.get('release')}")
+        self._contract = (manifest.get('surfaces') or {}).get('clientContract')
+        self._enforce_contract = enforce_contract
+        return manifest
 
     # ===== Prototype Methods =====
 
@@ -351,11 +394,15 @@ class KnowShowGoClient:
             "claim": claim,
             "threshold": threshold
         }
-        return self._request("POST", "/api/verify", json=data)
+        result = self._request("POST", "/api/verify", json=data)
+        result["verified"] = result.get("status") == "verified"
+        return result
 
     def get_fact_stats(self) -> Dict[str, Any]:
         """Get statistics about stored facts"""
-        return self._request("GET", "/api/facts/stats")
+        stats = self._request("GET", "/api/facts/stats")
+        stats["totalFacts"] = stats.get("total", stats.get("totalFacts", 0))
+        return stats
 
     # Alias for scp_alg_test compatibility
     def add_verified_fact(
@@ -420,7 +467,9 @@ class KnowShowGoClient:
         }
         if language is not None:
             data["language"] = language
-        return self._request("POST", "/api/topics", json=data)
+        body = self._request("POST", "/api/topics", json=data)
+        topic = body.get("topic") or {}
+        return {**body, **topic}
 
     def get_topic(self, uuid: str) -> Dict[str, Any]:
         """Get a topic by UUID (unwraps the topic payload)"""
@@ -496,7 +545,10 @@ class KnowShowGoClient:
 
     def get_object_category(self, uuid: str) -> Dict[str, Any]:
         """Get an object category by UUID"""
-        return self._request("GET", f"/api/object-categories/{uuid}")
+        body = self._request("GET", f"/api/object-categories/{uuid}")
+        category = body.get("category") or {}
+        body["categoryPrototypeUuid"] = body.get("categoryPrototypeUuid") or category.get("uuid") or uuid
+        return body
 
     # ===== Objects (v0.2.2) =====
 
@@ -573,7 +625,9 @@ class KnowShowGoClient:
             "ownerUserId": owner_user_id,
             "agentSessionId": agent_session_id
         }
-        return self._request("POST", "/api/objects/resolve", json=data)
+        result = self._request("POST", "/api/objects/resolve", json=data)
+        result["objectUuid"] = result.get("objectUuid") or result.get("selectedObjectUuid")
+        return result
 
     def generalize_object(
         self,
@@ -767,14 +821,19 @@ class KnowShowGoClient:
         create_tag_if_missing: bool = False
     ) -> Dict[str, Any]:
         """Suggest existing concept objects for a phrase/context"""
+        text_input = text or query
+        if not text_input or not str(text_input).strip():
+            raise ValueError("text or query is required for suggest_concept_objects")
         data = {
-            "text": text,
-            "query": query,
+            "text": text_input,
+            "query": text_input,
             "context": context or {},
             "topK": top_k,
             "createTagIfMissing": create_tag_if_missing
         }
-        return self._request("POST", "/api/concept-objects/suggest", json=data)
+        body = self._request("POST", "/api/concept-objects/suggest", json=data)
+        body["suggestions"] = body.get("suggestions") or body.get("candidates") or []
+        return body
 
     def search_concept_objects(
         self,
@@ -802,14 +861,19 @@ class KnowShowGoClient:
         top_k: int = 5
     ) -> Dict[str, Any]:
         """Suggest category prototypes for a labelled property set"""
+        props = properties or []
+        if not props:
+            raise ValueError("properties are required for suggest_concept_object_prototypes")
         data = {
             "label": label,
-            "properties": properties or [],
+            "properties": props,
             "context": context or {},
             "categoryPrototypeUuids": category_prototype_uuids,
             "topK": top_k
         }
-        return self._request("POST", "/api/concept-objects/suggest-prototypes", json=data)
+        body = self._request("POST", "/api/concept-objects/suggest-prototypes", json=data)
+        body["suggestions"] = body.get("suggestions") or body.get("candidates") or []
+        return body
 
     # ===== Composites (v0.2.2) =====
 
@@ -905,7 +969,10 @@ class KnowShowGoClient:
             "tags": tags or [],
             "properties": properties or []
         }
-        return self._request("POST", "/api/market/matches/register", json=data)
+        result = self._request("POST", "/api/market/matches/register", json=data)
+        result["matchUuid"] = result.get("matchUuid") or result.get("intent_uuid")
+        result["intent_uuid"] = result.get("intent_uuid") or result.get("matchUuid")
+        return result
 
     def search_market_matches(
         self,
@@ -1002,6 +1069,167 @@ class KnowShowGoClient:
     def get_ratings(self, uuid: str) -> Dict[str, Any]:
         """Get aggregated ratings for an entity"""
         return self._request("GET", f"/api/ratings/{uuid}")
+
+    # ===== Legacy knode =====
+
+    def create_knode(
+        self,
+        label: str,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Create a legacy knode document node"""
+        data = {
+            "label": label,
+            "summary": summary,
+            "tags": tags or [],
+            "metadata": metadata or {}
+        }
+        result = self._request("POST", "/api/knodes", json=data)
+        return result["uuid"]
+
+    # ===== Graph query (devExtended) =====
+
+    def query_graph(
+        self,
+        search: Optional[Dict[str, Any]] = None,
+        traverse: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Run ad-hoc graph search + traversal query"""
+        return self._request("POST", "/api/query", json={"search": search, "traverse": traverse})
+
+    # ===== Seeds =====
+
+    def seed_osl_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/osl-agent", json=body or {})
+
+    def seed_openclaw_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/openclaw-agent", json=body or {})
+
+    # ===== Experimental (dev preview) =====
+
+    def create_vault(
+        self,
+        owner_user_id: str,
+        agent_session_id: Optional[str] = None,
+        title: str = "Personal vault",
+        tags: Optional[List[str]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "title": title,
+            "tags": tags,
+            "provenance": provenance
+        }
+        body = self._request("POST", "/api/vaults", json=data)
+        body["vaultUuid"] = body.get("vaultUuid") or body.get("vault_uuid")
+        return body
+
+    def personal_remember(
+        self,
+        owner_user_id: str,
+        title: str,
+        agent_session_id: Optional[str] = None,
+        vault_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: str = "PersonalMemory",
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "vaultUuid": vault_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/personal/remember", json=data)
+
+    def personal_recall(
+        self,
+        owner_user_id: str,
+        query: str,
+        vault_uuid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params = {"ownerUserId": owner_user_id, "query": query}
+        if vault_uuid:
+            params["vaultUuid"] = vault_uuid
+        return self._request("GET", "/api/personal/recall", params=params)
+
+    def ingest_private_payment(
+        self,
+        owner_user_id: str,
+        agent_session_id: str,
+        label: str,
+        text: str
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "label": label,
+            "text": text
+        }
+        return self._request("POST", "/api/private/payment/ingest", json=data)
+
+    def list_private_payments(
+        self,
+        owner_user_id: str,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params = {"ownerUserId": owner_user_id}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return self._request("GET", "/api/private/payments", params=params)
+
+    def get_private_payment(self, uuid: str, owner_user_id: str) -> Dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/private/payment/{uuid}",
+            params={"ownerUserId": owner_user_id}
+        )
+
+    def lookup_private_payment(
+        self,
+        owner_user_id: str,
+        agent_session_id: str
+    ) -> Dict[str, Any]:
+        data = {"ownerUserId": owner_user_id, "agentSessionId": agent_session_id}
+        return self._request("POST", "/api/private/payment/lookup", json=data)
+
+    # ===== Compatibility aliases =====
+
+    def resolve_tag(self, **kwargs) -> Dict[str, Any]:
+        return self.resolve_topic_tag(**kwargs)
+
+    def repair_selector(self, procedure_uuid: str, **kwargs) -> Dict[str, Any]:
+        return self.repair_procedure_selector(
+            procedure_uuid,
+            step_uuid=kwargs.get("step_uuid") or kwargs.get("stepUuid"),
+            form_element_uuid=kwargs.get("form_element_uuid") or kwargs.get("formElementUuid"),
+            failed_selector=kwargs.get("failed_selector") or kwargs.get("failedSelector"),
+            repaired_selector=kwargs.get("repaired_selector") or kwargs.get("repairedSelector"),
+            provenance=kwargs.get("provenance")
+        )
+
+    def suggest_prototypes(self, **kwargs) -> Dict[str, Any]:
+        return self.suggest_concept_object_prototypes(
+            label=kwargs.get("label", ""),
+            properties=kwargs.get("properties"),
+            context=kwargs.get("context"),
+            category_prototype_uuids=kwargs.get("category_prototype_uuids")
+            or kwargs.get("categoryPrototypeUuids"),
+            top_k=kwargs.get("top_k", kwargs.get("topK", 5))
+        )
 
 
 # Alias for scp_alg_test compatibility
