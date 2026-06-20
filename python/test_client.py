@@ -696,6 +696,64 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api/ratings/obj-1",
         )
 
+    # ===== Prototype / centroid mechanics =====
+
+    def test_generalize_from_exemplar_maps_payload(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {"prototypeUuid": "p1", "created": True, "exemplarCount": 1, "typicality": 1.0}
+            )
+        )
+
+        out = client.generalize_from_exemplar(
+            text="login username password submit", label="Login Form", threshold=0.8
+        )
+
+        self.assertEqual(out["prototypeUuid"], "p1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/prototypes/generalize",
+            json={
+                "conceptUuid": None,
+                "text": "login username password submit",
+                "jsonObj": None,
+                "prototypeUuid": None,
+                "label": "Login Form",
+                "threshold": 0.8,
+                "createIfNoMatch": True,
+            },
+        )
+
+    def test_match_prototypes_unwraps_matches(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"matches": [{"uuid": "p1", "name": "Login Form", "score": 0.92}]})
+        )
+
+        matches = client.match_prototypes(text="email password submit", top_k=3)
+
+        self.assertEqual(matches[0]["name"], "Login Form")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/prototypes/match",
+            json={"text": "email password submit", "embedding": None, "topK": 3, "threshold": 0.0},
+        )
+
+    def test_attach_exemplar_targets_endpoint(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"prototypeUuid": "p1", "exemplarCount": 2, "typicality": 0.9})
+        )
+
+        client.attach_exemplar("p1", "c2")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/prototypes/p1/exemplars",
+            json={"conceptUuid": "c2"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

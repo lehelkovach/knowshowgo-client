@@ -714,3 +714,60 @@ test('get_ratings targets ratings uuid endpoint', async () => {
   assert.equal(calls[0].url, 'https://example.test/api/ratings/obj-1');
   assert.equal(calls[0].options.method, 'GET');
 });
+
+test('generalize_from_exemplar maps snake_case to camelCase payload', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypeUuid: 'p1', created: true, exemplarCount: 1, typicality: 1 });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.generalize_from_exemplar({
+    text: 'login username password submit',
+    label: 'Login Form',
+    threshold: 0.8,
+    create_if_no_match: true
+  });
+  assert.equal(out.prototypeUuid, 'p1');
+  assert.equal(calls[0].url, 'https://example.test/api/prototypes/generalize');
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.text, 'login username password submit');
+  assert.equal(body.label, 'Login Form');
+  assert.equal(body.threshold, 0.8);
+  assert.equal(body.createIfNoMatch, true);
+});
+
+test('match_prototypes posts query and unwraps matches array', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ matches: [{ uuid: 'p1', name: 'Login Form', score: 0.92 }] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const matches = await client.match_prototypes({ text: 'email password submit', top_k: 3 });
+  assert.equal(matches[0].name, 'Login Form');
+  assert.equal(calls[0].url, 'https://example.test/api/prototypes/match');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.topK, 3);
+});
+
+test('attach_exemplar targets prototype exemplars endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypeUuid: 'p1', exemplarCount: 2, typicality: 0.9 });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.attach_exemplar('p1', 'c2');
+  assert.equal(calls[0].url, 'https://example.test/api/prototypes/p1/exemplars');
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.conceptUuid, 'c2');
+});

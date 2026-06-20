@@ -116,6 +116,46 @@ export class KnowShowGoClient {
     }).then(r => r.associations);
   }
 
+  // ===== Prototype / centroid (prototype-theory) mechanics =====
+  // Generalize an exemplar into a category: the service embeds it (if needed),
+  // finds the nearest prototype by centroid similarity, and folds it in,
+  // creating a new prototype when nothing is similar enough.
+  generalize_from_exemplar({
+    concept_uuid = null,
+    text = null,
+    json_obj = null,
+    prototype_uuid = null,
+    label = null,
+    threshold = 0.85,
+    create_if_no_match = true
+  } = {}) {
+    return this._request('POST', '/api/prototypes/generalize', {
+      json: {
+        conceptUuid: concept_uuid,
+        text,
+        jsonObj: json_obj,
+        prototypeUuid: prototype_uuid,
+        label,
+        threshold,
+        createIfNoMatch: create_if_no_match
+      }
+    });
+  }
+
+  // Match a perceived item (text or embedding) against existing prototypes.
+  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
+    return this._request('POST', '/api/prototypes/match', {
+      json: { text, embedding, topK: top_k, threshold }
+    }).then(r => r.matches);
+  }
+
+  // Attach an existing concept as an exemplar of a known prototype.
+  attach_exemplar(prototype_uuid, concept_uuid) {
+    return this._request('POST', `/api/prototypes/${encodeURIComponent(prototype_uuid)}/exemplars`, {
+      json: { conceptUuid: concept_uuid }
+    });
+  }
+
   // ===== Nodes with Documents =====
   async create_node_with_document({
     label,

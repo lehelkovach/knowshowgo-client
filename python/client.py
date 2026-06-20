@@ -121,6 +121,50 @@ class KnowShowGoClient:
         )
         return result["associations"]
 
+    # ===== Prototype / centroid (prototype-theory) mechanics =====
+    def generalize_from_exemplar(
+        self,
+        concept_uuid: str = None,
+        text: str = None,
+        json_obj: Dict[str, Any] = None,
+        prototype_uuid: str = None,
+        label: str = None,
+        threshold: float = 0.85,
+        create_if_no_match: bool = True
+    ) -> Dict[str, Any]:
+        """Fold an exemplar into the nearest prototype by centroid similarity,
+        creating a new prototype when nothing is similar enough."""
+        data = {
+            "conceptUuid": concept_uuid,
+            "text": text,
+            "jsonObj": json_obj,
+            "prototypeUuid": prototype_uuid,
+            "label": label,
+            "threshold": threshold,
+            "createIfNoMatch": create_if_no_match
+        }
+        return self._request("POST", "/api/prototypes/generalize", json=data)
+
+    def match_prototypes(
+        self,
+        text: str = None,
+        embedding: List[float] = None,
+        top_k: int = 5,
+        threshold: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """Rank existing prototypes by how typical the item is of each."""
+        data = {"text": text, "embedding": embedding, "topK": top_k, "threshold": threshold}
+        result = self._request("POST", "/api/prototypes/match", json=data)
+        return result["matches"]
+
+    def attach_exemplar(self, prototype_uuid: str, concept_uuid: str) -> Dict[str, Any]:
+        """Attach an existing concept as an exemplar of a known prototype."""
+        return self._request(
+            "POST",
+            f"/api/prototypes/{prototype_uuid}/exemplars",
+            json={"conceptUuid": concept_uuid}
+        )
+
     # ===== Node with Document Methods =====
 
     def create_node_with_document(
