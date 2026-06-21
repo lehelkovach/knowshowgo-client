@@ -1,12 +1,12 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
   "version": "0.2.1",
+  "type": "module",
   "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
-  "main": "src/index.js",
-  "types": "src/types/index.d.ts",
+  "main": "js/client.js",
   "exports": {
     ".": {
-      "import": "./src/index.js",
+      "import": "./js/client.js",
       "require": "./dist/index.cjs"
     }
   },
@@ -41,12 +41,13 @@
     "test": "jest",
     "test:integration": "jest --testPathPattern=integration",
     "test:coverage": "jest --coverage",
-    "build": "esbuild src/index.js --bundle --platform=node --outfile=dist/index.cjs",
+    "build": "esbuild js/client.js --bundle --platform=node --outfile=dist/index.cjs",
     "prepack": "npm run build && npm run test",
     "prepublishOnly": "npm run test && npm run test:integration"
   },
   "files": [
-    "src",
+    "js",
+    "python",
     "dist",
     "README.md",
     "LICENSE"
