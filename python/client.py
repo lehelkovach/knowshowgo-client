@@ -12,9 +12,12 @@ import json
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
-    def __init__(self, base_url: str = "http://localhost:3000"):
+    def __init__(self, base_url: str = "http://localhost:3000", prototype_api_prefix: str = "/api2.0"):  # pragma: allowlist secret
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
+        # New features live under the /api2.0 namespace by default; set this to
+        # "/api" to fall back to the retained backward-compatible alias.
+        self.prototype_api_prefix = prototype_api_prefix
 
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to API"""
@@ -143,7 +146,7 @@ class KnowShowGoClient:
             "threshold": threshold,
             "createIfNoMatch": create_if_no_match
         }
-        return self._request("POST", "/api/prototypes/generalize", json=data)
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/generalize", json=data)
 
     def match_prototypes(
         self,
@@ -154,14 +157,14 @@ class KnowShowGoClient:
     ) -> List[Dict[str, Any]]:
         """Rank existing prototypes by how typical the item is of each."""
         data = {"text": text, "embedding": embedding, "topK": top_k, "threshold": threshold}
-        result = self._request("POST", "/api/prototypes/match", json=data)
+        result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
 
     def attach_exemplar(self, prototype_uuid: str, concept_uuid: str) -> Dict[str, Any]:
         """Attach an existing concept as an exemplar of a known prototype."""
         return self._request(
             "POST",
-            f"/api/prototypes/{prototype_uuid}/exemplars",
+            f"{self.prototype_api_prefix}/prototypes/{prototype_uuid}/exemplars",
             json={"conceptUuid": concept_uuid}
         )
 

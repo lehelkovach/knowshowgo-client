@@ -10,9 +10,12 @@ export class KnowShowGoClient {
    * @param {string} [options.baseUrl='http://localhost:3000']
    * @param {typeof fetch} [options.fetchImpl]
    */
-  constructor({ baseUrl = 'http://localhost:3000', fetchImpl } = {}) {
+  constructor({ baseUrl = 'http://localhost:3000', fetchImpl, prototypeApiPrefix = '/api2.0' } = {}) { // pragma: allowlist secret
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.fetch = fetchImpl ?? fetch;
+    // New features live under the /api2.0 namespace by default; set this to
+    // '/api' to fall back to the retained backward-compatible alias.
+    this.prototypeApiPrefix = prototypeApiPrefix;
   }
 
   async _request(method, endpoint, { json, params } = {}) {
@@ -129,7 +132,7 @@ export class KnowShowGoClient {
     threshold = 0.85,
     create_if_no_match = true
   } = {}) {
-    return this._request('POST', '/api/prototypes/generalize', {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/generalize`, {
       json: {
         conceptUuid: concept_uuid,
         text,
@@ -144,14 +147,14 @@ export class KnowShowGoClient {
 
   // Match a perceived item (text or embedding) against existing prototypes.
   match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
-    return this._request('POST', '/api/prototypes/match', {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
       json: { text, embedding, topK: top_k, threshold }
     }).then(r => r.matches);
   }
 
   // Attach an existing concept as an exemplar of a known prototype.
   attach_exemplar(prototype_uuid, concept_uuid) {
-    return this._request('POST', `/api/prototypes/${encodeURIComponent(prototype_uuid)}/exemplars`, {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/${encodeURIComponent(prototype_uuid)}/exemplars`, {
       json: { conceptUuid: concept_uuid }
     });
   }

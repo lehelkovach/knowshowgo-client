@@ -731,7 +731,7 @@ test('generalize_from_exemplar maps snake_case to camelCase payload', async () =
     create_if_no_match: true
   });
   assert.equal(out.prototypeUuid, 'p1');
-  assert.equal(calls[0].url, 'https://example.test/api/prototypes/generalize');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/generalize');
   assert.equal(calls[0].options.method, 'POST');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.text, 'login username password submit');
@@ -751,9 +751,22 @@ test('match_prototypes posts query and unwraps matches array', async () => {
 
   const matches = await client.match_prototypes({ text: 'email password submit', top_k: 3 });
   assert.equal(matches[0].name, 'Login Form');
-  assert.equal(calls[0].url, 'https://example.test/api/prototypes/match');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/match');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.topK, 3);
+});
+
+test('prototypeApiPrefix falls back to the legacy /api alias when requested', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ matches: [] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock, prototypeApiPrefix: '/api' });
+
+  await client.match_prototypes({ text: 'username password submit' });
+  assert.equal(calls[0].url, 'https://example.test/api/prototypes/match');
 });
 
 test('attach_exemplar targets prototype exemplars endpoint', async () => {
@@ -766,7 +779,7 @@ test('attach_exemplar targets prototype exemplars endpoint', async () => {
   const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
 
   await client.attach_exemplar('p1', 'c2');
-  assert.equal(calls[0].url, 'https://example.test/api/prototypes/p1/exemplars');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/p1/exemplars');
   assert.equal(calls[0].options.method, 'POST');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.conceptUuid, 'c2');

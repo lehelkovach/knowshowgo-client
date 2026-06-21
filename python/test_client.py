@@ -713,7 +713,7 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(out["prototypeUuid"], "p1")
         client.session.request.assert_called_once_with(
             "POST",
-            "https://example.test/api/prototypes/generalize",
+            "https://example.test/api2.0/prototypes/generalize",
             json={
                 "conceptUuid": None,
                 "text": "login username password submit",
@@ -736,8 +736,20 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(matches[0]["name"], "Login Form")
         client.session.request.assert_called_once_with(
             "POST",
-            "https://example.test/api/prototypes/match",
+            "https://example.test/api2.0/prototypes/match",
             json={"text": "email password submit", "embedding": None, "topK": 3, "threshold": 0.0},
+        )
+
+    def test_prototype_api_prefix_falls_back_to_legacy_api(self):
+        client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")  # pragma: allowlist secret
+        client.session.request = MagicMock(return_value=FakeResponse({"matches": []}))
+
+        client.match_prototypes(text="username password submit")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/prototypes/match",
+            json={"text": "username password submit", "embedding": None, "topK": 5, "threshold": 0.0},
         )
 
     def test_attach_exemplar_targets_endpoint(self):
@@ -750,7 +762,7 @@ class TestKnowShowGoClient(unittest.TestCase):
 
         client.session.request.assert_called_once_with(
             "POST",
-            "https://example.test/api/prototypes/p1/exemplars",
+            "https://example.test/api2.0/prototypes/p1/exemplars",
             json={"conceptUuid": "c2"},
         )
 
