@@ -12,7 +12,11 @@ export class KnowShowGoClient {
    */
   constructor({ baseUrl = 'http://localhost:3000', fetchImpl, prototypeApiPrefix = '/api2.0' } = {}) { // pragma: allowlist secret
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.fetch = fetchImpl ?? fetch;
+    // Wrap the global fetch so it is always invoked with the correct context.
+    // Calling a stored reference to the browser/Node global `fetch` as a method
+    // (this.fetch(...)) throws "Illegal invocation"; a closure avoids that while
+    // still letting tests inject a plain fetchImpl mock.
+    this.fetch = fetchImpl ?? ((...args) => globalThis.fetch(...args));
     // New features live under the /api2.0 namespace by default; set this to
     // '/api' to fall back to the retained backward-compatible alias.
     this.prototypeApiPrefix = prototypeApiPrefix;
