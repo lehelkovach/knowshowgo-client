@@ -769,6 +769,23 @@ test('prototypeApiPrefix falls back to the legacy /api alias when requested', as
   assert.equal(calls[0].url, 'https://example.test/api/prototypes/match');
 });
 
+test('search_prototypes posts label query and unwraps prototypes array', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypes: [{ uuid: 'p1', name: 'Person' }] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const protos = await client.search_prototypes({ query: 'Pers', top_k: 5 });
+  assert.equal(protos[0].name, 'Person');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/search');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.query, 'Pers');
+  assert.equal(body.topK, 5);
+});
+
 test('attach_exemplar targets prototype exemplars endpoint', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

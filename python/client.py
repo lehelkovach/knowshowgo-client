@@ -160,6 +160,15 @@ class KnowShowGoClient:
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
 
+    def search_prototypes(self, query: str = "", top_k: int = 10) -> List[Dict[str, Any]]:
+        """Label/tag autocomplete over prototypes (e.g. to pick an object "type")."""
+        result = self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototypes/search",
+            json={"query": query, "topK": top_k}
+        )
+        return result["prototypes"]
+
     def attach_exemplar(self, prototype_uuid: str, concept_uuid: str) -> Dict[str, Any]:
         """Attach an existing concept as an exemplar of a known prototype."""
         return self._request(

@@ -152,6 +152,13 @@ export class KnowShowGoClient {
     }).then(r => r.matches);
   }
 
+  // Label/tag autocomplete over prototypes (e.g. to pick an object "type").
+  search_prototypes({ query = '', top_k = 10 } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/search`, {
+      json: { query, topK: top_k }
+    }).then(r => r.prototypes);
+  }
+
   // Attach an existing concept as an exemplar of a known prototype.
   attach_exemplar(prototype_uuid, concept_uuid) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/${encodeURIComponent(prototype_uuid)}/exemplars`, {

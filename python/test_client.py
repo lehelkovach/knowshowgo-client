@@ -752,6 +752,21 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"text": "username password submit", "embedding": None, "topK": 5, "threshold": 0.0},
         )
 
+    def test_search_prototypes_unwraps_prototypes(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"prototypes": [{"uuid": "p1", "name": "Person"}]})
+        )
+
+        protos = client.search_prototypes(query="Pers", top_k=5)
+
+        self.assertEqual(protos[0]["name"], "Person")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/search",
+            json={"query": "Pers", "topK": 5},
+        )
+
     def test_attach_exemplar_targets_endpoint(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(
