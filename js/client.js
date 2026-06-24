@@ -10,12 +10,52 @@ export class KnowShowGoClient {
    * @param {string} [options.baseUrl='http://localhost:3000']
    * @param {typeof fetch} [options.fetchImpl]
    */
-  constructor({ baseUrl = 'http://localhost:3000', fetchImpl } = {}) {
+  constructor({ baseUrl = 'http://localhost:3000', fetchImpl, prototypeApiPrefix = '/api2.0', auto_connect = false } = {}) { // pragma: allowlist secret
     this.baseUrl = baseUrl.replace(/\/+$/, '');
-    this.fetch = fetchImpl ?? fetch;
+    // Wrap the global fetch so it is always invoked with the correct context.
+    // Calling a stored reference to the browser/Node global `fetch` as a method
+    // (this.fetch(...)) throws "Illegal invocation"; a closure avoids that while
+    // still letting tests inject a plain fetchImpl mock.
+    this.fetch = fetchImpl ?? ((...args) => globalThis.fetch(...args));
+    // New features live under the /api2.0 namespace by default; set this to
+    // '/api' to fall back to the retained backward-compatible alias.
+    this.prototypeApiPrefix = prototypeApiPrefix;
+    this._contract = null;
+    this._enforceContract = false;
+    this._connectPromise = auto_connect ? this.connect() : null;
+  }
+
+  /** Cache release manifest; optionally enforce clientContract path allowlist. */
+  async connect({
+    expected_channel = 'dev',
+    expected_release = 'v0.2.3-dev',
+    enforce_contract = false
+  } = {}) {
+    const manifest = await this.get_release_manifest();
+    if (expected_channel && manifest.channel !== expected_channel) {
+      throw new Error(`expected channel ${expected_channel}, got ${manifest.channel}`);
+    }
+    if (expected_release && manifest.release !== expected_release) {
+      throw new Error(`expected release ${expected_release}, got ${manifest.release}`);
+    }
+    this._contract = manifest.surfaces?.clientContract || null;
+    this._enforceContract = enforce_contract;
+    return manifest;
+  }
+
+  _assertContractPath(method, path) {
+    if (!this._enforceContract || !this._contract) return;
+    const prefix = path.split('/:')[0];
+    const allowed = this._contract.some(
+      (entry) => entry.method === method && (entry.path === path || entry.path.startsWith(prefix))
+    );
+    if (!allowed) {
+      throw new Error(`endpoint not in dev contract: ${method} ${path}`);
+    }
   }
 
   async _request(method, endpoint, { json, params } = {}) {
+    this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
     if (params) {
       for (const [k, v] of Object.entries(params)) {
@@ -46,9 +86,13 @@ export class KnowShowGoClient {
     return payload;
   }
 
-  // ===== Health =====
+  // ===== Health & release =====
   health_check() {
     return this._request('GET', '/health');
+  }
+
+  get_release_manifest() {
+    return this._request('GET', '/api/release');
   }
 
   // ===== Prototypes =====
@@ -114,6 +158,53 @@ export class KnowShowGoClient {
     return this._request('GET', `/api/associations/${encodeURIComponent(uuid)}`, {
       params: { direction }
     }).then(r => r.associations);
+  }
+
+  // ===== Prototype / centroid (prototype-theory) mechanics =====
+  // Generalize an exemplar into a category: the service embeds it (if needed),
+  // finds the nearest prototype by centroid similarity, and folds it in,
+  // creating a new prototype when nothing is similar enough.
+  generalize_from_exemplar({
+    concept_uuid = null,
+    text = null,
+    json_obj = null,
+    prototype_uuid = null,
+    label = null,
+    threshold = 0.85,
+    create_if_no_match = true
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/generalize`, {
+      json: {
+        conceptUuid: concept_uuid,
+        text,
+        jsonObj: json_obj,
+        prototypeUuid: prototype_uuid,
+        label,
+        threshold,
+        createIfNoMatch: create_if_no_match
+      }
+    });
+  }
+
+  // Match a perceived item (text or embedding) against existing prototypes.
+  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
+      json: { text, embedding, topK: top_k, threshold }
+    }).then(r => r.matches);
+  }
+
+  // Label/tag autocomplete over prototypes (e.g. to pick an object "type").
+  search_prototypes({ query = '', top_k = 10 } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/search`, {
+      json: { query, topK: top_k }
+    }).then(r => r.prototypes);
+  }
+
+  // Attach an existing concept as an exemplar of a known prototype.
+  attach_exemplar(prototype_uuid, concept_uuid) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/${encodeURIComponent(prototype_uuid)}/exemplars`, {
+      json: { conceptUuid: concept_uuid }
+    });
   }
 
   // ===== Nodes with Documents =====
@@ -251,11 +342,17 @@ export class KnowShowGoClient {
   verify(claim, { threshold = 0.7 } = {}) {
     return this._request('POST', '/api/verify', {
       json: { claim, threshold }
-    });
+    }).then((result) => ({
+      ...result,
+      verified: result.status === 'verified'
+    }));
   }
 
   get_fact_stats() {
-    return this._request('GET', '/api/facts/stats');
+    return this._request('GET', '/api/facts/stats').then((stats) => ({
+      ...stats,
+      totalFacts: stats.total ?? stats.totalFacts ?? 0
+    }));
   }
 
   // Alias for scp_alg_test compatibility
@@ -281,7 +378,10 @@ export class KnowShowGoClient {
   create_topic({ label = null, phrase = null, summary = '', aliases = [], kind = 'topic', language, provenance = null } = {}) {
     return this._request('POST', '/api/topics', {
       json: { label, phrase, summary, aliases, kind, language, provenance }
-    });
+    }).then((body) => ({
+      ...body,
+      ...(body.topic || {})
+    }));
   }
 
   get_topic(uuid) {
@@ -342,7 +442,10 @@ export class KnowShowGoClient {
   }
 
   get_object_category(uuid) {
-    return this._request('GET', `/api/object-categories/${encodeURIComponent(uuid)}`);
+    return this._request('GET', `/api/object-categories/${encodeURIComponent(uuid)}`).then((body) => ({
+      ...body,
+      categoryPrototypeUuid: body.categoryPrototypeUuid ?? body.category?.uuid ?? uuid
+    }));
   }
 
   // ===== Objects (v0.2.2) =====
@@ -409,7 +512,10 @@ export class KnowShowGoClient {
         ownerUserId: owner_user_id,
         agentSessionId: agent_session_id
       }
-    });
+    }).then((body) => ({
+      ...body,
+      objectUuid: body.objectUuid ?? body.selectedObjectUuid
+    }));
   }
 
   generalize_object({
@@ -535,9 +641,16 @@ export class KnowShowGoClient {
 
   // ===== Concept Objects (v0.2.2) =====
   suggest_concept_objects({ text = null, query = null, context = {}, top_k = 10, create_tag_if_missing = false } = {}) {
+    const input = text ?? query;
+    if (!input || !String(input).trim()) {
+      throw new Error('text or query is required for suggest_concept_objects');
+    }
     return this._request('POST', '/api/concept-objects/suggest', {
-      json: { text, query, context, topK: top_k, createTagIfMissing: create_tag_if_missing }
-    });
+      json: { text: input, query: input, context, topK: top_k, createTagIfMissing: create_tag_if_missing }
+    }).then((body) => ({
+      ...body,
+      suggestions: body.suggestions ?? body.candidates ?? []
+    }));
   }
 
   search_concept_objects({ query = null, text = null, context = {}, top_k = 10 } = {}) {
@@ -547,9 +660,15 @@ export class KnowShowGoClient {
   }
 
   suggest_concept_object_prototypes({ label = '', properties = [], context = {}, category_prototype_uuids = null, top_k = 5 } = {}) {
+    if (!Array.isArray(properties) || properties.length === 0) {
+      throw new Error('properties are required for suggest_concept_object_prototypes');
+    }
     return this._request('POST', '/api/concept-objects/suggest-prototypes', {
       json: { label, properties, context, categoryPrototypeUuids: category_prototype_uuids, topK: top_k }
-    });
+    }).then((body) => ({
+      ...body,
+      suggestions: body.suggestions ?? body.candidates ?? []
+    }));
   }
 
   // ===== Composites (v0.2.2) =====
@@ -594,7 +713,11 @@ export class KnowShowGoClient {
   register_market_match({ kind, actor_id, object_uuid = null, tags = [], properties = [] }) {
     return this._request('POST', '/api/market/matches/register', {
       json: { kind, actorId: actor_id, objectUuid: object_uuid, tags, properties }
-    });
+    }).then((body) => ({
+      ...body,
+      matchUuid: body.matchUuid ?? body.intent_uuid,
+      intent_uuid: body.intent_uuid ?? body.matchUuid
+    }));
   }
 
   search_market_matches({ kind, tags = [], properties = [] }) {
@@ -638,6 +761,129 @@ export class KnowShowGoClient {
 
   get_ratings(uuid) {
     return this._request('GET', `/api/ratings/${encodeURIComponent(uuid)}`);
+  }
+
+  // ===== Legacy knode =====
+  async create_knode({ label, summary = '', tags = [], metadata = {} } = {}) {
+    const out = await this._request('POST', '/api/knodes', {
+      json: { label, summary, tags, metadata }
+    });
+    return out.uuid;
+  }
+
+  // ===== Graph query (devExtended) =====
+  query_graph({ search, traverse } = {}) {
+    return this._request('POST', '/api/query', {
+      json: { search, traverse }
+    });
+  }
+
+  // ===== Seeds =====
+  seed_osl_agent(body = {}) {
+    return this._request('POST', '/api/seed/osl-agent', { json: body });
+  }
+
+  seed_openclaw_agent(body = {}) {
+    return this._request('POST', '/api/seed/openclaw-agent', { json: body });
+  }
+
+  // ===== Experimental (dev preview) =====
+  create_vault({ owner_user_id, agent_session_id = null, title = 'Personal vault', tags, provenance = null } = {}) {
+    return this._request('POST', '/api/vaults', {
+      json: {
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        title,
+        tags,
+        provenance
+      }
+    }).then((body) => ({
+      ...body,
+      vaultUuid: body.vaultUuid ?? body.vault_uuid
+    }));
+  }
+
+  personal_remember({
+    owner_user_id,
+    agent_session_id = null,
+    vault_uuid = null,
+    category_name,
+    parent_category_name = 'PersonalMemory',
+    title,
+    summary = '',
+    tags = [],
+    properties = [],
+    provenance = null
+  } = {}) {
+    return this._request('POST', '/api/personal/remember', {
+      json: {
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        vaultUuid: vault_uuid,
+        categoryName: category_name,
+        parentCategoryName: parent_category_name,
+        title,
+        summary,
+        tags,
+        properties,
+        provenance
+      }
+    });
+  }
+
+  personal_recall({ owner_user_id, query, vault_uuid = null } = {}) {
+    return this._request('GET', '/api/personal/recall', {
+      params: { ownerUserId: owner_user_id, query, vaultUuid: vault_uuid }
+    });
+  }
+
+  ingest_private_payment({ owner_user_id, agent_session_id, label, text } = {}) {
+    return this._request('POST', '/api/private/payment/ingest', {
+      json: { ownerUserId: owner_user_id, agentSessionId: agent_session_id, label, text }
+    });
+  }
+
+  list_private_payments({ owner_user_id, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/private/payments', {
+      params: { ownerUserId: owner_user_id, agentSessionId: agent_session_id }
+    });
+  }
+
+  get_private_payment(uuid, { owner_user_id } = {}) {
+    return this._request('GET', `/api/private/payment/${encodeURIComponent(uuid)}`, {
+      params: { ownerUserId: owner_user_id }
+    });
+  }
+
+  lookup_private_payment({ owner_user_id, agent_session_id } = {}) {
+    return this._request('POST', '/api/private/payment/lookup', {
+      json: { ownerUserId: owner_user_id, agentSessionId: agent_session_id }
+    });
+  }
+
+  // ===== Compatibility aliases (server dogfood / older names) =====
+  resolve_tag(args) {
+    return this.resolve_topic_tag(args);
+  }
+
+  repair_selector(procedure_uuid, args) {
+    return this.repair_procedure_selector(procedure_uuid, {
+      step_uuid: args.stepUuid ?? args.step_uuid,
+      form_element_uuid: args.formElementUuid ?? args.form_element_uuid,
+      failed_selector: args.failedSelector ?? args.failed_selector,
+      repaired_selector: args.repairedSelector ?? args.repaired_selector,
+      provenance: args.provenance
+    });
+  }
+
+  suggest_prototypes(args) {
+    return this.suggest_concept_object_prototypes({
+      label: args.label,
+      properties: args.properties,
+      context: args.context,
+      category_prototype_uuids: args.categoryPrototypeUuids ?? args.category_prototype_uuids,
+      top_k: args.top_k ?? args.topK
+    });
   }
 }
 

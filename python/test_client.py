@@ -395,14 +395,15 @@ class TestKnowShowGoClient(unittest.TestCase):
             return_value=FakeResponse({"ok": True, "candidates": []})
         )
 
-        client.suggest_concept_objects(text="Bowie", top_k=5, create_tag_if_missing=True)
+        result = client.suggest_concept_objects(text="Bowie", top_k=5, create_tag_if_missing=True)
+        self.assertEqual(result["suggestions"], [])
 
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/concept-objects/suggest",
             json={
                 "text": "Bowie",
-                "query": None,
+                "query": "Bowie",
                 "context": {},
                 "topK": 5,
                 "createTagIfMissing": True,
@@ -695,6 +696,115 @@ class TestKnowShowGoClient(unittest.TestCase):
             "GET",
             "https://example.test/api/ratings/obj-1",
         )
+
+    # ===== Prototype / centroid mechanics =====
+
+    def test_generalize_from_exemplar_maps_payload(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {"prototypeUuid": "p1", "created": True, "exemplarCount": 1, "typicality": 1.0}
+            )
+        )
+
+        out = client.generalize_from_exemplar(
+            text="login username password submit", label="Login Form", threshold=0.8
+        )
+
+        self.assertEqual(out["prototypeUuid"], "p1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/generalize",
+            json={
+                "conceptUuid": None,
+                "text": "login username password submit",
+                "jsonObj": None,
+                "prototypeUuid": None,
+                "label": "Login Form",
+                "threshold": 0.8,
+                "createIfNoMatch": True,
+            },
+        )
+
+    def test_match_prototypes_unwraps_matches(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"matches": [{"uuid": "p1", "name": "Login Form", "score": 0.92}]})
+        )
+
+        matches = client.match_prototypes(text="email password submit", top_k=3)
+
+        self.assertEqual(matches[0]["name"], "Login Form")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/match",
+            json={"text": "email password submit", "embedding": None, "topK": 3, "threshold": 0.0},
+        )
+
+    def test_prototype_api_prefix_falls_back_to_legacy_api(self):
+        client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")  # pragma: allowlist secret
+        client.session.request = MagicMock(return_value=FakeResponse({"matches": []}))
+
+        client.match_prototypes(text="username password submit")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/prototypes/match",
+            json={"text": "username password submit", "embedding": None, "topK": 5, "threshold": 0.0},
+        )
+
+    def test_search_prototypes_unwraps_prototypes(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"prototypes": [{"uuid": "p1", "name": "Person"}]})
+        )
+
+        protos = client.search_prototypes(query="Pers", top_k=5)
+
+        self.assertEqual(protos[0]["name"], "Person")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/search",
+            json={"query": "Pers", "topK": 5},
+        )
+
+    def test_attach_exemplar_targets_endpoint(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"prototypeUuid": "p1", "exemplarCount": 2, "typicality": 0.9})
+        )
+
+        client.attach_exemplar("p1", "c2")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/p1/exemplars",
+            json={"conceptUuid": "c2"},
+        )
+    def test_connect_validates_release_manifest(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "channel": "dev",
+                "release": "v0.2.3-dev",
+                "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
+            })
+        )
+        manifest = client.connect()
+        self.assertEqual(manifest["channel"], "dev")
+
+    def test_resolve_object_adds_object_uuid_alias(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selectedObjectUuid": "obj-9"})
+        )
+        result = client.resolve_object(object_lineage_key="line-1")
+        self.assertEqual(result["objectUuid"], "obj-9")
+
+    def test_suggest_concept_objects_requires_text(self):
+        client = KnowShowGoClient("https://example.test")
+        with self.assertRaises(ValueError):
+            client.suggest_concept_objects()
 
 
 if __name__ == "__main__":

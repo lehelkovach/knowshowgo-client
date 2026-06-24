@@ -452,6 +452,7 @@ test('suggest_concept_objects maps text/top_k/create flag', async () => {
   assert.equal(calls[0].url, 'https://example.test/api/concept-objects/suggest');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.text, 'Bowie');
+  assert.equal(body.query, 'Bowie');
   assert.equal(body.topK, 5);
   assert.equal(body.createTagIfMissing, true);
 });
@@ -713,4 +714,136 @@ test('get_ratings targets ratings uuid endpoint', async () => {
   await client.get_ratings('obj-1');
   assert.equal(calls[0].url, 'https://example.test/api/ratings/obj-1');
   assert.equal(calls[0].options.method, 'GET');
+});
+
+test('generalize_from_exemplar maps snake_case to camelCase payload', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypeUuid: 'p1', created: true, exemplarCount: 1, typicality: 1 });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.generalize_from_exemplar({
+    text: 'login username password submit',
+    label: 'Login Form',
+    threshold: 0.8,
+    create_if_no_match: true
+  });
+  assert.equal(out.prototypeUuid, 'p1');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/generalize');
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.text, 'login username password submit');
+  assert.equal(body.label, 'Login Form');
+  assert.equal(body.threshold, 0.8);
+  assert.equal(body.createIfNoMatch, true);
+});
+
+test('match_prototypes posts query and unwraps matches array', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ matches: [{ uuid: 'p1', name: 'Login Form', score: 0.92 }] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const matches = await client.match_prototypes({ text: 'email password submit', top_k: 3 });
+  assert.equal(matches[0].name, 'Login Form');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/match');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.topK, 3);
+});
+
+test('prototypeApiPrefix falls back to the legacy /api alias when requested', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ matches: [] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock, prototypeApiPrefix: '/api' });
+
+  await client.match_prototypes({ text: 'username password submit' });
+  assert.equal(calls[0].url, 'https://example.test/api/prototypes/match');
+});
+
+test('search_prototypes posts label query and unwraps prototypes array', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypes: [{ uuid: 'p1', name: 'Person' }] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const protos = await client.search_prototypes({ query: 'Pers', top_k: 5 });
+  assert.equal(protos[0].name, 'Person');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/search');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.query, 'Pers');
+  assert.equal(body.topK, 5);
+});
+
+test('attach_exemplar targets prototype exemplars endpoint', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypeUuid: 'p1', exemplarCount: 2, typicality: 0.9 });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.attach_exemplar('p1', 'c2');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/p1/exemplars');
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.conceptUuid, 'c2');
+});
+
+test('connect validates release manifest channel', async () => {
+  const fetchMock = async (url) => {
+    if (url.endsWith('/api/release')) {
+      return makeJsonResponse({
+        channel: 'dev',
+        release: 'v0.2.3-dev',
+        surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
+      });
+    }
+    return makeJsonResponse({ status: 'ok' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.3-dev' });
+  assert.equal(manifest.channel, 'dev');
+});
+
+test('suggest_concept_objects adds suggestions alias from candidates', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, candidates: [{ uuid: 'c1' }] });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.suggest_concept_objects({ text: 'bike' });
+  assert.deepEqual(result.suggestions, [{ uuid: 'c1' }]);
+});
+
+test('resolve_object adds objectUuid alias', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, selectedObjectUuid: 'obj-9' });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.resolve_object({ object_lineage_key: 'line-1' });
+  assert.equal(result.objectUuid, 'obj-9');
+});
+
+test('resolve_tag delegates to resolve_topic_tag', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ topics: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.resolve_tag({ phrase: '#[test]' });
+  assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
 });

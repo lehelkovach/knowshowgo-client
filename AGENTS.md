@@ -15,6 +15,15 @@ python3 -m unittest discover -s python -p 'test_*.py'   # Python unit tests
 npm run build                         # esbuild bundle -> dist/index.cjs
 ```
 
+## API versioning
+
+The KSG service introduces new REST features under the canonical `/api2.0`
+namespace while retaining `/api` as a backward-compatible alias. SDK methods for
+new features default to `/api2.0` and accept a prefix override
+(`prototypeApiPrefix` in JS, `prototype_api_prefix` in Python) so callers can
+fall back to `/api`. When adding a wrapper for a new feature endpoint, build its
+path from that prefix and add parity tests for both namespaces.
+
 ## Cursor Cloud specific instructions
 
 - Install with `npm install --legacy-peer-deps`. The `peerDependencies` entry
