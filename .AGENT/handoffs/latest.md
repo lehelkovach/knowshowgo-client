@@ -1,45 +1,47 @@
 # Latest Client Handoff
 
-Timestamp (UTC): 2026-06-16T16:23:20Z  
-Repo: `knowshowgo-client` (`/agent/repos/knowshowgo-client`)  
-Branch: `cursor/knowshowgo-client-dev-api-sync-e7ec`
+Timestamp (UTC): 2026-06-19T00:10:00Z  
+Repo: ksg-client (`api/` submodule)  
+Branch: `cursor/client-dev-sync-eb91` → merge to `dev`
 
-## Last completed session
+## Branch review (2026-06-19)
 
-- Resumed from: `origin/main` @ `15369bb`
-- Work commit: `b323ecb`
-- Summary:
-  - Consolidated branches into an integration branch off `origin/main`:
-    - Merged own endpoint-parity work (`cursor/knowshowgo-client-endpoint-parity-e7ec`).
-    - Skipped the three competing client rewrites (`client-semantic-api-f16c`,
-      `ksg-dev-api-client-methods`, `sync-ksg-dev-api-client`) — they conflict /
-      produce duplicate method definitions and would discard the parity work.
-    - Skipped docs/fixture/refactor branches as not aligned with API/dev sync.
-  - Synced the client to the KSG `dev` API surface (authoritative). Dev
-    `rest-api.js` matched the referenced spec (no drift), so the work was adding
-    wrappers for the remaining documented surface (JS + Python parity):
-    - concept-objects: `suggest_concept_objects`, `search_concept_objects`,
-      `suggest_concept_object_prototypes`
-    - composites: `create_composite`, `get_composite`, `update_composite_component`
-    - logic/syllogisms: `create_syllogism`, `get_syllogism`
-    - market: `register_market_match`, `search_market_matches`
-    - channels: `subscribe_channel`, `post_channel_message`, `get_channel_feed`
-    - events: `create_repeating_event`
-    - ratings: `rate_entity`, `get_ratings`
-  - Live-validated all new wrappers against a dev server (`origin/dev`) on :3010
-    via a temporary git worktree; the pre-existing :3000 server was left untouched.
+| Branch | Status | Notes |
+|--------|--------|-------|
+| **`origin/dev`** @ `7eec98f` | **Canonical** | Full MVP wrappers (composites, market, channels, logic, ratings). Base for sync. |
+| `cursor/client-dev-sync-eb91` | **Merge this** | `0.2.3-dev-client`, connect/release guard, experimental routes, response aliases, live smoke. |
+| `cursor/sync-ksg-dev-api-client` | Skip | Superseded by `dev`; duplicate rewrite. |
+| `cursor/ksg-dev-api-client-methods` | Skip | Conflicts with dev parity work. |
+| `cursor/client-semantic-api-f16c` | Skip | Older partial semantic wrappers only. |
+| `da98d6b` (detached merge) | Skip | Behind `origin/dev`; do not resurrect. |
 
-## Last verified test results
+## This session
 
-- `node --test js/client.test.mjs` -> pass (37/37)
-- `python3 -m unittest python/test_client.py -v` -> pass (35/35)
-- `python3 -m py_compile python/client.py` -> pass
+- Version `0.2.3-dev-client`, peer `ksg-server@0.2.3-dev`
+- `connect()` + `get_release_manifest()` with optional contract enforcement
+- Response aliases: `objectUuid`, `vaultUuid`, `suggestions`, `totalFacts`, `verified`, `intent_uuid`
+- Compatibility: `resolve_tag`, `repair_selector`, `suggest_prototypes`
+- Experimental: vaults, personal, private payment, knode, query, seeds
+- `js/index.js` + package `type: module`
+- `scripts/live-contract-smoke.js` — run with `KSG_BASE_URL`
 
-## Recommended next item
+## Tests
 
-- The documented v0.2.2 semantic MVP surface is now fully wrapped with parity.
-- Optional: wrap dev's newer experimental routes that are NOT in the documented
-  MVP surface (confirm client scope first): `/api/knodes`, `/api/query`,
-  `/api/vaults`, `/api/personal/remember|recall`, `/api/private/payment*`.
-- When the three competing client-rewrite branches are no longer needed, consider
-  closing/deleting them to avoid future merge confusion.
+```bash
+node --test js/client.test.mjs                              # 37/37 pass
+KSG_BASE_URL=http://127.0.0.1:3000 node scripts/live-contract-smoke.js
+```
+
+## Server cross-check
+
+From ksg-server `dev`:
+
+```bash
+npm run test:client:contract:live   # full 17-case contract suite
+```
+
+## Next
+
+- [ ] Merge `cursor/client-dev-sync-eb91` → `dev` and tag `v0.2.3-dev-client`
+- [ ] Bump server submodule pointer on `dev`
+- [ ] Python parity for new experimental + connect helpers (optional)
