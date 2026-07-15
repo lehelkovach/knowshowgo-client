@@ -495,6 +495,17 @@ export class KnowShowGoClient {
     });
   }
 
+  // Inventory (read-only) for the memory inspector.
+  list_objects({ category = null, limit = 200 } = {}) {
+    return this._request('GET', '/api/objects', { params: { category, limit } })
+      .then((r) => r.objects || []);
+  }
+
+  list_object_categories() {
+    return this._request('GET', '/api/object-categories', {})
+      .then((r) => r.categories || []);
+  }
+
   resolve_object({
     object_lineage_key = null,
     category_prototype_uuid = null,
