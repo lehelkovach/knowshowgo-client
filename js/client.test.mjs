@@ -847,3 +847,29 @@ test('resolve_tag delegates to resolve_topic_tag', async () => {
   await client.resolve_tag({ phrase: '#[test]' });
   assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
 });
+
+test('list_objects requests /api/objects with category+limit and unwraps objects', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ objects: [{ uuid: 'o1', title: 'Acme', category: 'Organization' }] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const objs = await client.list_objects({ category: 'Organization', limit: 50 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api\/objects/);
+  assert.ok(calls[0].url.includes('category=Organization'), 'category in query');
+  assert.ok(calls[0].url.includes('limit=50'), 'limit in query');
+  assert.equal(objs[0].title, 'Acme');
+});
+
+test('list_object_categories requests /api/object-categories and unwraps categories', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ categories: [{ uuid: 'c1', name: 'Organization', objectCount: 3 }] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const cats = await client.list_object_categories();
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api\/object-categories/);
+  assert.equal(cats[0].name, 'Organization');
+  assert.equal(cats[0].objectCount, 3);
+});
