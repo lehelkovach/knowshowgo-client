@@ -24,6 +24,30 @@ new features default to `/api2.0` and accept a prefix override
 fall back to `/api`. When adding a wrapper for a new feature endpoint, build its
 path from that prefix and add parity tests for both namespaces.
 
+## Dynamic object materializer (`js/materialize.js`)
+
+`materializeObject(client, objectUuid, opts?)` turns a KSG object into a live JS
+object **without hardcoding any names**:
+
+- **Properties** are the object's own stored properties, coerced to JS types
+  using the prototype's declared `valueType` (e.g. `"56"` → `56`).
+- **Methods** are the procedures the object's prototype is linked to via
+  `has_procedure` assertions. The method name is derived from each procedure's
+  KSG **title** (`toMethodName`, e.g. `"Send Welcome Email"` → `sendWelcomeEmail`).
+  Rename/relink the procedure in KSG and the materialized method follows — there
+  are no hardcoded function names in the SDK.
+- Calling a method runs `opts.runProcedure({ procedureUuid, title, object, args })`
+  if provided; otherwise it returns the compiled procedure bound to the object
+  (`{ procedure, procedureUuid, boundTo, compiled, args }`).
+- `opts.discoverProcedures(client, prototypeUuid)` and
+  `opts.procedureLinkPredicate` (default `has_procedure`) let callers override
+  discovery. Non-enumerable `__ksg` (uuid/title/prototypeUuid/raw) and
+  `__methods` (method→procedure map) are attached for introspection.
+
+Additive only — it does not change the client class. Tests:
+`node --test js/materialize.test.mjs`. Live demo (needs a running service):
+`node scripts/materialize_demo.mjs`.
+
 ## Cursor Cloud specific instructions
 
 - Install with `npm install --legacy-peer-deps`. The `peerDependencies` entry
