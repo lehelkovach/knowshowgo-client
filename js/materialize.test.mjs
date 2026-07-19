@@ -105,6 +105,100 @@ test('custom discoverProcedures override is honored', async () => {
   assert.equal(typeof obj.doTheThing, 'function');
 });
 
+// ---- Semantic discovery fallback (no has_procedure edges) -------------------
+
+test('falls back to semantic search_procedures when no edges exist', async () => {
+  const calls = { queries: [] };
+  const client = {
+    async get_object() {
+      return {
+        object: { uuid: 'obj-1', title: 'Marie Curie', categoryPrototypeUuid: 'proto-1' },
+        propertiesByName: { 'Full Name': { value: 'Marie Curie', valueType: 'string' } },
+      };
+    },
+    async get_assertions() {
+      return []; // no precise edges
+    },
+    async get_prototype(uuid) {
+      return { prototype: { uuid, name: 'Scientist', subprocedureQuery: 'scientist onboarding steps' } };
+    },
+    async search_procedures(query) {
+      calls.queries.push(query);
+      return [
+        { uuid: 'p-1', title: 'Send Welcome Email' },
+        { procedure: { uuid: 'p-2', title: 'Archive Record' } },
+        { uuid: 'p-1', title: 'Send Welcome Email' }, // dup, should be deduped
+      ];
+    },
+  };
+  const obj = await materializeObject(client, 'obj-1');
+  // used the prototype's stored subprocedureQuery
+  assert.deepEqual(calls.queries, ['scientist onboarding steps']);
+  assert.equal(typeof obj.sendWelcomeEmail, 'function');
+  assert.equal(typeof obj.archiveRecord, 'function');
+  assert.equal(Object.keys(obj.__methods).length, 2); // deduped
+});
+
+test('semanticDiscovery:false disables the fallback', async () => {
+  let searched = false;
+  const client = {
+    async get_object() {
+      return { object: { uuid: 'o', categoryPrototypeUuid: 'proto-1' }, propertiesByName: {} };
+    },
+    async get_assertions() {
+      return [];
+    },
+    async search_procedures() {
+      searched = true;
+      return [{ uuid: 'x', title: 'Nope' }];
+    },
+  };
+  const obj = await materializeObject(client, 'o', { semanticDiscovery: false });
+  assert.equal(searched, false);
+  assert.equal(Object.keys(obj.__methods).length, 0);
+});
+
+test('explicit discoveryQuery overrides the resolved query', async () => {
+  const seen = [];
+  const client = {
+    async get_object() {
+      return { object: { uuid: 'o', categoryPrototypeUuid: 'proto-1' }, propertiesByName: {} };
+    },
+    async get_assertions() {
+      return [];
+    },
+    async search_procedures(q) {
+      seen.push(q);
+      return [{ uuid: 'p-9', title: 'Do It' }];
+    },
+  };
+  const obj = await materializeObject(client, 'o', { discoveryQuery: 'my custom query' });
+  assert.deepEqual(seen, ['my custom query']);
+  assert.equal(typeof obj.doIt, 'function');
+});
+
+test('precise edges take priority over semantic search', async () => {
+  let searched = false;
+  const client = {
+    async get_object() {
+      return { object: { uuid: 'o', categoryPrototypeUuid: 'proto-1' }, propertiesByName: {} };
+    },
+    async get_assertions() {
+      return [{ subject: 'proto-1', predicate: 'has_procedure', object: 'p-edge' }];
+    },
+    async get_procedure(uuid) {
+      return { procedure: { uuid, title: 'From Edge' } };
+    },
+    async search_procedures() {
+      searched = true;
+      return [{ uuid: 'p-sem', title: 'From Search' }];
+    },
+  };
+  const obj = await materializeObject(client, 'o');
+  assert.equal(typeof obj.fromEdge, 'function');
+  assert.equal(searched, false); // never fell through to semantic search
+});
+
 // ---- Layer 2: specialized functions on top of the client -------------------
 
 test('inline opts.specialize attaches domain functions that use the client beneath', async () => {

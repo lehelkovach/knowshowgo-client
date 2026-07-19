@@ -119,26 +119,84 @@ function getProcedureTitle(compiled, fallback) {
   );
 }
 
-// Default prototype -> procedures discovery via KSG assertions:
-// (subject = prototypeUuid, predicate = has_procedure, object = procedureUuid).
-async function defaultDiscoverProcedures(client, prototypeUuid, predicate) {
-  if (!prototypeUuid || typeof client.get_assertions !== 'function') return [];
-  const links = (await client.get_assertions({ subject: prototypeUuid, predicate })) || [];
-  const procs = [];
-  for (const a of links) {
-    const uuid = a && (a.object != null ? a.object : a.obj);
-    if (!uuid) continue;
-    let title = uuid;
-    if (typeof client.get_procedure === 'function') {
-      try {
-        title = getProcedureTitle(await client.get_procedure(uuid), uuid);
-      } catch {
-        /* fall back to uuid */
+// Discover the procedures a prototype's objects should expose as methods.
+//
+// Two strategies, in order:
+//   1. Precise edges  — `has_procedure` assertions (subject=prototype, object=procedure).
+//   2. Semantic recall — when no edges exist, resolve behavior by MEANING via
+//      `search_procedures`, using the prototype's stored `subprocedureQuery`
+//      (preferred) or its name/label as the query. This is the same idiom the
+//      agent uses to resolve subprocedures, so materialized objects get their
+//      methods with zero hand-wired edges.
+async function defaultDiscoverProcedures(client, prototypeUuid, predicate, opts = {}) {
+  // 1) precise edges
+  if (prototypeUuid && typeof client.get_assertions === 'function') {
+    const links = (await client.get_assertions({ subject: prototypeUuid, predicate })) || [];
+    const procs = [];
+    for (const a of links) {
+      const uuid = a && (a.object != null ? a.object : a.obj);
+      if (!uuid) continue;
+      let title = uuid;
+      if (typeof client.get_procedure === 'function') {
+        try {
+          title = getProcedureTitle(await client.get_procedure(uuid), uuid);
+        } catch {
+          /* fall back to uuid */
+        }
       }
+      procs.push({ uuid, title });
     }
-    procs.push({ uuid, title });
+    if (procs.length) return procs;
   }
-  return procs;
+
+  // 2) semantic recall (fallback)
+  if (opts.semanticDiscovery === false || typeof client.search_procedures !== 'function') return [];
+  const query = await resolveProcedureQuery(client, prototypeUuid, opts);
+  if (!query) return [];
+  let hits = [];
+  try {
+    hits = (await client.search_procedures(query, { top_k: opts.top_k || 5 })) || [];
+  } catch {
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  const minSim = opts.minSimilarity || 0;
+  for (const h of hits) {
+    if (!h) continue;
+    const uuid = h.uuid || h.procedureUuid || (h.procedure && h.procedure.uuid);
+    const title =
+      h.title ||
+      (h.procedure && h.procedure.title) ||
+      h.name ||
+      (h.props && (h.props.title || h.props.label)) ||
+      uuid;
+    const sim = h.similarity != null ? h.similarity : h.score != null ? h.score : 1;
+    if (!uuid || seen.has(uuid) || sim < minSim) continue;
+    seen.add(uuid);
+    out.push({ uuid, title });
+  }
+  return out;
+}
+
+// Resolve the semantic query used to recall a prototype's procedures.
+async function resolveProcedureQuery(client, prototypeUuid, opts) {
+  if (opts.discoveryQuery) return opts.discoveryQuery;
+  if (!prototypeUuid || typeof client.get_prototype !== 'function') return null;
+  try {
+    const p = await client.get_prototype(prototypeUuid);
+    const proto = (p && (p.prototype || p)) || {};
+    return (
+      proto.subprocedureQuery ||
+      proto.subprocedure_query ||
+      proto.name ||
+      proto.title ||
+      proto.label ||
+      null
+    );
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -153,6 +211,10 @@ async function defaultDiscoverProcedures(client, prototypeUuid, predicate) {
  * @param {(client, prototypeUuid) => Promise<Array<{uuid: string, title?: string}>>} [opts.discoverProcedures]
  *        Optional override for how procedures are discovered for the prototype.
  * @param {string} [opts.procedureLinkPredicate='has_procedure']
+ * @param {boolean} [opts.semanticDiscovery=true] When no `has_procedure` edges
+ *        exist, resolve methods by MEANING via `search_procedures`.
+ * @param {string} [opts.discoveryQuery] Explicit semantic query for method discovery.
+ * @param {number} [opts.top_k=5] Max procedures to bind via semantic discovery.
  * @returns {Promise<object>} live object with properties + procedure-backed methods.
  */
 export async function materializeObject(client, objectUuid, opts = {}) {
@@ -162,6 +224,10 @@ export async function materializeObject(client, objectUuid, opts = {}) {
     procedureLinkPredicate = DEFAULT_PROCEDURE_PREDICATE,
     typeName = null,
     specialize = null,
+    semanticDiscovery = true,
+    discoveryQuery = null,
+    top_k = 5,
+    minSimilarity = 0,
   } = opts;
 
   const payload = await client.get_object(objectUuid);
@@ -186,7 +252,12 @@ export async function materializeObject(client, objectUuid, opts = {}) {
     procedures =
       typeof discoverProcedures === 'function'
         ? (await discoverProcedures(client, prototypeUuid)) || []
-        : await defaultDiscoverProcedures(client, prototypeUuid, procedureLinkPredicate);
+        : await defaultDiscoverProcedures(client, prototypeUuid, procedureLinkPredicate, {
+            semanticDiscovery,
+            discoveryQuery,
+            top_k,
+            minSimilarity,
+          });
   }
 
   const boundMethods = {};

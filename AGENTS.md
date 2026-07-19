@@ -31,11 +31,15 @@ object **without hardcoding any names**:
 
 - **Properties** are the object's own stored properties, coerced to JS types
   using the prototype's declared `valueType` (e.g. `"56"` → `56`).
-- **Methods** are the procedures the object's prototype is linked to via
-  `has_procedure` assertions. The method name is derived from each procedure's
-  KSG **title** (`toMethodName`, e.g. `"Send Welcome Email"` → `sendWelcomeEmail`).
-  Rename/relink the procedure in KSG and the materialized method follows — there
-  are no hardcoded function names in the SDK.
+- **Methods** are the procedures a prototype is linked to, discovered two ways
+  (in order): (1) precise `has_procedure` assertions, then (2) **semantic recall**
+  via `search_procedures` when no edges exist — using the prototype's stored
+  `subprocedureQuery` (preferred) or its name/label, or an explicit
+  `opts.discoveryQuery`. So methods bind with zero hand-wired edges. Tune with
+  `opts.semanticDiscovery` (default true), `opts.top_k`, `opts.minSimilarity`.
+  The method name is derived from each procedure's KSG **title** (`toMethodName`,
+  e.g. `"Send Welcome Email"` → `sendWelcomeEmail`). Rename/relink the procedure
+  in KSG and the materialized method follows — no hardcoded function names.
 - Calling a method runs `opts.runProcedure({ procedureUuid, title, object, args })`
   if provided; otherwise it returns the compiled procedure bound to the object
   (`{ procedure, procedureUuid, boundTo, compiled, args }`).
