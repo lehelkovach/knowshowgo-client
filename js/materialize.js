@@ -11,6 +11,40 @@
 
 const DEFAULT_PROCEDURE_PREDICATE = 'has_procedure';
 
+// ---- Layer 2: specialized functions ----------------------------------------
+// A specialization is a set of hand-written domain functions that layer ON TOP
+// of a materialized object and delegate down to the client. They are keyed
+// by a type name (the prototype's name) so they attach automatically when an
+// object of that type is materialized. Each function is invoked as
+//   fn.call(instance, client, args)
+// so `this` is the live object and `client` is the generic client beneath it.
+const SPECIALIZATIONS = new Map();
+
+export function defineSpecialization(typeName, methods = {}) {
+  if (!typeName || typeof methods !== 'object') return;
+  const existing = SPECIALIZATIONS.get(typeName) || {};
+  SPECIALIZATIONS.set(typeName, { ...existing, ...methods });
+}
+
+export function clearSpecializations() {
+  SPECIALIZATIONS.clear();
+}
+
+// Resolve a prototype's type name (for registry lookup). Prefer an explicit
+// opts.typeName; otherwise read it from the prototype only when needed.
+async function resolveTypeName(client, prototypeUuid, explicit) {
+  if (explicit) return explicit;
+  if (!prototypeUuid || typeof client.get_prototype !== 'function') return null;
+  try {
+    const p = await client.get_prototype(prototypeUuid);
+    return (
+      (p && (p.name || (p.prototype && (p.prototype.name || p.prototype.title)) || p.title)) || null
+    );
+  } catch {
+    return null;
+  }
+}
+
 // Camel-case a human procedure title into a JS-friendly method name.
 // "Send Welcome Email" -> "sendWelcomeEmail".
 export function toMethodName(title) {
@@ -126,6 +160,8 @@ export async function materializeObject(client, objectUuid, opts = {}) {
     runProcedure = null,
     discoverProcedures = null,
     procedureLinkPredicate = DEFAULT_PROCEDURE_PREDICATE,
+    typeName = null,
+    specialize = null,
   } = opts;
 
   const payload = await client.get_object(objectUuid);
@@ -161,6 +197,7 @@ export async function materializeObject(client, objectUuid, opts = {}) {
     boundMethods[method] = { uuid: p.uuid, title: p.title || method };
     Object.defineProperty(instance, method, {
       enumerable: false,
+      configurable: true, // allow a Layer-2 specialization to override
       value: async (args = {}) => {
         if (typeof runProcedure === 'function') {
           return runProcedure({ procedureUuid: p.uuid, title: p.title || method, object: instance, args });
@@ -181,6 +218,28 @@ export async function materializeObject(client, objectUuid, opts = {}) {
 
   // Introspection helper: which method maps to which KSG procedure.
   Object.defineProperty(instance, '__methods', { enumerable: false, value: boundMethods });
+
+  // ---- Layer 2: attach specialized functions on top -------------------------
+  // Registry lookup (by type name) only reaches for the prototype name when a
+  // registered specialization might apply; inline opts.specialize is always
+  // applied. Both delegate to the generic client beneath (fn.call(instance, client, args)).
+  const resolvedType = SPECIALIZATIONS.size > 0 ? await resolveTypeName(client, prototypeUuid, typeName) : typeName;
+  const registered = resolvedType ? SPECIALIZATIONS.get(resolvedType) : null;
+  const specializedNames = [];
+  for (const src of [registered, specialize]) {
+    if (!src || typeof src !== 'object') continue;
+    for (const [name, fn] of Object.entries(src)) {
+      if (typeof fn !== 'function') continue;
+      Object.defineProperty(instance, name, {
+        enumerable: false,
+        configurable: true,
+        value: (args = {}) => fn.call(instance, client, args),
+      });
+      if (!specializedNames.includes(name)) specializedNames.push(name);
+    }
+  }
+  Object.defineProperty(instance, '__type', { enumerable: false, value: resolvedType || null });
+  Object.defineProperty(instance, '__specialized', { enumerable: false, value: specializedNames });
 
   return instance;
 }

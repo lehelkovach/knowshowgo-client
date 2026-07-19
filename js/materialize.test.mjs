@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { materializeObject, toMethodName, coerceValue } from './materialize.js';
+import {
+  materializeObject,
+  defineSpecialization,
+  clearSpecializations,
+  toMethodName,
+  coerceValue,
+} from './materialize.js';
 
 function makeFakeClient(state) {
   return {
@@ -97,4 +103,58 @@ test('custom discoverProcedures override is honored', async () => {
     discoverProcedures: async () => [{ uuid: 'p-x', title: 'Do The Thing' }],
   });
   assert.equal(typeof obj.doTheThing, 'function');
+});
+
+// ---- Layer 2: specialized functions on top of the client -------------------
+
+test('inline opts.specialize attaches domain functions that use the client beneath', async () => {
+  const client = makeFakeClient({ links: [], titles: {} });
+  const obj = await materializeObject(client, 'obj-1', {
+    specialize: {
+      // `this` is the live object; `client` is the generic client beneath.
+      shout(_client) {
+        return this['Full Name'].toUpperCase();
+      },
+      async citations(client) {
+        // delegates DOWN to the generic client
+        return client.get_assertions({ subject: this.__ksg.prototypeUuid, predicate: 'has_procedure' });
+      },
+    },
+  });
+  assert.equal(typeof obj.shout, 'function');
+  assert.equal(obj.shout(), 'MARIE CURIE');
+  assert.deepEqual(obj.__specialized.sort(), ['citations', 'shout']);
+  // it really reaches the client layer beneath
+  const cites = await obj.citations({});
+  assert.ok(Array.isArray(cites));
+});
+
+test('registered specialization attaches by type name (resolved from prototype)', async () => {
+  clearSpecializations();
+  const client = makeFakeClient({ links: [], titles: {} });
+  client.get_prototype = async (uuid) => ({ prototype: { uuid, name: 'Scientist' } });
+
+  defineSpecialization('Scientist', {
+    greeting() {
+      return `Dr. ${this['Full Name']}`;
+    },
+  });
+
+  const obj = await materializeObject(client, 'obj-1');
+  assert.equal(obj.__type, 'Scientist');
+  assert.equal(typeof obj.greeting, 'function');
+  assert.equal(obj.greeting(), 'Dr. Marie Curie');
+  clearSpecializations();
+});
+
+test('a specialization overrides a graph-derived method (top layer wins)', async () => {
+  const state = { links: ['proc-1'], titles: { 'proc-1': 'Send Welcome Email' } };
+  const obj = await materializeObject(makeFakeClient(state), 'obj-1', {
+    specialize: {
+      sendWelcomeEmail() {
+        return 'overridden by specialization';
+      },
+    },
+  });
+  assert.equal(await obj.sendWelcomeEmail(), 'overridden by specialization');
 });

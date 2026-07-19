@@ -44,9 +44,28 @@ object **without hardcoding any names**:
   discovery. Non-enumerable `__ksg` (uuid/title/prototypeUuid/raw) and
   `__methods` (method→procedure map) are attached for introspection.
 
+### Specialization (Layer 2)
+
+The SDK is layered, most abstract → most specialized:
+
+- **Layer 0 — the client class (`js/client.js`)**: generic graph primitives
+  (concepts, categories, objects, assertions, procedures).
+- **Layer 1 — `materializeObject`**: a generic node "becomes objective" — a live
+  object with typed properties + graph-derived methods.
+- **Layer 2 — specialization**: hand-written domain functions layered on top,
+  that delegate DOWN to the client. Never fork the client.
+
+Register domain functions by type name with `defineSpecialization(typeName, methods)`,
+or pass them inline via `opts.specialize`. Each is invoked as
+`fn.call(instance, client, args)` — so `this` is the live object and the second
+argument is the generic client beneath. Registered specializations attach when an
+object of that type is materialized (type name resolved from the prototype, or via
+`opts.typeName`). A specialization may override a graph-derived method (top layer
+wins). Introspect with `obj.__type` and `obj.__specialized`.
+
 Additive only — it does not change the client class. Tests:
-`node --test js/materialize.test.mjs`. Live demo (needs a running service):
-`node scripts/materialize_demo.mjs`.
+`node --test js/materialize.test.mjs`. Live demos (need a running service):
+`node scripts/materialize_demo.mjs` and `node scripts/layered_demo.mjs`.
 
 ## Cursor Cloud specific instructions
 
