@@ -862,6 +862,28 @@ test('list_objects requests /api/objects with category+limit and unwraps objects
   assert.equal(objs[0].title, 'Acme');
 });
 
+test('defaultOwnerUserId sends X-KSG-Owner and ownerUserId on list/search', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/concepts/search')) return makeJsonResponse({ results: [] });
+    return makeJsonResponse({ objects: [] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'alice',
+  });
+  await client.list_objects({ limit: 10 });
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'alice');
+  assert.ok(calls[0].url.includes('ownerUserId=alice'));
+  await client.search_concepts('login', { top_k: 5 });
+  assert.equal(calls[1].options.headers['x-ksg-owner'], 'alice');
+  const body = JSON.parse(calls[1].options.body);
+  assert.equal(body.ownerUserId, 'alice');
+});
+
 test('list_object_categories requests /api/object-categories and unwraps categories', async () => {
   const calls = [];
   const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ categories: [{ uuid: 'c1', name: 'Organization', objectCount: 3 }] }); };
