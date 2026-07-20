@@ -97,7 +97,7 @@ class KnowShowGoClient:
     def connect(
         self,
         expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.5-dev',
+        expected_release: str = 'v0.2.4',
         enforce_contract: bool = False
     ) -> Dict[str, Any]:
         """Verify dev channel/release and optionally cache contract for path guard"""
