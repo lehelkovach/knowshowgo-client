@@ -10,7 +10,14 @@ export class KnowShowGoClient {
    * @param {string} [options.baseUrl='http://localhost:3000']
    * @param {typeof fetch} [options.fetchImpl]
    */
-  constructor({ baseUrl = 'http://localhost:3000', fetchImpl, prototypeApiPrefix = '/api2.0', auto_connect = false } = {}) { // pragma: allowlist secret
+  constructor({
+    baseUrl = 'http://localhost:3000', // pragma: allowlist secret
+    fetchImpl,
+    prototypeApiPrefix = '/api2.0',
+    auto_connect = false,
+    defaultOwnerUserId = null,
+    defaultAgentSessionId = null
+  } = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     // Wrap the global fetch so it is always invoked with the correct context.
     // Calling a stored reference to the browser/Node global `fetch` as a method
@@ -20,6 +27,9 @@ export class KnowShowGoClient {
     // New features live under the /api2.0 namespace by default; set this to
     // '/api' to fall back to the retained backward-compatible alias.
     this.prototypeApiPrefix = prototypeApiPrefix;
+    // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
+    this.defaultOwnerUserId = defaultOwnerUserId || null;
+    this.defaultAgentSessionId = defaultAgentSessionId || null;
     this._contract = null;
     this._enforceContract = false;
     this._connectPromise = auto_connect ? this.connect() : null;
@@ -28,7 +38,7 @@ export class KnowShowGoClient {
   /** Cache release manifest; optionally enforce clientContract path allowlist. */
   async connect({
     expected_channel = 'dev',
-    expected_release = 'v0.2.3-dev',
+    expected_release = 'v0.2.4',
     enforce_contract = false
   } = {}) {
     const manifest = await this.get_release_manifest();
@@ -54,19 +64,39 @@ export class KnowShowGoClient {
     }
   }
 
-  async _request(method, endpoint, { json, params } = {}) {
+  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id } = {}) {
     this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
-    if (params) {
-      for (const [k, v] of Object.entries(params)) {
-        if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
-      }
+    const ownerUserId = owner_user_id ?? this.defaultOwnerUserId;
+    const agentSessionId = agent_session_id ?? this.defaultAgentSessionId;
+    const mergedParams = { ...(params || {}) };
+    if (ownerUserId != null && mergedParams.ownerUserId == null) {
+      mergedParams.ownerUserId = ownerUserId;
+    }
+    if (agentSessionId != null && mergedParams.agentSessionId == null) {
+      mergedParams.agentSessionId = agentSessionId;
+    }
+    for (const [k, v] of Object.entries(mergedParams)) {
+      if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
+    }
+
+    const headers = json
+      ? { 'content-type': 'application/json', accept: 'application/json' }
+      : { accept: 'application/json' };
+    if (ownerUserId) headers['x-ksg-owner'] = String(ownerUserId);
+    if (agentSessionId) headers['x-ksg-session'] = String(agentSessionId);
+
+    let bodyJson = json;
+    if (json && typeof json === 'object' && !Array.isArray(json)) {
+      bodyJson = { ...json };
+      if (ownerUserId != null && bodyJson.ownerUserId == null) bodyJson.ownerUserId = ownerUserId;
+      if (agentSessionId != null && bodyJson.agentSessionId == null) bodyJson.agentSessionId = agentSessionId;
     }
 
     const res = await this.fetch(url.toString(), {
       method,
-      headers: json ? { 'content-type': 'application/json', accept: 'application/json' } : { accept: 'application/json' },
-      body: json ? JSON.stringify(json) : undefined
+      headers,
+      body: bodyJson ? JSON.stringify(bodyJson) : undefined
     });
 
     const contentType = res.headers.get('content-type') || '';
@@ -131,14 +161,22 @@ export class KnowShowGoClient {
     return this._request('GET', `/api/concepts/${encodeURIComponent(uuid)}`);
   }
 
-  search_concepts(query, { top_k = 10, similarity_threshold = 0.7, prototype_filter = null } = {}) {
+  search_concepts(query, {
+    top_k = 10,
+    similarity_threshold = 0.7,
+    prototype_filter = null,
+    owner_user_id = null,
+    agent_session_id = null
+  } = {}) {
     return this._request('POST', '/api/concepts/search', {
       json: {
         query,
         topK: top_k,
         similarityThreshold: similarity_threshold,
         prototypeFilter: prototype_filter
-      }
+      },
+      owner_user_id,
+      agent_session_id
     }).then(r => r.results);
   }
 
@@ -491,8 +529,27 @@ export class KnowShowGoClient {
 
   get_object(uuid, { owner_user_id = null, agent_session_id = null } = {}) {
     return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
-      params: { ownerUserId: owner_user_id, agentSessionId: agent_session_id }
+      params: {
+        ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
+        agentSessionId: agent_session_id ?? this.defaultAgentSessionId
+      },
+      owner_user_id,
+      agent_session_id
     });
+  }
+
+  // Inventory (read-only) for the memory inspector.
+  list_objects({ category = null, limit = 200, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/objects', {
+      params: { category, limit },
+      owner_user_id,
+      agent_session_id
+    }).then((r) => r.objects || []);
+  }
+
+  list_object_categories() {
+    return this._request('GET', '/api/object-categories', {})
+      .then((r) => r.categories || []);
   }
 
   resolve_object({
