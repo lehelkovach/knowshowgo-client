@@ -12,12 +12,21 @@ import json
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
-    def __init__(self, base_url: str = "http://localhost:3000", prototype_api_prefix: str = "/api2.0", enforce_contract: bool = False):  # pragma: allowlist secret
+    def __init__(
+        self,
+        base_url: str = "http://localhost:3000",  # pragma: allowlist secret
+        prototype_api_prefix: str = "/api2.0",
+        enforce_contract: bool = False,
+        default_owner_user_id: Optional[str] = None,
+        default_agent_session_id: Optional[str] = None,
+    ):
         self.base_url = base_url.rstrip('/')
         self.session = requests.Session()
         # New features live under the /api2.0 namespace by default; set this to
         # "/api" to fall back to the retained backward-compatible alias.
         self.prototype_api_prefix = prototype_api_prefix
+        self.default_owner_user_id = default_owner_user_id
+        self.default_agent_session_id = default_agent_session_id
         self._contract = None
         self._enforce_contract = enforce_contract
 
@@ -45,6 +54,38 @@ class KnowShowGoClient:
         """Make HTTP request to API"""
         self._assert_contract_path(method, endpoint)
         url = f"{self.base_url}{endpoint}"
+        owner_user_id = kwargs.pop("owner_user_id", None)
+        agent_session_id = kwargs.pop("agent_session_id", None)
+        if owner_user_id is None:
+            owner_user_id = self.default_owner_user_id
+        if agent_session_id is None:
+            agent_session_id = self.default_agent_session_id
+
+        headers = dict(kwargs.pop("headers", None) or {})
+        if owner_user_id:
+            headers["X-KSG-Owner"] = str(owner_user_id)
+        if agent_session_id:
+            headers["X-KSG-Session"] = str(agent_session_id)
+        if headers:
+            kwargs["headers"] = headers
+
+        params = dict(kwargs.get("params") or {})
+        if owner_user_id and "ownerUserId" not in params:
+            params["ownerUserId"] = owner_user_id
+        if agent_session_id and "agentSessionId" not in params:
+            params["agentSessionId"] = agent_session_id
+        if params:
+            kwargs["params"] = params
+
+        json_body = kwargs.get("json")
+        if isinstance(json_body, dict):
+            body = dict(json_body)
+            if owner_user_id is not None and "ownerUserId" not in body:
+                body["ownerUserId"] = owner_user_id
+            if agent_session_id is not None and "agentSessionId" not in body:
+                body["agentSessionId"] = agent_session_id
+            kwargs["json"] = body
+
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
@@ -56,7 +97,7 @@ class KnowShowGoClient:
     def connect(
         self,
         expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.3-dev',
+        expected_release: str = 'v0.2.5-dev',
         enforce_contract: bool = False
     ) -> Dict[str, Any]:
         """Verify dev channel/release and optionally cache contract for path guard"""
@@ -124,7 +165,9 @@ class KnowShowGoClient:
         query: str,
         top_k: int = 10,
         similarity_threshold: float = 0.7,
-        prototype_filter: Optional[str] = None
+        prototype_filter: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Search for concepts by semantic similarity"""
         data = {
@@ -133,7 +176,13 @@ class KnowShowGoClient:
             "similarityThreshold": similarity_threshold,
             "prototypeFilter": prototype_filter
         }
-        result = self._request("POST", "/api/concepts/search", json=data)
+        result = self._request(
+            "POST",
+            "/api/concepts/search",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
         return result["results"]
 
     # ===== Association Methods =====

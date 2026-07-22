@@ -808,7 +808,7 @@ test('connect validates release manifest channel', async () => {
     if (url.endsWith('/api/release')) {
       return makeJsonResponse({
         channel: 'dev',
-        release: 'v0.2.3-dev',
+        release: 'v0.2.5-dev',
         surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
       });
     }
@@ -816,7 +816,7 @@ test('connect validates release manifest channel', async () => {
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
-  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.3-dev' });
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.5-dev' });
   assert.equal(manifest.channel, 'dev');
 });
 
@@ -846,4 +846,52 @@ test('resolve_tag delegates to resolve_topic_tag', async () => {
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
   await client.resolve_tag({ phrase: '#[test]' });
   assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
+});
+
+test('list_objects requests /api/objects with category+limit and unwraps objects', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ objects: [{ uuid: 'o1', title: 'Acme', category: 'Organization' }] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const objs = await client.list_objects({ category: 'Organization', limit: 50 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api\/objects/);
+  assert.ok(calls[0].url.includes('category=Organization'), 'category in query');
+  assert.ok(calls[0].url.includes('limit=50'), 'limit in query');
+  assert.equal(objs[0].title, 'Acme');
+});
+
+test('defaultOwnerUserId sends X-KSG-Owner and ownerUserId on list/search', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/concepts/search')) return makeJsonResponse({ results: [] });
+    return makeJsonResponse({ objects: [] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'alice',
+  });
+  await client.list_objects({ limit: 10 });
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'alice');
+  assert.ok(calls[0].url.includes('ownerUserId=alice'));
+  await client.search_concepts('login', { top_k: 5 });
+  assert.equal(calls[1].options.headers['x-ksg-owner'], 'alice');
+  const body = JSON.parse(calls[1].options.body);
+  assert.equal(body.ownerUserId, 'alice');
+});
+
+test('list_object_categories requests /api/object-categories and unwraps categories', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ categories: [{ uuid: 'c1', name: 'Organization', objectCount: 3 }] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const cats = await client.list_object_categories();
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api\/object-categories/);
+  assert.equal(cats[0].name, 'Organization');
+  assert.equal(cats[0].objectCount, 3);
 });
