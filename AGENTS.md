@@ -26,10 +26,17 @@ npm run build                         # esbuild bundle -> dist/index.cjs
 
 The KSG service introduces new REST features under the canonical `/api2.0`
 namespace while retaining `/api` as a backward-compatible alias. SDK methods for
-new features default to `/api2.0` and accept a prefix override
-(`prototypeApiPrefix` in JS, `prototype_api_prefix` in Python) so callers can
-fall back to `/api`. When adding a wrapper for a new feature endpoint, build its
-path from that prefix and add parity tests for both namespaces.
+new features default to `/api2.0` and accept a prefix override:
+
+| Feature family | JS | Python |
+|---|---|---|
+| Prototypes | `prototypeApiPrefix` | `prototype_api_prefix` |
+| Topics / tags | `topicApiPrefix` | `topic_api_prefix` |
+
+Default both to `/api2.0`; pass `/api` for regression tests. When adding a wrapper
+for a new feature endpoint, build its path from the right prefix and add parity
+tests for **both** namespaces. Keep this repo’s `dev`/`main` versions paired with
+knowshowgo (`docs/VERSION-MATRIX.md` in the server repo).
 
 ## Soft owner identity (read ACL)
 
