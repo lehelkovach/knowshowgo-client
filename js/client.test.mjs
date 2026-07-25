@@ -74,6 +74,27 @@ test('get_assertions encodes query filters and unwraps assertions array', async 
   assert.equal(calls[0].options.method, 'GET');
 });
 
+test('get_assertions forwards since/until/limit/order', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ assertions: [{ uuid: 'a1', object: 'x' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_assertions({
+    subject: 'e1',
+    since: '2024-01-01T00:00:00.000Z',
+    until: '2024-12-31T23:59:59.000Z',
+    limit: 5,
+    order: 'desc'
+  });
+  assert.match(calls[0].url, /since=2024-01-01/);
+  assert.match(calls[0].url, /until=2024-12-31/);
+  assert.match(calls[0].url, /limit=5/);
+  assert.match(calls[0].url, /order=desc/);
+});
+
 test('vote_assertion returns nested assertion payload', async () => {
   const fetchMock = async () => makeJsonResponse({ assertion: { id: 'a1', voteScore: 4 } });
   const KnowShowGoClient = await loadClientClass();
