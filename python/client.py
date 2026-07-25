@@ -16,6 +16,7 @@ class KnowShowGoClient:
         self,
         base_url: str = "http://localhost:3000",  # pragma: allowlist secret
         prototype_api_prefix: str = "/api2.0",
+        topic_api_prefix: str = "/api2.0",
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
@@ -25,6 +26,7 @@ class KnowShowGoClient:
         # New features live under the /api2.0 namespace by default; set this to
         # "/api" to fall back to the retained backward-compatible alias.
         self.prototype_api_prefix = prototype_api_prefix
+        self.topic_api_prefix = topic_api_prefix
         self.default_owner_user_id = default_owner_user_id
         self.default_agent_session_id = default_agent_session_id
         self._contract = None
@@ -572,13 +574,13 @@ class KnowShowGoClient:
         }
         if language is not None:
             data["language"] = language
-        body = self._request("POST", "/api/topics", json=data)
+        body = self._request("POST", f"{self.topic_api_prefix}/topics", json=data)
         topic = body.get("topic") or {}
         return {**body, **topic}
 
     def get_topic(self, uuid: str) -> Dict[str, Any]:
         """Get a topic by UUID (unwraps the topic payload)"""
-        result = self._request("GET", f"/api/topics/{uuid}")
+        result = self._request("GET", f"{self.topic_api_prefix}/topics/{uuid}")
         return result["topic"]
 
     def resolve_topic_tag(
@@ -598,7 +600,7 @@ class KnowShowGoClient:
         }
         if language is not None:
             data["language"] = language
-        return self._request("POST", "/api/topics/resolve-tag", json=data)
+        return self._request("POST", f"{self.topic_api_prefix}/topics/resolve-tag", json=data)
 
     # ===== Object Categories (v0.2.2) =====
 

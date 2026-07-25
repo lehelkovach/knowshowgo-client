@@ -120,7 +120,7 @@ test('create_topic posts label/phrase to topics endpoint', async () => {
 
   const result = await client.create_topic({ label: 'Invoices', summary: 'Money docs', aliases: ['#[invoice]'] });
   assert.equal(result.created, true);
-  assert.equal(calls[0].url, 'https://example.test/api/topics');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/topics');
   assert.equal(calls[0].options.method, 'POST');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.label, 'Invoices');
@@ -140,7 +140,7 @@ test('get_topic unwraps nested topic payload', async () => {
 
   const topic = await client.get_topic('topic-1');
   assert.equal(topic.uuid, 'topic-1');
-  assert.equal(calls[0].url, 'https://example.test/api/topics/topic-1');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/topics/topic-1');
   assert.equal(calls[0].options.method, 'GET');
 });
 
@@ -154,11 +154,34 @@ test('resolve_topic_tag maps top_k and create_if_missing to camelCase', async ()
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
 
   await client.resolve_topic_tag({ tag: '#[invoice]', top_k: 3, create_if_missing: true });
-  assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/topics/resolve-tag');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.tag, '#[invoice]');
   assert.equal(body.topK, 3);
   assert.equal(body.createIfMissing, true);
+});
+
+test('topicApiPrefix falls back to the legacy /api alias when requested', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, created: true, topic: { uuid: 'topic-1' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    topicApiPrefix: '/api'
+  });
+
+  await client.create_topic({ label: 'Invoices' });
+  assert.equal(calls[0].url, 'https://example.test/api/topics');
+
+  await client.get_topic('topic-1');
+  assert.equal(calls[1].url, 'https://example.test/api/topics/topic-1');
+
+  await client.resolve_topic_tag({ tag: '#[invoice]' });
+  assert.equal(calls[2].url, 'https://example.test/api/topics/resolve-tag');
 });
 
 // ===== Object Categories =====
@@ -845,7 +868,7 @@ test('resolve_tag delegates to resolve_topic_tag', async () => {
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
   await client.resolve_tag({ phrase: '#[test]' });
-  assert.equal(calls[0].url, 'https://example.test/api/topics/resolve-tag');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/topics/resolve-tag');
 });
 
 test('list_objects requests /api/objects with category+limit and unwraps objects', async () => {
