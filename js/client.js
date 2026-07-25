@@ -328,6 +328,69 @@ export class KnowShowGoClient {
     }).then(r => r.assertion);
   }
 
+  /** Same claim from another speaker → strengthen belief (voteScore + speakers). */
+  reinforce_assertion({
+    subject,
+    predicate,
+    obj,
+    speaker = null,
+    delta = null,
+    truth = null,
+    source = 'user',
+    provenance = null
+  } = {}) {
+    return this._request('POST', '/api/assertions/reinforce', {
+      json: {
+        subject,
+        predicate,
+        object: obj,
+        speaker,
+        delta,
+        truth,
+        source,
+        provenance
+      }
+    });
+  }
+
+  /** Competing claim for same subject/predicate (keeps prior evidence). */
+  contradict_assertion({
+    subject,
+    predicate,
+    obj,
+    speaker = null,
+    truth = null,
+    source = 'user',
+    provenance = null,
+    against_assertion_id = null
+  } = {}) {
+    return this._request('POST', '/api/assertions/contradict', {
+      json: {
+        subject,
+        predicate,
+        object: obj,
+        speaker,
+        truth,
+        source,
+        provenance,
+        againstAssertionId: against_assertion_id
+      }
+    });
+  }
+
+  retract_assertion(assertion_id, { speaker = null, reason = null } = {}) {
+    return this._request('POST', `/api/assertions/${encodeURIComponent(assertion_id)}/retract`, {
+      json: { speaker, reason }
+    });
+  }
+
+  /** Live belief snapshot: resolved values + alternatives + speakers. */
+  get_beliefs(entity_id, { predicate = null } = {}) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/beliefs`, {
+      params: { predicate }
+    });
+  }
+
   get_snapshot(entity_id) {
     return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/snapshot`).then(r => r.snapshot);
   }

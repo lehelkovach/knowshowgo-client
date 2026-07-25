@@ -392,6 +392,86 @@ class KnowShowGoClient:
         )
         return result["assertion"]
 
+    def reinforce_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        delta: Optional[float] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Same claim from another speaker → strengthen belief."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if delta is not None:
+            data["delta"] = delta
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("POST", "/api/assertions/reinforce", json=data)
+
+    def contradict_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+        against_assertion_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Competing claim for same subject/predicate."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        if against_assertion_id is not None:
+            data["againstAssertionId"] = against_assertion_id
+        return self._request("POST", "/api/assertions/contradict", json=data)
+
+    def retract_assertion(
+        self,
+        assertion_id: str,
+        speaker: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Soft-delete an assertion from belief resolution."""
+        return self._request(
+            "POST",
+            f"/api/assertions/{assertion_id}/retract",
+            json={"speaker": speaker, "reason": reason},
+        )
+
+    def get_beliefs(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Live belief snapshot (resolved values + alternatives + speakers)."""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request("GET", f"/api/entities/{entity_id}/beliefs", params=params)
+
     def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
         """Get resolved values for an entity"""
         result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
