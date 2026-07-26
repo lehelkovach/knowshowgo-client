@@ -11,6 +11,7 @@ JS + Python SDK for KnowShowGo **`v0.2.5`**.
 | **This tip** | **`v0.2.5-client`** (`0.2.5`) |
 | **Pairs with KSG** | **`v0.2.5`** |
 | **Agent** | **`v0.2.1`** |
+| **Next tip** | **`dev` / `0.2.6-dev`** |
 
 ## Website & demos
 
