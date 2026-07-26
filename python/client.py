@@ -122,10 +122,16 @@ class KnowShowGoClient:
     def connect(
         self,
         expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.7-dev',
-        enforce_contract: bool = False
+        expected_release: str = 'v0.2.8-dev',
+        enforce_contract: bool = False,
+        adopt_advertised_base_url: bool = False,
     ) -> Dict[str, Any]:
-        """Verify channel/release and optionally cache contract for path guard"""
+        """Verify channel/release and optionally cache contract for path guard.
+
+        ``adopt_advertised_base_url`` re-points this client at ``api.publicBaseUrl``
+        from the manifest, so a caller bootstrapped against any reachable host
+        ends up on the canonical public API the service advertises.
+        """
         manifest = self.get_release_manifest()
         if expected_channel and manifest.get('channel') != expected_channel:
             raise ValueError(f"expected channel {expected_channel}, got {manifest.get('channel')}")
@@ -133,6 +139,10 @@ class KnowShowGoClient:
             raise ValueError(f"expected release {expected_release}, got {manifest.get('release')}")
         self._contract = (manifest.get('surfaces') or {}).get('clientContract')
         self._enforce_contract = enforce_contract
+        api = manifest.get('api') or {}
+        self.api_prefixes = api.get('prefixes')
+        if adopt_advertised_base_url and api.get('publicBaseUrl'):
+            self.base_url = str(api['publicBaseUrl']).rstrip('/')
         return manifest
 
     # ===== Prototype Methods =====

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
- · knowshowgo-client `dev` (`0.2.7-dev`)
+ · knowshowgo-client `dev` (`0.2.8-dev`)
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
@@ -19,12 +19,12 @@ npm run build
 
 | | |
 |---|---|
-| Client | **`0.2.7-dev`** / branch **`dev`** |
-| Server | knowshowgo **`0.2.7-dev`** / **`dev`** |
+| Client | **`0.2.8-dev`** / branch **`dev`** |
+| Server | knowshowgo **`0.2.8-dev`** / **`dev`** |
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
-| `connect()` default | channel **`dev`**, release **`v0.2.7-dev`** |
+| `connect()` default | channel **`dev`**, release **`v0.2.8-dev`** |
 
-Release tip: **`main` / `v0.2.6-client`** ↔ KSG **`v0.2.6`**.
+Release tip: **`main` / `v0.2.7-client`** ↔ KSG **`v0.2.7`**.
 
 ## API prefixes
 
