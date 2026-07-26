@@ -40,7 +40,7 @@ export class KnowShowGoClient {
   /** Cache release manifest; optionally enforce clientContract path allowlist. */
   async connect({
     expected_channel = 'dev',
-    expected_release = 'v0.2.4',
+    expected_release = 'v0.2.5',
     enforce_contract = false
   } = {}) {
     const manifest = await this.get_release_manifest();

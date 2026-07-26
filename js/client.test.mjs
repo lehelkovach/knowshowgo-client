@@ -830,8 +830,8 @@ test('connect validates release manifest channel', async () => {
   const fetchMock = async (url) => {
     if (url.endsWith('/api/release')) {
       return makeJsonResponse({
-        channel: 'dev',
-        release: 'v0.2.4',
+        channel: 'release',
+        release: 'v0.2.5',
         surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
       });
     }
@@ -839,8 +839,8 @@ test('connect validates release manifest channel', async () => {
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
-  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.4' });
-  assert.equal(manifest.channel, 'dev');
+  const manifest = await client.connect({ expected_channel: 'release', expected_release: 'v0.2.5' });
+  assert.equal(manifest.channel, 'release');
 });
 
 test('suggest_concept_objects adds suggestions alias from candidates', async () => {
