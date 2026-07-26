@@ -15,12 +15,28 @@ if (!baseUrl) {
 
 const client = new KnowShowGoClient({ baseUrl });
 const runId = `client-smoke-${Date.now()}`;
+const authEmail = process.env.KSG_AUTH_EMAIL;
+const authPassword = process.env.KSG_AUTH_PASSWORD;
+const authAppId = process.env.KSG_AUTH_APP_ID;
 
 async function main() {
-  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.3-dev' });
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.5-dev' });
   assert.equal(manifest.channel, 'dev');
   assert.ok(manifest.surfaces.clientContract.length >= 60);
   console.log('ok release handshake');
+
+  if (authEmail && authPassword && authAppId) {
+    await client.login({
+      email: authEmail,
+      password: authPassword,
+      appId: authAppId
+    });
+    const current = await client.me();
+    assert.equal(current.user.email, authEmail);
+    assert.equal(current.session.appId, authAppId);
+    await client.logout();
+    console.log('ok auth login/me/logout');
+  }
 
   const topic = await client.create_topic({
     label: `Smoke ${runId}`,

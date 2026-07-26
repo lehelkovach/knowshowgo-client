@@ -28,6 +28,113 @@ function makeJsonResponse(payload, status = 200) {
   };
 }
 
+test('sessionToken sends bearer and skips default owner fallback', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ objects: [] });
+  };
+
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    sessionToken: 'static-token',
+    defaultOwnerUserId: 'owner-1',
+    defaultAgentSessionId: 'session-1'
+  });
+
+  await client.list_objects({ limit: 10 });
+
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer static-token');
+  assert.equal(calls[0].options.headers['x-ksg-owner'], undefined);
+  assert.equal(calls[0].options.headers['x-ksg-session'], undefined);
+  assert.equal(new URL(calls[0].url).searchParams.get('ownerUserId'), null);
+  assert.equal(new URL(calls[0].url).searchParams.get('agentSessionId'), null);
+});
+
+test('getSessionToken provider supplies bearer token', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ status: 'ok' });
+  };
+
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    getSessionToken: async () => 'provider-token'
+  });
+
+  await client.health_check();
+
+  assert.equal(calls[0].url, 'https://example.test/health');
+  assert.equal(calls[0].options.headers.Authorization, 'Bearer provider-token');
+});
+
+test('auth methods use api2 auth paths, camelCase payloads, and manage session token', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (url.endsWith('/auth/register')) {
+      return makeJsonResponse({
+        user: { userId: 'user-1', email: 'a@example.test', displayName: 'Alice', createdAt: 'now' },
+        session: { token: 'register-token', expiresAt: 'later', appId: 'app-1' }
+      });
+    }
+    if (url.endsWith('/auth/login')) {
+      return makeJsonResponse({
+        user: { userId: 'user-1', email: 'a@example.test', displayName: 'Alice', createdAt: 'now' },
+        session: { token: 'login-token', expiresAt: 'later', appId: 'app-1' }
+      });
+    }
+    if (url.endsWith('/auth/me')) {
+      return makeJsonResponse({
+        user: { userId: 'user-1', email: 'a@example.test', displayName: 'Alice', createdAt: 'now' },
+        session: { expiresAt: 'later', appId: 'app-1', lastUsedAt: 'now' }
+      });
+    }
+    return makeJsonResponse({ ok: true });
+  };
+
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.register({
+    email: 'a@example.test',
+    password: 'pw',
+    appId: 'app-1',
+    displayName: 'Alice'
+  });
+  assert.equal(client.sessionToken, 'register-token');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/auth/register');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    email: 'a@example.test',
+    password: 'pw',
+    appId: 'app-1',
+    displayName: 'Alice'
+  });
+
+  await client.login({ email: 'a@example.test', password: 'pw2', appId: 'app-1' });
+  assert.equal(client.sessionToken, 'login-token');
+  assert.equal(calls[1].url, 'https://example.test/api2.0/auth/login');
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    email: 'a@example.test',
+    password: 'pw2',
+    appId: 'app-1'
+  });
+
+  await client.me();
+  assert.equal(calls[2].url, 'https://example.test/api2.0/auth/me');
+  assert.equal(calls[2].options.headers.Authorization, 'Bearer login-token');
+
+  await client.logout();
+  assert.equal(calls[3].url, 'https://example.test/api2.0/auth/logout');
+  assert.equal(calls[3].options.headers.Authorization, 'Bearer login-token');
+  assert.equal(client.sessionToken, null);
+});
+
 test('create_assertion maps payload fields to assertion endpoint', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

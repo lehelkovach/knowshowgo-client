@@ -5,7 +5,7 @@ Provides a Python client for the KnowShowGo REST API.
 """
 
 import requests
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
 import json
 
 
@@ -17,6 +17,9 @@ class KnowShowGoClient:
         base_url: str = "http://localhost:3000",  # pragma: allowlist secret
         prototype_api_prefix: str = "/api2.0",
         topic_api_prefix: str = "/api2.0",
+        auth_api_prefix: str = "/api2.0",
+        session_token: Optional[str] = None,
+        get_session_token: Optional[Callable[[], Optional[str]]] = None,
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
@@ -27,6 +30,9 @@ class KnowShowGoClient:
         # "/api" to fall back to the retained backward-compatible alias.
         self.prototype_api_prefix = prototype_api_prefix
         self.topic_api_prefix = topic_api_prefix
+        self.auth_api_prefix = auth_api_prefix
+        self.session_token = session_token
+        self.get_session_token = get_session_token
         self.default_owner_user_id = default_owner_user_id
         self.default_agent_session_id = default_agent_session_id
         self._contract = None
@@ -52,18 +58,37 @@ class KnowShowGoClient:
         if not allowed:
             raise ValueError(f'endpoint not in dev contract: {method} {path}')
 
+    def _resolve_session_token(self) -> Optional[str]:
+        if self.get_session_token is not None:
+            provided = self.get_session_token()
+            if provided:
+                return provided
+        return self.session_token
+
+    def _store_session_token(self, body: Dict[str, Any]) -> None:
+        session = body.get("session") or {}
+        token = session.get("token")
+        if token:
+            self.session_token = token
+
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to API"""
         self._assert_contract_path(method, endpoint)
         url = f"{self.base_url}{endpoint}"
         owner_user_id = kwargs.pop("owner_user_id", None)
         agent_session_id = kwargs.pop("agent_session_id", None)
-        if owner_user_id is None:
+        bearer_token = self._resolve_session_token()
+        if bearer_token:
+            headers = dict(kwargs.pop("headers", None) or {})
+            headers["Authorization"] = f"Bearer {bearer_token}"
+        else:
+            headers = dict(kwargs.pop("headers", None) or {})
+
+        if not bearer_token and owner_user_id is None:
             owner_user_id = self.default_owner_user_id
-        if agent_session_id is None:
+        if not bearer_token and agent_session_id is None:
             agent_session_id = self.default_agent_session_id
 
-        headers = dict(kwargs.pop("headers", None) or {})
         if owner_user_id:
             headers["X-KSG-Owner"] = str(owner_user_id)
         if agent_session_id:
@@ -91,6 +116,46 @@ class KnowShowGoClient:
         response = self.session.request(method, url, **kwargs)
         response.raise_for_status()
         return response.json()
+
+    def register(
+        self,
+        email: str,
+        password: str,
+        app_id: str,
+        display_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Register a user and store the returned session token."""
+        data = {"email": email, "password": password, "appId": app_id}
+        if display_name is not None:
+            data["displayName"] = display_name
+        body = self._request("POST", f"{self.auth_api_prefix}/auth/register", json=data)
+        self._store_session_token(body)
+        return body
+
+    def login(
+        self,
+        email: str,
+        password: str,
+        app_id: str,
+        display_name: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Log in a user and store the returned session token."""
+        data = {"email": email, "password": password, "appId": app_id}
+        if display_name is not None:
+            data["displayName"] = display_name
+        body = self._request("POST", f"{self.auth_api_prefix}/auth/login", json=data)
+        self._store_session_token(body)
+        return body
+
+    def logout(self) -> Dict[str, Any]:
+        """Log out the active session and clear the stored token."""
+        body = self._request("POST", f"{self.auth_api_prefix}/auth/logout")
+        self.session_token = None
+        return body
+
+    def me(self) -> Dict[str, Any]:
+        """Return the current authenticated user/session."""
+        return self._request("GET", f"{self.auth_api_prefix}/auth/me")
 
     def get_release_manifest(self) -> Dict[str, Any]:
         """Fetch server release manifest and supported endpoint contract"""

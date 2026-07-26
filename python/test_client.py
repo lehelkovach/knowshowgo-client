@@ -19,6 +19,139 @@ class FakeResponse:
 
 
 class TestKnowShowGoClient(unittest.TestCase):
+    def test_session_token_sends_bearer_and_skips_default_owner_fallback(self):
+        client = KnowShowGoClient(
+            "https://example.test",
+            session_token="static-token",
+            default_owner_user_id="owner-1",
+            default_agent_session_id="session-1",
+        )
+        client.session.request = MagicMock(return_value=FakeResponse({"results": []}))
+
+        client.search_concepts("login", top_k=5)
+
+        _, url = client.session.request.call_args.args
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(url, "https://example.test/api/concepts/search")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer static-token")
+        self.assertNotIn("X-KSG-Owner", kwargs["headers"])
+        self.assertNotIn("X-KSG-Session", kwargs["headers"])
+        self.assertNotIn("ownerUserId", kwargs["json"])
+        self.assertNotIn("agentSessionId", kwargs["json"])
+
+    def test_get_session_token_provider_supplies_bearer(self):
+        client = KnowShowGoClient(
+            "https://example.test",
+            get_session_token=lambda: "provider-token",
+        )
+        client.session.request = MagicMock(return_value=FakeResponse({"status": "ok"}))
+
+        client.health_check()
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/health",
+            headers={"Authorization": "Bearer provider-token"},
+        )
+
+    def test_auth_methods_use_paths_payloads_and_manage_session_token(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "user": {
+                    "userId": "user-1",
+                    "email": "a@example.test",
+                    "displayName": "Alice",
+                    "createdAt": "now",
+                },
+                "session": {
+                    "token": "register-token",
+                    "expiresAt": "later",
+                    "appId": "app-1",
+                },
+            })
+        )
+
+        client.register(
+            email="a@example.test",
+            password="pw",
+            app_id="app-1",
+            display_name="Alice",
+        )
+
+        self.assertEqual(client.session_token, "register-token")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/auth/register",
+            json={
+                "email": "a@example.test",
+                "password": "pw",
+                "appId": "app-1",
+                "displayName": "Alice",
+            },
+        )
+
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "user": {
+                    "userId": "user-1",
+                    "email": "a@example.test",
+                    "displayName": "Alice",
+                    "createdAt": "now",
+                },
+                "session": {
+                    "token": "login-token",
+                    "expiresAt": "later",
+                    "appId": "app-1",
+                },
+            })
+        )
+
+        client.login(email="a@example.test", password="pw2", app_id="app-1")
+
+        self.assertEqual(client.session_token, "login-token")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/auth/login",
+            json={"email": "a@example.test", "password": "pw2", "appId": "app-1"},
+        )
+
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "user": {
+                    "userId": "user-1",
+                    "email": "a@example.test",
+                    "displayName": "Alice",
+                    "createdAt": "now",
+                },
+                "session": {
+                    "expiresAt": "later",
+                    "appId": "app-1",
+                    "lastUsedAt": "now",
+                },
+            })
+        )
+
+        client.me()
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api2.0/auth/me",
+            headers={"Authorization": "Bearer login-token"},
+        )
+
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True}))
+
+        client.logout()
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/auth/logout",
+            headers={"Authorization": "Bearer login-token"},
+        )
+        self.assertIsNone(client.session_token)
+
     def test_vote_assertion_posts_delta_and_returns_nested_assertion(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -824,7 +957,7 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "dev",
-                "release": "v0.2.3-dev",
+                "release": "v0.2.5-dev",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )

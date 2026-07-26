@@ -15,6 +15,9 @@ export class KnowShowGoClient {
     fetchImpl,
     prototypeApiPrefix = '/api2.0',
     topicApiPrefix = '/api2.0',
+    authApiPrefix = '/api2.0',
+    sessionToken = null,
+    getSessionToken = null,
     auto_connect = false,
     defaultOwnerUserId = null,
     defaultAgentSessionId = null
@@ -29,6 +32,9 @@ export class KnowShowGoClient {
     // '/api' to fall back to the retained backward-compatible alias.
     this.prototypeApiPrefix = prototypeApiPrefix;
     this.topicApiPrefix = topicApiPrefix;
+    this.authApiPrefix = authApiPrefix;
+    this.sessionToken = sessionToken || null;
+    this.getSessionToken = getSessionToken || null;
     // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
     this.defaultOwnerUserId = defaultOwnerUserId || null;
     this.defaultAgentSessionId = defaultAgentSessionId || null;
@@ -66,11 +72,25 @@ export class KnowShowGoClient {
     }
   }
 
+  async _resolveSessionToken() {
+    if (typeof this.getSessionToken === 'function') {
+      const provided = await this.getSessionToken();
+      if (provided) return provided;
+    }
+    return this.sessionToken || null;
+  }
+
+  _storeSessionToken(payload) {
+    const token = payload?.session?.token;
+    if (token) this.sessionToken = token;
+  }
+
   async _request(method, endpoint, { json, params, owner_user_id, agent_session_id } = {}) {
     this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
-    const ownerUserId = owner_user_id ?? this.defaultOwnerUserId;
-    const agentSessionId = agent_session_id ?? this.defaultAgentSessionId;
+    const bearerToken = await this._resolveSessionToken();
+    const ownerUserId = bearerToken ? owner_user_id : (owner_user_id ?? this.defaultOwnerUserId);
+    const agentSessionId = bearerToken ? agent_session_id : (agent_session_id ?? this.defaultAgentSessionId);
     const mergedParams = { ...(params || {}) };
     if (ownerUserId != null && mergedParams.ownerUserId == null) {
       mergedParams.ownerUserId = ownerUserId;
@@ -85,6 +105,7 @@ export class KnowShowGoClient {
     const headers = json
       ? { 'content-type': 'application/json', accept: 'application/json' }
       : { accept: 'application/json' };
+    if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
     if (ownerUserId) headers['x-ksg-owner'] = String(ownerUserId);
     if (agentSessionId) headers['x-ksg-session'] = String(agentSessionId);
 
@@ -116,6 +137,33 @@ export class KnowShowGoClient {
     }
 
     return payload;
+  }
+
+  // ===== Auth =====
+  async register({ email, password, appId, displayName } = {}) {
+    const json = { email, password, appId };
+    if (displayName !== undefined) json.displayName = displayName;
+    const out = await this._request('POST', `${this.authApiPrefix}/auth/register`, { json });
+    this._storeSessionToken(out);
+    return out;
+  }
+
+  async login({ email, password, appId, displayName } = {}) {
+    const json = { email, password, appId };
+    if (displayName !== undefined) json.displayName = displayName;
+    const out = await this._request('POST', `${this.authApiPrefix}/auth/login`, { json });
+    this._storeSessionToken(out);
+    return out;
+  }
+
+  async logout() {
+    const out = await this._request('POST', `${this.authApiPrefix}/auth/logout`);
+    this.sessionToken = null;
+    return out;
+  }
+
+  me() {
+    return this._request('GET', `${this.authApiPrefix}/auth/me`);
   }
 
   // ===== Health & release =====
@@ -532,8 +580,8 @@ export class KnowShowGoClient {
   get_object(uuid, { owner_user_id = null, agent_session_id = null } = {}) {
     return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
       params: {
-        ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
-        agentSessionId: agent_session_id ?? this.defaultAgentSessionId
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id
       },
       owner_user_id,
       agent_session_id
