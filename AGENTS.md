@@ -1,70 +1,55 @@
-# AGENTS.md
+# AGENTS.md · knowshowgo-client `dev` (`0.2.5-dev`)
 
-Canonical instructions for coding agents working in the KnowShowGo client SDK.
-
-This repo ships the JavaScript (`js/client.js`) and Python (`python/client.py`)
-client SDKs for the KnowShowGo (KSG) REST API. The `osl-oc-agent` OpenClaw agent
-consumes this SDK to reach the KSG service.
+**Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
+[CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
 
 ## Commands
 
 ```bash
-npm install --legacy-peer-deps        # see cloud note below
-node --test js/client.test.mjs        # JS unit tests
-python3 -m unittest discover -s python -p 'test_*.py'   # Python unit tests
-npm run build                         # esbuild bundle -> dist/index.cjs
+npm install --legacy-peer-deps
+node --test js/client.test.mjs
+python3 -m unittest discover -s python -p 'test_*.py'
+npm run build
 ```
 
-## Versions
+## Versions (this tip)
 
-| Branch | Version | Pairs with server |
-|--------|---------|-------------------|
-| `main` | `0.2.4` (`v0.2.4-client`) | KSG `v0.2.4` |
-| `dev` | `0.2.5-dev` | KSG `0.2.5-dev` / `v0.2.5-dev` |
+| | |
+|---|---|
+| Client | **`0.2.5-dev`** / branch **`dev`** |
+| Server | knowshowgo **`0.2.5-dev`** / **`dev`** |
+| Contract | `GET /api/release` → **`surfaces.clientContract`** |
 
-## API versioning
+Release tip: **`main` / `v0.2.4-client`** ↔ KSG **`v0.2.4`**.
 
-The KSG service introduces new REST features under the canonical `/api2.0`
-namespace while retaining `/api` as a backward-compatible alias. SDK methods for
-new features default to `/api2.0` and accept a prefix override:
+## API prefixes
 
-| Feature family | JS | Python |
+Default `/api2.0`; pass `/api` for regression tests.
+
+| Family | JS | Python |
 |---|---|---|
 | Prototypes | `prototypeApiPrefix` | `prototype_api_prefix` |
-| Topics / tags | `topicApiPrefix` | `topic_api_prefix` |
+| Topics | `topicApiPrefix` | `topic_api_prefix` |
+| Visual | `visualApiPrefix` | `visual_api_prefix` |
 
-Default both to `/api2.0`; pass `/api` for regression tests. When adding a wrapper
-for a new feature endpoint, build its path from the right prefix and add parity
-tests for **both** namespaces. Keep this repo’s `dev`/`main` versions paired with
-knowshowgo (`docs/VERSION-MATRIX.md` in the server repo).
+## Soft owner identity
 
-## Soft owner identity (read ACL)
+`defaultOwnerUserId` / `defaultAgentSessionId` → `X-KSG-Owner` / `X-KSG-Session`.
 
-KSG filters private objects by caller identity. The client supports:
+## Environments
 
-- Constructor: `defaultOwnerUserId` / `defaultAgentSessionId` (JS) or
-  `default_owner_user_id` / `default_agent_session_id` (Python)
-- Per-call: `owner_user_id` / `agent_session_id` on `get_object`, `list_objects`,
-  `search_concepts`, etc.
-- Transport: sends `X-KSG-Owner` / `X-KSG-Session` and fills `ownerUserId` on
-  query/body when set
+| Prefer | |
+|---|---|
+| Local KSG `dev` | `http://127.0.0.1:3000` |
+| Dev/demo VM | `144.24.32.97` (often firewalled) |
+| Prod | use client **`main`**, not this tip |
 
-Agents should set `defaultOwnerUserId` to the session namespace so list/search/get
-cannot leak other users' private data. This is soft identity — server-side token
-auth is a follow-up.
+## Cloud
 
-## Cursor Cloud specific instructions
+- Need `--legacy-peer-deps` (peer `knowshowgo` unpublished).
+- JS tests: `node --test …` (not jest).
+- Access check: `./scripts/agent-access-check.sh`.
 
-- Install with `npm install --legacy-peer-deps`. The `peerDependencies` entry
-  for the sibling service package is **not published to npm**, so a plain
-  `npm install` fails with an E404. The SDK's own runtime dep is just
-  `node-fetch`; the peer is only relevant when co-locating the service package.
-- The JS tests use the **Node built-in test runner**, not jest. `npm test`
-  (jest) reports "No tests found" because the test file is `js/client.test.mjs`.
-  Run `node --test js/client.test.mjs` instead. All JS + Python tests are unit
-  tests with mocked transport (no live server needed).
-- For live integration against a running KSG service, construct the client with
-  an explicit base URL, e.g. `new KnowShowGoClient({ baseUrl: 'http://localhost:3000' })`
-  (Python: `KnowShowGoClient("http://localhost:3000")`). Start the service from
-  the sibling service repo with `PORT=3000 KSG_MEMORY_BACKEND=in-memory npm start`
-  (no Docker needed). The Python client requires the `requests` package.
+## Prompting
+
+No separate prompt/handoff docs. Rules here or server CLIENT-SYNC.
