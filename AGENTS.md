@@ -32,11 +32,24 @@ new features default to `/api2.0` and accept a prefix override:
 |---|---|---|
 | Prototypes | `prototypeApiPrefix` | `prototype_api_prefix` |
 | Topics / tags | `topicApiPrefix` | `topic_api_prefix` |
+| Visual / multimodal embeds | `visualApiPrefix` | `visual_api_prefix` |
 
-Default both to `/api2.0`; pass `/api` for regression tests. When adding a wrapper
+Default all to `/api2.0`; pass `/api` for regression tests. When adding a wrapper
 for a new feature endpoint, build its path from the right prefix and add parity
 tests for **both** namespaces. Keep this repo’s `dev`/`main` versions paired with
 knowshowgo (`docs/VERSION-MATRIX.md` in the server repo).
+
+**Visual APIs (pair with server `visualEmbedding`):** `embed_media`,
+`update_node_visual_embedding`, `search_visual` → Gemini Embedding 2 space.
+Text recompute remains `update_node_embedding` (OpenAI path on server).
+
+### Keep server + client in sync
+
+1. Land REST on knowshowgo under `/api2.0` (+ `/api` alias).  
+2. Add JS **and** Python wrappers here in the same change set / paired PR.  
+3. Set `peerDependencies.knowshowgo` to the server `dev` version (`0.2.5-dev`).  
+4. Point knowshowgo’s `api/` submodule (if used) at this client commit.  
+5. Run client unit tests + server `npm run test:client:contract`.
 
 ## Soft owner identity (read ACL)
 

@@ -17,6 +17,7 @@ class KnowShowGoClient:
         base_url: str = "http://localhost:3000",  # pragma: allowlist secret
         prototype_api_prefix: str = "/api2.0",
         topic_api_prefix: str = "/api2.0",
+        visual_api_prefix: str = "/api2.0",
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
@@ -27,6 +28,7 @@ class KnowShowGoClient:
         # "/api" to fall back to the retained backward-compatible alias.
         self.prototype_api_prefix = prototype_api_prefix
         self.topic_api_prefix = topic_api_prefix
+        self.visual_api_prefix = visual_api_prefix
         self.default_owner_user_id = default_owner_user_id
         self.default_agent_session_id = default_agent_session_id
         self._contract = None
@@ -295,8 +297,90 @@ class KnowShowGoClient:
         return result["uuid"]
 
     def update_node_embedding(self, uuid: str) -> None:
-        """Update/recompute node embedding"""
+        """Update/recompute node text embedding (OpenAI path)"""
         self._request("POST", f"/api/nodes/{uuid}/embedding")
+
+    def embed_media(
+        self,
+        image_base64: Optional[str] = None,
+        image_mime_type: str = "image/png",
+        video_base64: Optional[str] = None,
+        video_mime_type: str = "video/mp4",
+        text: Optional[str] = None,
+        node_uuid: Optional[str] = None,
+        label: Optional[str] = None,
+        summary: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Embed image/video via Gemini multimodal; store visualEmbedding."""
+        return self._request(
+            "POST",
+            f"{self.visual_api_prefix}/media/embed",
+            json={
+                "imageBase64": image_base64,
+                "imageMimeType": image_mime_type,
+                "videoBase64": video_base64,
+                "videoMimeType": video_mime_type,
+                "text": text,
+                "nodeUuid": node_uuid,
+                "label": label,
+                "summary": summary,
+                "tags": tags or [],
+                "metadata": metadata or {},
+                "source": source,
+            },
+        )
+
+    def update_node_visual_embedding(
+        self,
+        uuid: str,
+        image_base64: Optional[str] = None,
+        image_mime_type: str = "image/png",
+        video_base64: Optional[str] = None,
+        video_mime_type: str = "video/mp4",
+        text: Optional[str] = None,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Recompute Gemini visual embedding for an existing node."""
+        return self._request(
+            "POST",
+            f"{self.visual_api_prefix}/nodes/{uuid}/visual-embedding",
+            json={
+                "imageBase64": image_base64,
+                "imageMimeType": image_mime_type,
+                "videoBase64": video_base64,
+                "videoMimeType": video_mime_type,
+                "text": text,
+                "source": source,
+            },
+        )
+
+    def search_visual(
+        self,
+        query: Optional[str] = None,
+        image_base64: Optional[str] = None,
+        image_mime_type: str = "image/png",
+        video_base64: Optional[str] = None,
+        video_mime_type: str = "video/mp4",
+        top_k: int = 5,
+        similarity_threshold: float = 0.0,
+    ) -> Dict[str, Any]:
+        """Search the Gemini visual embedding space."""
+        return self._request(
+            "POST",
+            f"{self.visual_api_prefix}/concepts/search-visual",
+            json={
+                "query": query,
+                "imageBase64": image_base64,
+                "imageMimeType": image_mime_type,
+                "videoBase64": video_base64,
+                "videoMimeType": video_mime_type,
+                "topK": top_k,
+                "similarityThreshold": similarity_threshold,
+            },
+        )
 
     # ===== ORM Methods =====
 

@@ -31,7 +31,7 @@
   "author": "Leh Kovach",
   "license": "MIT",
   "peerDependencies": {
-    "knowshowgo": "0.2.3-dev"
+    "knowshowgo": "0.2.5-dev"
   },
   "dependencies": {
     "node-fetch": "^2.6.0"

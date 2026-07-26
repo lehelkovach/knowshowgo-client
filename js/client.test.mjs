@@ -918,3 +918,48 @@ test('list_object_categories requests /api/object-categories and unwraps categor
   assert.equal(cats[0].name, 'Organization');
   assert.equal(cats[0].objectCount, 3);
 });
+
+test('embed_media posts to /api2.0/media/embed with snake→camel mapping', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, uuid: 'vis-1', dim: 768, embeddingSpace: 'visual' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.embed_media({
+    image_base64: 'abc',
+    image_mime_type: 'image/jpeg',
+    text: 'godaddy login',
+    source: 'watch',
+  });
+  assert.equal(out.uuid, 'vis-1');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.match(calls[0].url, /\/api2\.0\/media\/embed$/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.imageBase64, 'abc');
+  assert.equal(body.imageMimeType, 'image/jpeg');
+  assert.equal(body.text, 'godaddy login');
+  assert.equal(body.source, 'watch');
+});
+
+test('search_visual and update_node_visual_embedding use visualApiPrefix', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ results: [], ok: true, dim: 8 });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    visualApiPrefix: '/api',
+  });
+  await client.search_visual({ query: 'login', image_base64: 'x', top_k: 3 });
+  await client.update_node_visual_embedding('n1', { image_base64: 'y' });
+  assert.match(calls[0].url, /\/api\/concepts\/search-visual$/);
+  assert.match(calls[1].url, /\/api\/nodes\/n1\/visual-embedding$/);
+  const searchBody = JSON.parse(calls[0].options.body);
+  assert.equal(searchBody.topK, 3);
+  assert.equal(searchBody.imageBase64, 'x');
+});
