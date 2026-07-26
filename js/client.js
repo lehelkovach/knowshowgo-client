@@ -4,14 +4,30 @@
  * Mirrors the Python client in `api/python/client.py`.
  */
 
+/** Canonical hosted KnowShowGo API (see server `docs/PUBLIC-API.md`). */
+export const PUBLIC_API_BASE_URL = 'https://api.knowshowgo.com';
+/** Local default used when nothing else is configured. */
+export const LOCAL_API_BASE_URL = 'http://localhost:3000'; // pragma: allowlist secret
+
+/**
+ * Resolve the API base URL: explicit option → `KSG_API_URL` → `KSG_PUBLIC_API_URL`
+ * → local default. Deployed callers configure the public host by env instead of
+ * hardcoding it, and local dev still works with no config.
+ */
+export function resolveBaseUrl(explicit) {
+  if (explicit) return explicit;
+  const env = typeof process !== 'undefined' ? process.env || {} : {};
+  return env.KSG_API_URL || env.KSG_PUBLIC_API_URL || LOCAL_API_BASE_URL;
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
-   * @param {string} [options.baseUrl='http://localhost:3000']
+   * @param {string} [options.baseUrl] Defaults to `KSG_API_URL`, else localhost.
    * @param {typeof fetch} [options.fetchImpl]
    */
   constructor({
-    baseUrl = 'http://localhost:3000', // pragma: allowlist secret
+    baseUrl,
     fetchImpl,
     prototypeApiPrefix = '/api2.0',
     topicApiPrefix = '/api2.0',
@@ -19,7 +35,7 @@ export class KnowShowGoClient {
     defaultOwnerUserId = null,
     defaultAgentSessionId = null
   } = {}) {
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
     // Wrap the global fetch so it is always invoked with the correct context.
     // Calling a stored reference to the browser/Node global `fetch` as a method
     // (this.fetch(...)) throws "Illegal invocation"; a closure avoids that while
@@ -37,10 +53,18 @@ export class KnowShowGoClient {
     this._connectPromise = auto_connect ? this.connect() : null;
   }
 
+  /**
+   * Client for the canonical hosted API, so callers don't hardcode the URL.
+   * Equivalent to `new KnowShowGoClient({ baseUrl: PUBLIC_API_BASE_URL })`.
+   */
+  static publicApi(options = {}) {
+    return new KnowShowGoClient({ ...options, baseUrl: options.baseUrl || PUBLIC_API_BASE_URL });
+  }
+
   /** Cache release manifest; optionally enforce clientContract path allowlist. */
   async connect({
     expected_channel = 'dev',
-    expected_release = 'v0.2.6-dev',
+    expected_release = 'v0.2.7-dev',
     enforce_contract = false
   } = {}) {
     const manifest = await this.get_release_manifest();

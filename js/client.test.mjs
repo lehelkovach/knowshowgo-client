@@ -831,7 +831,7 @@ test('connect validates release manifest channel', async () => {
     if (url.endsWith('/api/release')) {
       return makeJsonResponse({
         channel: 'dev',
-        release: 'v0.2.6-dev',
+        release: 'v0.2.7-dev',
         surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
       });
     }
@@ -839,7 +839,7 @@ test('connect validates release manifest channel', async () => {
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
-  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.6-dev' });
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.7-dev' });
   assert.equal(manifest.channel, 'dev');
 });
 
@@ -917,4 +917,47 @@ test('list_object_categories requests /api/object-categories and unwraps categor
   assert.match(calls[0].url, /\/api\/object-categories/);
   assert.equal(cats[0].name, 'Organization');
   assert.equal(cats[0].objectCount, 3);
+});
+
+test('resolveBaseUrl prefers explicit option, then env, then localhost', async () => {
+  const mod = await import('./client.js');
+  const saved = { api: process.env.KSG_API_URL, pub: process.env.KSG_PUBLIC_API_URL };
+  try {
+    delete process.env.KSG_API_URL;
+    delete process.env.KSG_PUBLIC_API_URL;
+    assert.equal(mod.resolveBaseUrl('https://explicit.test'), 'https://explicit.test');
+    assert.equal(mod.resolveBaseUrl(), mod.LOCAL_API_BASE_URL);
+
+    process.env.KSG_PUBLIC_API_URL = 'https://from-public-env.test';
+    assert.equal(mod.resolveBaseUrl(), 'https://from-public-env.test');
+
+    process.env.KSG_API_URL = 'https://from-env.test';
+    assert.equal(mod.resolveBaseUrl(), 'https://from-env.test');
+    assert.equal(mod.resolveBaseUrl('https://explicit.test'), 'https://explicit.test');
+  } finally {
+    if (saved.api === undefined) delete process.env.KSG_API_URL;
+    else process.env.KSG_API_URL = saved.api;
+    if (saved.pub === undefined) delete process.env.KSG_PUBLIC_API_URL;
+    else process.env.KSG_PUBLIC_API_URL = saved.pub;
+  }
+});
+
+test('publicApi() targets the canonical hosted API host', async () => {
+  const mod = await import('./client.js');
+  const client = mod.KnowShowGoClient.publicApi({ fetchImpl: async () => makeJsonResponse({}) });
+  assert.equal(client.baseUrl, 'https://api.knowshowgo.com');
+  assert.equal(mod.PUBLIC_API_BASE_URL, 'https://api.knowshowgo.com');
+});
+
+test('client uses KSG_API_URL when no baseUrl is passed', async () => {
+  const saved = process.env.KSG_API_URL;
+  process.env.KSG_API_URL = 'https://env-host.test/';
+  try {
+    const { KnowShowGoClient } = await import('./client.js');
+    const client = new KnowShowGoClient({ fetchImpl: async () => makeJsonResponse({}) });
+    assert.equal(client.baseUrl, 'https://env-host.test');
+  } finally {
+    if (saved === undefined) delete process.env.KSG_API_URL;
+    else process.env.KSG_API_URL = saved;
+  }
 });
