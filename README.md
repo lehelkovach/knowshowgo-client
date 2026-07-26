@@ -1,4 +1,4 @@
-# @lehelkovach/knowshowgo-client · `dev` (`0.2.5-dev`)
+# @lehelkovach/knowshowgo-client · `dev` (`0.2.6-dev`)
 
 JS + Python SDK for the [KnowShowGo](https://github.com/lehelkovach/knowshowgo)
 memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev).
@@ -18,15 +18,16 @@ memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc
 
 | | |
 |---|---|
-| **This tip** | **`dev` / `0.2.5-dev`** |
-| **Pairs with KSG** | **`dev` / `0.2.5-dev`** |
-| **Pairs with agent** | osl-oc-agent **`dev`** |
-| **Last release** | **`v0.2.4-client`** on `main` |
+| **This tip** | **`dev` / `0.2.6-dev`** |
+| **Pairs with KSG** | **`dev` / `0.2.6-dev`** |
+| **Pairs with agent** | osl-oc-agent **`dev`** (`0.2.2-dev`) |
+| **Last release** | **`v0.2.5-client`** on `main` |
 
-## What’s new on `dev` (since `v0.2.4-client`)
+## What’s new on `dev` (since `v0.2.5-client`)
 
-- `topicApiPrefix` for topic/tag methods (alongside `prototypeApiPrefix`)
-- Keeps pace with server `0.2.5-dev` contract (`surfaces.clientContract`)
+Post-release integration tip. Stay version-paired with knowshowgo **`0.2.6-dev`**.
+
+Shipped in **`v0.2.5-client`**: `topicApiPrefix` for topic/tag methods; pairs with server `v0.2.5`.
 
 ## Bugs / caveats
 
@@ -35,7 +36,7 @@ memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc
 
 ## In development
 
-Whatever lands with knowshowgo **`dev`** (topics `/api2.0`, embed path changes). Stay version-paired.
+Whatever lands with knowshowgo **`dev`**. Stay version-paired.
 
 ## Live servers (this tip)
 
@@ -44,9 +45,9 @@ Whatever lands with knowshowgo **`dev`** (topics `/api2.0`, embed path changes).
 | **Local KSG `dev`** | `http://127.0.0.1:3000` |
 | **Dev/demo VM** | `144.24.32.97` (often firewalled) |
 
-| Released prod | use client **`main` / `v0.2.4-client`** |
+| Released prod | use client **`main` / `v0.2.5-client`** |
 |---|---|
-| https://ksg.129.153.118.145.sslip.io/ | KSG **`v0.2.4`** on the VM |
+| https://ksg.129.153.118.145.sslip.io/ | KSG **`v0.2.5`** on the VM |
 
 ## Try it
 

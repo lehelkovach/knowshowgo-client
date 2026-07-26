@@ -824,11 +824,11 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "dev",
-                "release": "v0.2.3-dev",
+                "release": "v0.2.6-dev",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect()
+        manifest = client.connect(expected_channel='dev', expected_release='v0.2.6-dev')
         self.assertEqual(manifest["channel"], "dev")
 
     def test_resolve_object_adds_object_uuid_alias(self):

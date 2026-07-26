@@ -1,4 +1,4 @@
-# AGENTS.md · knowshowgo-client `dev` (`0.2.5-dev`)
+# AGENTS.md · knowshowgo-client `dev` (`0.2.6-dev`)
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
@@ -16,11 +16,12 @@ npm run build
 
 | | |
 |---|---|
-| Client | **`0.2.5-dev`** / branch **`dev`** |
-| Server | knowshowgo **`0.2.5-dev`** / **`dev`** |
+| Client | **`0.2.6-dev`** / branch **`dev`** |
+| Server | knowshowgo **`0.2.6-dev`** / **`dev`** |
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
+| `connect()` default | channel **`dev`**, release **`v0.2.6-dev`** |
 
-Release tip: **`main` / `v0.2.4-client`** ↔ KSG **`v0.2.4`**.
+Release tip: **`main` / `v0.2.5-client`** ↔ KSG **`v0.2.5`**.
 
 ## API prefixes
 
