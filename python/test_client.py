@@ -829,11 +829,11 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "release",
-                "release": "v0.2.6",
+                "release": "v0.2.7",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect(expected_channel='release', expected_release='v0.2.6')
+        manifest = client.connect(expected_channel='release', expected_release='v0.2.7')
         self.assertEqual(manifest["channel"], "release")
 
     def test_resolve_object_adds_object_uuid_alias(self):
@@ -886,6 +886,36 @@ class TestPublicApiBaseUrl(unittest.TestCase):
         client = KnowShowGoClient.public_api()
         self.assertEqual(client.base_url, PUBLIC_API_BASE_URL)
         self.assertEqual(PUBLIC_API_BASE_URL, "https://api.knowshowgo.com")
+
+
+class TestAdvertisedBaseUrl(unittest.TestCase):
+    """connect(adopt_advertised_base_url=True) follows the manifest."""
+
+    def _client(self):
+        client = KnowShowGoClient("http://127.0.0.1:3000")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "channel": "release",
+                "release": "v0.2.7",
+                "api": {
+                    "publicBaseUrl": "https://api.knowshowgo.com",
+                    "prefixes": {"stable": "/api", "current": "/api2.0"},
+                },
+                "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]},
+            })
+        )
+        return client
+
+    def test_adopts_when_requested(self):
+        client = self._client()
+        client.connect(adopt_advertised_base_url=True)
+        self.assertEqual(client.base_url, "https://api.knowshowgo.com")
+        self.assertEqual(client.api_prefixes, {"stable": "/api", "current": "/api2.0"})
+
+    def test_default_keeps_base_url(self):
+        client = self._client()
+        client.connect()
+        self.assertEqual(client.base_url, "http://127.0.0.1:3000")
 
 
 if __name__ == "__main__":

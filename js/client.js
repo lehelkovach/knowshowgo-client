@@ -61,11 +61,18 @@ export class KnowShowGoClient {
     return new KnowShowGoClient({ ...options, baseUrl: options.baseUrl || PUBLIC_API_BASE_URL });
   }
 
-  /** Cache release manifest; optionally enforce clientContract path allowlist. */
+  /**
+   * Cache release manifest; optionally enforce clientContract path allowlist.
+   *
+   * `adopt_advertised_base_url` re-points this client at `api.publicBaseUrl`
+   * from the manifest, so a caller bootstrapped against any reachable host ends
+   * up talking to the canonical public API the service advertises.
+   */
   async connect({
     expected_channel = 'release',
-    expected_release = 'v0.2.6',
-    enforce_contract = false
+    expected_release = 'v0.2.7',
+    enforce_contract = false,
+    adopt_advertised_base_url = false
   } = {}) {
     const manifest = await this.get_release_manifest();
     if (expected_channel && manifest.channel !== expected_channel) {
@@ -76,6 +83,11 @@ export class KnowShowGoClient {
     }
     this._contract = manifest.surfaces?.clientContract || null;
     this._enforceContract = enforce_contract;
+    this.apiPrefixes = manifest.api?.prefixes || null;
+    if (adopt_advertised_base_url) {
+      const advertised = manifest.api?.publicBaseUrl;
+      if (advertised) this.baseUrl = String(advertised).replace(/\/+$/, '');
+    }
     return manifest;
   }
 
