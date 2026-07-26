@@ -1,4 +1,4 @@
-# @lehelkovach/knowshowgo-client · `dev` (`0.2.6-dev`)
+# @lehelkovach/knowshowgo-client · `dev` (`0.2.7-dev`)
 
 > **Cold start:** This is the **SDK** for the KnowShowGo memory API. Product MVP lives in
 > [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev). Server:
@@ -14,16 +14,16 @@ JS + Python SDK for the KnowShowGo memory API. Used by
 | | |
 |---|---|
 | **This repo’s job** | Typed HTTP wrappers (JS + Python) over KSG REST — ACL headers, `/api2.0` prefixes |
-| **This tip** | **`dev` / `0.2.6-dev`** |
-| **Pairs with** | knowshowgo **`dev` / `0.2.6-dev`** · agent **`dev` / `0.2.2-dev`** |
-| **Last release** | **`v0.2.5-client`** on `main` |
-| **Live prod** | https://ksg.129.153.118.145.sslip.io/ — use client **`main` / `v0.2.5-client`**, not this tip |
+| **This tip** | **`dev` / `0.2.7-dev`** |
+| **Pairs with** | knowshowgo **`dev` / `0.2.7-dev`** · agent **`dev` / `0.2.2-dev`** |
+| **Last release** | **`v0.2.6-client`** on `main` |
+| **Live prod** | https://ksg.129.153.118.145.sslip.io/ — use client **`main` / `v0.2.6-client`**, not this tip |
 
 ### Coverage (high level)
 
-Same surface as `v0.2.5-client`, plus whatever lands with server `0.2.6-dev`
+Same surface as `v0.2.6-client`, plus whatever lands with server `0.2.7-dev`
 (`topicApiPrefix`, prototype prefixes, soft owner identity, `connect()` defaults for
-channel **`dev`** / release **`v0.2.6-dev`**).
+channel **`dev`** / release **`v0.2.7-dev`**).
 
 ### Not this package
 
@@ -40,15 +40,22 @@ channel **`dev`** / release **`v0.2.6-dev`**).
 | Server [CLIENT-SYNC (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md) | Pairing rules |
 | Agent [README (`dev`)](https://github.com/lehelkovach/osl-oc-agent/blob/dev/README.md) | Product MVP |
 
-## What’s new on `dev` (since `v0.2.5-client`)
+## What’s new on `dev` (since `v0.2.6-client`)
 
-Post-release integration tip. Stay paired with knowshowgo **`0.2.6-dev`**.
+Post-release integration tip. Stay paired with knowshowgo **`0.2.7-dev`**.
 
-Shipped in **`v0.2.5-client`**: `topicApiPrefix`; pairs with server `v0.2.5`.
+Shipped in **`v0.2.6-client`**: `topicApiPrefix`; pairs with server `v0.2.6`.
 
 ## Website & demos
 
 https://ksg.129.153.118.145.sslip.io/demo/
+
+
+## Public API base URL
+
+Explicit `baseUrl` → `KSG_API_URL` → `KSG_PUBLIC_API_URL` → `http://localhost:3000`.
+Hosted: `KnowShowGoClient.publicApi()` / `PUBLIC_API_BASE_URL` (`https://api.knowshowgo.com`).
+Server runbook: [PUBLIC-API.md](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/PUBLIC-API.md).
 
 ## Bugs / caveats
 
@@ -64,7 +71,7 @@ https://ksg.129.153.118.145.sslip.io/demo/
 
 | Released prod | Use client tip |
 |---|---|
-| https://ksg.129.153.118.145.sslip.io/ | **`main` / `v0.2.5-client`** (KSG **`v0.2.5`**) |
+| https://ksg.129.153.118.145.sslip.io/ | **`main` / `v0.2.6-client`** (KSG **`v0.2.6`**) |
 
 ## Try it
 

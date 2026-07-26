@@ -4,7 +4,12 @@ import unittest
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(__file__))
-from client import KnowShowGoClient  # noqa: E402
+from client import (  # noqa: E402
+    KnowShowGoClient,
+    PUBLIC_API_BASE_URL,
+    LOCAL_API_BASE_URL,
+    resolve_base_url,
+)
 
 
 class FakeResponse:
@@ -824,11 +829,11 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "dev",
-                "release": "v0.2.6-dev",
+                "release": "v0.2.7-dev",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect(expected_channel='dev', expected_release='v0.2.6-dev')
+        manifest = client.connect(expected_channel='dev', expected_release='v0.2.7-dev')
         self.assertEqual(manifest["channel"], "dev")
 
     def test_resolve_object_adds_object_uuid_alias(self):
@@ -843,6 +848,44 @@ class TestKnowShowGoClient(unittest.TestCase):
         client = KnowShowGoClient("https://example.test")
         with self.assertRaises(ValueError):
             client.suggest_concept_objects()
+
+
+class TestPublicApiBaseUrl(unittest.TestCase):
+    """Base URL resolution for the hosted public API."""
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in ("KSG_API_URL", "KSG_PUBLIC_API_URL")}
+        for k in self._saved:
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_explicit_wins(self):
+        self.assertEqual(resolve_base_url("https://explicit.test"), "https://explicit.test")
+
+    def test_local_default_without_env(self):
+        self.assertEqual(resolve_base_url(), LOCAL_API_BASE_URL)
+
+    def test_env_fallbacks(self):
+        os.environ["KSG_PUBLIC_API_URL"] = "https://from-public-env.test"
+        self.assertEqual(resolve_base_url(), "https://from-public-env.test")
+        os.environ["KSG_API_URL"] = "https://from-env.test"
+        self.assertEqual(resolve_base_url(), "https://from-env.test")
+
+    def test_client_uses_env_when_no_base_url(self):
+        os.environ["KSG_API_URL"] = "https://env-host.test/"
+        client = KnowShowGoClient()
+        self.assertEqual(client.base_url, "https://env-host.test")
+
+    def test_public_api_helper(self):
+        client = KnowShowGoClient.public_api()
+        self.assertEqual(client.base_url, PUBLIC_API_BASE_URL)
+        self.assertEqual(PUBLIC_API_BASE_URL, "https://api.knowshowgo.com")
 
 
 if __name__ == "__main__":
