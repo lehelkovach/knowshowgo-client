@@ -4,9 +4,26 @@ KnowShowGo Python REST API Client
 Provides a Python client for the KnowShowGo REST API.
 """
 
+import os
 import requests
 from typing import Dict, Any, List, Optional
 import json
+
+#: Canonical hosted KnowShowGo API (see server ``docs/PUBLIC-API.md``).
+PUBLIC_API_BASE_URL = "https://api.knowshowgo.com"
+#: Local default used when nothing else is configured.
+LOCAL_API_BASE_URL = "http://localhost:3000"  # pragma: allowlist secret
+
+
+def resolve_base_url(explicit: Optional[str] = None) -> str:
+    """Explicit arg → ``KSG_API_URL`` → ``KSG_PUBLIC_API_URL`` → local default."""
+    if explicit:
+        return explicit
+    return (
+        os.environ.get("KSG_API_URL")
+        or os.environ.get("KSG_PUBLIC_API_URL")
+        or LOCAL_API_BASE_URL
+    )
 
 
 class KnowShowGoClient:
@@ -14,14 +31,14 @@ class KnowShowGoClient:
 
     def __init__(
         self,
-        base_url: str = "http://localhost:3000",  # pragma: allowlist secret
+        base_url: Optional[str] = None,
         prototype_api_prefix: str = "/api2.0",
         topic_api_prefix: str = "/api2.0",
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
     ):
-        self.base_url = base_url.rstrip('/')
+        self.base_url = resolve_base_url(base_url).rstrip('/')
         self.session = requests.Session()
         # New features live under the /api2.0 namespace by default; set this to
         # "/api" to fall back to the retained backward-compatible alias.
@@ -96,13 +113,19 @@ class KnowShowGoClient:
         """Fetch server release manifest and supported endpoint contract"""
         return self._request('GET', '/api/release')
 
+    @classmethod
+    def public_api(cls, **kwargs) -> "KnowShowGoClient":
+        """Client for the canonical hosted API without hardcoding the URL."""
+        kwargs.setdefault("base_url", PUBLIC_API_BASE_URL)
+        return cls(**kwargs)
+
     def connect(
         self,
-        expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.5',
+        expected_channel: str = 'release',
+        expected_release: str = 'v0.2.6',
         enforce_contract: bool = False
     ) -> Dict[str, Any]:
-        """Verify dev channel/release and optionally cache contract for path guard"""
+        """Verify channel/release and optionally cache contract for path guard"""
         manifest = self.get_release_manifest()
         if expected_channel and manifest.get('channel') != expected_channel:
             raise ValueError(f"expected channel {expected_channel}, got {manifest.get('channel')}")

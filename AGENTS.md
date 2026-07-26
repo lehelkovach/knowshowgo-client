@@ -1,7 +1,7 @@
 # AGENTS.md
 
 > Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
- · knowshowgo-client `main` (`v0.2.5-client`)
+ · knowshowgo-client `main` (`v0.2.6-client`)
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.5`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
@@ -19,13 +19,18 @@ npm run build
 
 | | |
 |---|---|
-| Client | **`v0.2.5-client`** (`0.2.5`) / branch **`main`** |
-| Server | knowshowgo **`v0.2.5`** / **`main`** |
+| Client | **`v0.2.6-client`** (`0.2.6`) / branch **`main`** |
+| Server | knowshowgo **`v0.2.6`** / **`main`** |
 | Agent | osl-oc-agent **`v0.2.1`** |
 | Contract | `GET /api/release` → **`surfaces.mvp`** |
-| `connect()` | use `expected_channel: 'release'`, `expected_release: 'v0.2.5'` |
+| `connect()` | defaults to `expected_channel: 'release'`, `expected_release: 'v0.2.6'` |
 
-Next integration tip: **`dev` / `0.2.6-dev`** ↔ KSG **`0.2.6-dev`**.
+Next integration tip: **`dev` / `0.2.7-dev`** ↔ KSG **`0.2.7-dev`**.
+
+## Base URL
+
+Explicit `baseUrl` → `KSG_API_URL` → `KSG_PUBLIC_API_URL` → `http://localhost:3000`.
+Hosted: `KnowShowGoClient.publicApi()` / `PUBLIC_API_BASE_URL` (`https://api.knowshowgo.com`).
 
 ## Soft ACL
 
@@ -40,7 +45,7 @@ Next integration tip: **`dev` / `0.2.6-dev`** ↔ KSG **`0.2.6-dev`**.
 | Prefer | |
 |---|---|
 | **Prod** | https://ksg.129.153.118.145.sslip.io/ |
-| **Local** | KSG `v0.2.5` on `http://127.0.0.1:3000` |
+| **Local** | KSG `v0.2.6` on `http://127.0.0.1:3000` |
 
 ## Cloud
 
