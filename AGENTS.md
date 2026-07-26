@@ -1,4 +1,7 @@
-# AGENTS.md · knowshowgo-client `main` (`v0.2.5-client`)
+# AGENTS.md
+
+> Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
+ · knowshowgo-client `main` (`v0.2.5-client`)
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.5`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
