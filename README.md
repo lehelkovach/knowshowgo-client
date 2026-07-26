@@ -1,9 +1,34 @@
 # @lehelkovach/knowshowgo-client · `dev` (`0.2.6-dev`)
 
-JS + Python SDK for the [KnowShowGo](https://github.com/lehelkovach/knowshowgo)
-memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev).
+> **Cold start:** This is the **SDK** for the KnowShowGo memory API. Product MVP lives in
+> [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev). Server:
+> [`knowshowgo` `dev`](https://github.com/lehelkovach/knowshowgo/tree/dev).
+
+JS + Python SDK for the KnowShowGo memory API. Used by
+[`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev).
 
 > **Not on npmjs.org** (E404). Install from GitHub or sibling `file:`.
+
+## MVP at a glance (for reviewers)
+
+| | |
+|---|---|
+| **This repo’s job** | Typed HTTP wrappers (JS + Python) over KSG REST — ACL headers, `/api2.0` prefixes |
+| **This tip** | **`dev` / `0.2.6-dev`** |
+| **Pairs with** | knowshowgo **`dev` / `0.2.6-dev`** · agent **`dev` / `0.2.2-dev`** |
+| **Last release** | **`v0.2.5-client`** on `main` |
+| **Live prod** | https://ksg.129.153.118.145.sslip.io/ — use client **`main` / `v0.2.5-client`**, not this tip |
+
+### Coverage (high level)
+
+Same surface as `v0.2.5-client`, plus whatever lands with server `0.2.6-dev`
+(`topicApiPrefix`, prototype prefixes, soft owner identity, `connect()` defaults for
+channel **`dev`** / release **`v0.2.6-dev`**).
+
+### Not this package
+
+- No chat UI / browser / DNS tools — see **osl-oc-agent**
+- Stay version-paired with knowshowgo **`dev`**
 
 ## Documentation
 
@@ -13,21 +38,13 @@ memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc
 | [`AGENTS.md`](AGENTS.md) | Commands, API prefixes, soft ACL |
 | Server [QUICKSTART (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/QUICKSTART.md) | Run KSG |
 | Server [CLIENT-SYNC (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md) | Pairing rules |
-
-## Latest version
-
-| | |
-|---|---|
-| **This tip** | **`dev` / `0.2.6-dev`** |
-| **Pairs with KSG** | **`dev` / `0.2.6-dev`** |
-| **Pairs with agent** | osl-oc-agent **`dev`** (`0.2.2-dev`) |
-| **Last release** | **`v0.2.5-client`** on `main` |
+| Agent [README (`dev`)](https://github.com/lehelkovach/osl-oc-agent/blob/dev/README.md) | Product MVP |
 
 ## What’s new on `dev` (since `v0.2.5-client`)
 
-Post-release integration tip. Stay version-paired with knowshowgo **`0.2.6-dev`**.
+Post-release integration tip. Stay paired with knowshowgo **`0.2.6-dev`**.
 
-Shipped in **`v0.2.5-client`**: `topicApiPrefix` for topic/tag methods; pairs with server `v0.2.5`.
+Shipped in **`v0.2.5-client`**: `topicApiPrefix`; pairs with server `v0.2.5`.
 
 ## Website & demos
 
@@ -38,10 +55,6 @@ https://ksg.129.153.118.145.sslip.io/demo/
 - Plain `npm install` fails without `--legacy-peer-deps` (peer `knowshowgo` unpublished)
 - Soft owner identity only — not token auth
 
-## In development
-
-Whatever lands with knowshowgo **`dev`**. Stay version-paired.
-
 ## Live servers (this tip)
 
 | Prefer | |
@@ -49,9 +62,9 @@ Whatever lands with knowshowgo **`dev`**. Stay version-paired.
 | **Local KSG `dev`** | `http://127.0.0.1:3000` |
 | **Dev/demo VM** | `144.24.32.97` (often firewalled) |
 
-| Released prod | use client **`main` / `v0.2.5-client`** |
+| Released prod | Use client tip |
 |---|---|
-| https://ksg.129.153.118.145.sslip.io/ | KSG **`v0.2.5`** on the VM |
+| https://ksg.129.153.118.145.sslip.io/ | **`main` / `v0.2.5-client`** (KSG **`v0.2.5`**) |
 
 ## Try it
 
