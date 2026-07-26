@@ -29,6 +29,10 @@ Post-release integration tip. Stay version-paired with knowshowgo **`0.2.6-dev`*
 
 Shipped in **`v0.2.5-client`**: `topicApiPrefix` for topic/tag methods; pairs with server `v0.2.5`.
 
+## Website & demos
+
+https://ksg.129.153.118.145.sslip.io/demo/
+
 ## Bugs / caveats
 
 - Plain `npm install` fails without `--legacy-peer-deps` (peer `knowshowgo` unpublished)
