@@ -33,6 +33,10 @@ Next integration tip: **`dev` / `0.2.6-dev`** ↔ KSG **`0.2.6-dev`**.
 
 ## Environments
 
+| Public API | `https://api.knowshowgo.com` (override `baseUrl`) |
+|---|---|
+
+
 | Prefer | |
 |---|---|
 | **Prod** | https://ksg.129.153.118.145.sslip.io/ |

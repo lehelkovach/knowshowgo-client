@@ -43,6 +43,19 @@ Topics/tags, object categories, objects, concepts, assertions, procedures, proto
 
 https://ksg.129.153.118.145.sslip.io/demo/
 
+
+## Public hosted API
+
+```js
+const client = new KnowShowGoClient({
+  baseUrl: 'https://api.knowshowgo.com',
+  defaultOwnerUserId: 'my-namespace',
+});
+```
+
+Server runbook: [knowshowgo PUBLIC-API.md](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md).  
+Local default remains `http://localhost:3000`.
+
 ## Try it
 
 ```bash
