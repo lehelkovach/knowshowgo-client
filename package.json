@@ -1,6 +1,6 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
   "type": "module",
   "main": "js/index.js",
@@ -31,7 +31,7 @@
   "author": "Leh Kovach",
   "license": "MIT",
   "peerDependencies": {
-    "knowshowgo": "0.2.3-dev"
+    "knowshowgo": "0.2.5"
   },
   "dependencies": {
     "node-fetch": "^2.6.0"

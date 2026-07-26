@@ -14,6 +14,7 @@ export class KnowShowGoClient {
     baseUrl = 'http://localhost:3000', // pragma: allowlist secret
     fetchImpl,
     prototypeApiPrefix = '/api2.0',
+    topicApiPrefix = '/api2.0',
     auto_connect = false,
     defaultOwnerUserId = null,
     defaultAgentSessionId = null
@@ -27,6 +28,7 @@ export class KnowShowGoClient {
     // New features live under the /api2.0 namespace by default; set this to
     // '/api' to fall back to the retained backward-compatible alias.
     this.prototypeApiPrefix = prototypeApiPrefix;
+    this.topicApiPrefix = topicApiPrefix;
     // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
     this.defaultOwnerUserId = defaultOwnerUserId || null;
     this.defaultAgentSessionId = defaultAgentSessionId || null;
@@ -38,7 +40,7 @@ export class KnowShowGoClient {
   /** Cache release manifest; optionally enforce clientContract path allowlist. */
   async connect({
     expected_channel = 'dev',
-    expected_release = 'v0.2.4',
+    expected_release = 'v0.2.5',
     enforce_contract = false
   } = {}) {
     const manifest = await this.get_release_manifest();
@@ -414,7 +416,7 @@ export class KnowShowGoClient {
 
   // ===== Topics (v0.2.2) =====
   create_topic({ label = null, phrase = null, summary = '', aliases = [], kind = 'topic', language, provenance = null } = {}) {
-    return this._request('POST', '/api/topics', {
+    return this._request('POST', `${this.topicApiPrefix}/topics`, {
       json: { label, phrase, summary, aliases, kind, language, provenance }
     }).then((body) => ({
       ...body,
@@ -423,11 +425,11 @@ export class KnowShowGoClient {
   }
 
   get_topic(uuid) {
-    return this._request('GET', `/api/topics/${encodeURIComponent(uuid)}`).then(r => r.topic);
+    return this._request('GET', `${this.topicApiPrefix}/topics/${encodeURIComponent(uuid)}`).then(r => r.topic);
   }
 
   resolve_topic_tag({ tag = null, phrase = null, language, top_k = 10, create_if_missing = false } = {}) {
-    return this._request('POST', '/api/topics/resolve-tag', {
+    return this._request('POST', `${this.topicApiPrefix}/topics/resolve-tag`, {
       json: { tag, phrase, language, topK: top_k, createIfMissing: create_if_missing }
     });
   }

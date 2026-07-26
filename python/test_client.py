@@ -63,7 +63,7 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertTrue(result["created"])
         client.session.request.assert_called_once_with(
             "POST",
-            "https://example.test/api/topics",
+            "https://example.test/api2.0/topics",
             json={
                 "label": "Invoices",
                 "phrase": None,
@@ -85,7 +85,7 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(topic["uuid"], "t1")
         client.session.request.assert_called_once_with(
             "GET",
-            "https://example.test/api/topics/t1",
+            "https://example.test/api2.0/topics/t1",
         )
 
     def test_resolve_topic_tag_maps_top_k_and_create_flag(self):
@@ -98,12 +98,50 @@ class TestKnowShowGoClient(unittest.TestCase):
 
         client.session.request.assert_called_once_with(
             "POST",
-            "https://example.test/api/topics/resolve-tag",
+            "https://example.test/api2.0/topics/resolve-tag",
             json={
                 "tag": "#[invoice]",
                 "phrase": None,
                 "topK": 3,
                 "createIfMissing": True,
+            },
+        )
+
+    def test_topic_api_prefix_falls_back_to_legacy_api(self):
+        client = KnowShowGoClient("https://example.test", topic_api_prefix="/api")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "created": True, "topic": {"uuid": "t1"}})
+        )
+
+        client.create_topic(label="Invoices")
+        client.session.request.assert_called_with(
+            "POST",
+            "https://example.test/api/topics",
+            json={
+                "label": "Invoices",
+                "phrase": None,
+                "summary": "",
+                "aliases": [],
+                "kind": "topic",
+                "provenance": None,
+            },
+        )
+
+        client.get_topic("t1")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api/topics/t1",
+        )
+
+        client.resolve_topic_tag(tag="#[invoice]")
+        client.session.request.assert_called_with(
+            "POST",
+            "https://example.test/api/topics/resolve-tag",
+            json={
+                "tag": "#[invoice]",
+                "phrase": None,
+                "topK": 10,
+                "createIfMissing": False,
             },
         )
 
@@ -785,13 +823,13 @@ class TestKnowShowGoClient(unittest.TestCase):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
             return_value=FakeResponse({
-                "channel": "dev",
-                "release": "v0.2.3-dev",
+                "channel": "release",
+                "release": "v0.2.5",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect()
-        self.assertEqual(manifest["channel"], "dev")
+        manifest = client.connect(expected_channel='release', expected_release='v0.2.5')
+        self.assertEqual(manifest["channel"], "release")
 
     def test_resolve_object_adds_object_uuid_alias(self):
         client = KnowShowGoClient("https://example.test")
