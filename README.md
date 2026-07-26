@@ -17,7 +17,7 @@ JS + Python SDK for the KnowShowGo memory API. Used by
 | **This tip** | **`dev` / `0.2.7-dev`** |
 | **Pairs with** | knowshowgo **`dev` / `0.2.7-dev`** · agent **`dev` / `0.2.2-dev`** |
 | **Last release** | **`v0.2.6-client`** on `main` |
-| **Live prod** | https://ksg.129.153.118.145.sslip.io/ — use client **`main` / `v0.2.6-client`**, not this tip |
+| **Live prod** | https://knowshowgo.com/ — use client **`main` / `v0.2.6-client`**, not this tip |
 
 ### Coverage (high level)
 
@@ -48,7 +48,7 @@ Shipped in **`v0.2.6-client`**: `topicApiPrefix`; pairs with server `v0.2.6`.
 
 ## Website & demos
 
-https://ksg.129.153.118.145.sslip.io/demo/
+https://knowshowgo.com/demo/
 
 
 ## Public API base URL
@@ -71,7 +71,7 @@ Server runbook: [PUBLIC-API.md](https://github.com/lehelkovach/knowshowgo/blob/d
 
 | Released prod | Use client tip |
 |---|---|
-| https://ksg.129.153.118.145.sslip.io/ | **`main` / `v0.2.6-client`** (KSG **`v0.2.6`**) |
+| https://knowshowgo.com/ | **`main` / `v0.2.6-client`** (KSG **`v0.2.6`**) |
 
 ## Try it
 
