@@ -1,32 +1,62 @@
 # @lehelkovach/knowshowgo-client · `dev` (`0.2.5-dev`)
 
-JS + Python SDKs for [KnowShowGo](https://github.com/lehelkovach/knowshowgo)
-**`dev`**. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev).
+JS + Python SDK for the [KnowShowGo](https://github.com/lehelkovach/knowshowgo)
+memory API. Used by [`osl-oc-agent` `dev`](https://github.com/lehelkovach/osl-oc-agent/tree/dev).
 
-> **Not on npmjs.org** (E404). Install from GitHub `dev` / tag or sibling `file:`.
+> **Not on npmjs.org** (E404). Install from GitHub or sibling `file:`.
 
-## Install
+## Documentation
+
+| Doc | |
+|---|---|
+| This README | Install + try it |
+| [`AGENTS.md`](AGENTS.md) | Commands, API prefixes, soft ACL |
+| Server [QUICKSTART (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/QUICKSTART.md) | Run KSG |
+| Server [CLIENT-SYNC (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md) | Pairing rules |
+
+## Latest version
+
+| | |
+|---|---|
+| **This tip** | **`dev` / `0.2.5-dev`** |
+| **Pairs with KSG** | **`dev` / `0.2.5-dev`** |
+| **Pairs with agent** | osl-oc-agent **`dev`** |
+| **Last release** | **`v0.2.4-client`** on `main` |
+
+## What’s new on `dev` (since `v0.2.4-client`)
+
+- `topicApiPrefix` for topic/tag methods (alongside `prototypeApiPrefix`)
+- Keeps pace with server `0.2.5-dev` contract (`surfaces.clientContract`)
+
+## Bugs / caveats
+
+- Plain `npm install` fails without `--legacy-peer-deps` (peer `knowshowgo` unpublished)
+- Soft owner identity only — not token auth
+
+## In development
+
+Whatever lands with knowshowgo **`dev`** (topics `/api2.0`, embed path changes). Stay version-paired.
+
+## Live servers (this tip)
+
+| Prefer | |
+|---|---|
+| **Local KSG `dev`** | `http://127.0.0.1:3000` |
+| **Dev/demo VM** | `144.24.32.97` (often firewalled) |
+
+| Released prod | use client **`main` / `v0.2.4-client`** |
+|---|---|
+| https://ksg.129.153.118.145.sslip.io/ | KSG **`v0.2.4`** on the VM |
+
+## Try it
 
 ```bash
-npm install --legacy-peer-deps   # when depended on via file:../knowshowgo-client
-# or track integration tip:
-npm i --legacy-peer-deps git+https://github.com/lehelkovach/knowshowgo-client.git#dev
-```
-
-| This tip | Pairs with KSG |
-|--------|----------------|
-| **`dev` / `0.2.5-dev`** | knowshowgo **`dev` / `0.2.5-dev`** |
-
-Release SDK: branch **`main`** / tag **`v0.2.4-client`**.
-
-## Quick start
-
-```bash
-# Terminal 1 — KSG service on its `dev` tip
+# Terminal 1
 cd ../knowshowgo && git checkout dev && npm ci
 PORT=3000 KSG_MEMORY_BACKEND=in-memory npm start
 
-# Terminal 2 — this repo (`dev`)
+# Terminal 2
+git checkout dev
 npm install --legacy-peer-deps
 node --test js/client.test.mjs
 ```
@@ -35,22 +65,15 @@ node --test js/client.test.mjs
 import { KnowShowGoClient } from './js/client.js';
 
 const client = new KnowShowGoClient({
-  baseUrl: 'http://127.0.0.1:3000',          // local; or firewalled dev VM
+  baseUrl: 'http://127.0.0.1:3000',
   defaultOwnerUserId: 'my-namespace',
+  prototypeApiPrefix: '/api2.0',
+  topicApiPrefix: '/api2.0',
 });
-console.log(await client.search_concepts({ query: 'Person', limit: 5 }));
+
+const hits = await client.search_concepts('Person', { top_k: 5 });
+console.log(hits);
 ```
 
-**Environments for this tip:** local `:3000` (preferred) or KSG on dev/demo VM
-`144.24.32.97`. Prod https://ksg.129.153.118.145.sslip.io/ is **`v0.2.4`** —
-use client **`main`** against that.
-
-Defaults: **`/api2.0`** (see [`AGENTS.md`](AGENTS.md)).
-
-## Docs
-
-| Doc | |
-|---|---|
-| [`AGENTS.md`](AGENTS.md) | Commands, prefixes, ACL |
-| Server [QUICKSTART (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/QUICKSTART.md) | Run KSG `dev` |
-| Server [CLIENT-SYNC (`dev`)](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md) | Pairing |
+Git install:  
+`npm i --legacy-peer-deps git+https://github.com/lehelkovach/knowshowgo-client.git#dev`
