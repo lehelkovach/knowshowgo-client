@@ -15,6 +15,7 @@ export class KnowShowGoClient {
     fetchImpl,
     prototypeApiPrefix = '/api2.0',
     topicApiPrefix = '/api2.0',
+    visualApiPrefix = '/api2.0',
     auto_connect = false,
     defaultOwnerUserId = null,
     defaultAgentSessionId = null
@@ -29,6 +30,7 @@ export class KnowShowGoClient {
     // '/api' to fall back to the retained backward-compatible alias.
     this.prototypeApiPrefix = prototypeApiPrefix;
     this.topicApiPrefix = topicApiPrefix;
+    this.visualApiPrefix = visualApiPrefix;
     // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
     this.defaultOwnerUserId = defaultOwnerUserId || null;
     this.defaultAgentSessionId = defaultAgentSessionId || null;
@@ -264,6 +266,86 @@ export class KnowShowGoClient {
 
   update_node_embedding(uuid) {
     return this._request('POST', `/api/nodes/${encodeURIComponent(uuid)}/embedding`);
+  }
+
+  /**
+   * Embed image/video/caption via Gemini multimodal (visualEmbedding space).
+   * Text embeddings remain on the OpenAI path (`update_node_embedding`).
+   * Defaults to /api2.0; override with prototypeApiPrefix-style visualApiPrefix.
+   */
+  embed_media({
+    image_base64 = null,
+    image_mime_type = 'image/png',
+    video_base64 = null,
+    video_mime_type = 'video/mp4',
+    text = null,
+    node_uuid = null,
+    label = null,
+    summary = null,
+    tags = [],
+    metadata = {},
+    source = null,
+  } = {}) {
+    const prefix = this.visualApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/media/embed`, {
+      json: {
+        imageBase64: image_base64,
+        imageMimeType: image_mime_type,
+        videoBase64: video_base64,
+        videoMimeType: video_mime_type,
+        text,
+        nodeUuid: node_uuid,
+        label,
+        summary,
+        tags,
+        metadata,
+        source,
+      },
+    });
+  }
+
+  update_node_visual_embedding(uuid, {
+    image_base64 = null,
+    image_mime_type = 'image/png',
+    video_base64 = null,
+    video_mime_type = 'video/mp4',
+    text = null,
+    source = null,
+  } = {}) {
+    const prefix = this.visualApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/nodes/${encodeURIComponent(uuid)}/visual-embedding`, {
+      json: {
+        imageBase64: image_base64,
+        imageMimeType: image_mime_type,
+        videoBase64: video_base64,
+        videoMimeType: video_mime_type,
+        text,
+        source,
+      },
+    });
+  }
+
+  search_visual({
+    query = null,
+    image_base64 = null,
+    image_mime_type = 'image/png',
+    video_base64 = null,
+    video_mime_type = 'video/mp4',
+    top_k = 5,
+    similarity_threshold = 0,
+  } = {}) {
+    const prefix = this.visualApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/concepts/search-visual`, {
+      json: {
+        query,
+        imageBase64: image_base64,
+        imageMimeType: image_mime_type,
+        videoBase64: video_base64,
+        videoMimeType: video_mime_type,
+        topK: top_k,
+        similarityThreshold: similarity_threshold,
+      },
+    });
   }
 
   // ===== ORM =====

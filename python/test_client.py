@@ -824,7 +824,7 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "dev",
-                "release": "v0.2.3-dev",
+                "release": "v0.2.5-dev",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
