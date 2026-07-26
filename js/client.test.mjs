@@ -840,7 +840,7 @@ test('connect validates release manifest channel', async () => {
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
   const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.6-dev' });
-  assert.equal(manifest.channel, 'release');
+  assert.equal(manifest.channel, 'dev');
 });
 
 test('suggest_concept_objects adds suggestions alias from candidates', async () => {

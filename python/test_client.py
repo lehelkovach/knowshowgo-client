@@ -829,7 +829,7 @@ class TestKnowShowGoClient(unittest.TestCase):
             })
         )
         manifest = client.connect(expected_channel='dev', expected_release='v0.2.6-dev')
-        self.assertEqual(manifest["channel"], "release")
+        self.assertEqual(manifest["channel"], "dev")
 
     def test_resolve_object_adds_object_uuid_alias(self):
         client = KnowShowGoClient("https://example.test")
