@@ -44,7 +44,7 @@ Hosted: `KnowShowGoClient.publicApi()` / `PUBLIC_API_BASE_URL` (`https://api.kno
 
 | Prefer | |
 |---|---|
-| **Prod** | https://ksg.129.153.118.145.sslip.io/ |
+| **Prod** | https://knowshowgo.com/ |
 | **Local** | KSG `v0.2.6` on `http://127.0.0.1:3000` |
 
 ## Cloud
