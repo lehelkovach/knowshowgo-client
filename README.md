@@ -15,7 +15,7 @@ JS + Python client for KnowShowGo **`v0.2.6`** — including the hosted public A
 | **This repo’s job** | Typed HTTP wrappers (JS + Python) over KSG REST — ACL headers, `/api2.0` prefixes |
 | **Pairs with** | knowshowgo **`v0.2.5`** · agent **`v0.2.1`** |
 | **This tip** | **`main` / `v0.2.5-client`** (`package.json` `0.2.5`) |
-| **Live dogfood** | https://ksg.129.153.118.145.sslip.io/ |
+| **Live dogfood** | https://knowshowgo.com/ |
 | **Next tip** | **`dev` / `0.2.7-dev`** |
 
 ### Coverage (high level)
@@ -41,7 +41,7 @@ Topics/tags, object categories, objects, concepts, assertions, procedures, proto
 
 ## Website & demos
 
-https://ksg.129.153.118.145.sslip.io/demo/
+https://knowshowgo.com/demo/
 
 
 ## Public hosted API
