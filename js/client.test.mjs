@@ -831,7 +831,7 @@ test('connect validates release manifest channel', async () => {
     if (url.endsWith('/api/release')) {
       return makeJsonResponse({
         channel: 'release',
-        release: 'v0.2.7',
+        release: 'v0.2.8',
         surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
       });
     }
@@ -839,7 +839,7 @@ test('connect validates release manifest channel', async () => {
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
-  const manifest = await client.connect({ expected_channel: 'release', expected_release: 'v0.2.7' });
+  const manifest = await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
   assert.equal(manifest.channel, 'release');
 });
 
@@ -969,7 +969,7 @@ test('connect adopts the advertised public base URL when asked', async () => {
     if (String(url).endsWith('/api/release')) {
       return makeJsonResponse({
         channel: 'release',
-        release: 'v0.2.7',
+        release: 'v0.2.8',
         api: {
           publicBaseUrl: 'https://api.knowshowgo.com',
           prefixes: { stable: '/api', current: '/api2.0' }
@@ -995,7 +995,7 @@ test('connect leaves baseUrl alone by default', async () => {
     String(url).endsWith('/api/release')
       ? makeJsonResponse({
           channel: 'release',
-          release: 'v0.2.7',
+          release: 'v0.2.8',
           api: { publicBaseUrl: 'https://api.knowshowgo.com' },
           surfaces: { clientContract: [] }
         })

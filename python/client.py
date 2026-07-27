@@ -122,7 +122,7 @@ class KnowShowGoClient:
     def connect(
         self,
         expected_channel: str = 'release',
-        expected_release: str = 'v0.2.7',
+        expected_release: str = 'v0.2.8',
         enforce_contract: bool = False,
         adopt_advertised_base_url: bool = False,
     ) -> Dict[str, Any]:

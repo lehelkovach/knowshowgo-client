@@ -70,7 +70,7 @@ export class KnowShowGoClient {
    */
   async connect({
     expected_channel = 'release',
-    expected_release = 'v0.2.7',
+    expected_release = 'v0.2.8',
     enforce_contract = false,
     adopt_advertised_base_url = false
   } = {}) {
