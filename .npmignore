@@ -7,7 +7,6 @@ docs/
 jest.config.js
 *.md
 !README.md
-LICENSE
 .env*
 logs/
 node_modules/
