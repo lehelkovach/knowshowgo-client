@@ -263,3 +263,10 @@ Owner-scoped private storage. Requires an identity (`defaultOwnerUserId`).
   supported call overrides it for that call.
 - Prefer `/api2.0` (the default). Only set `/api` prefixes to target the legacy
   alias, e.g. for regression tests.
+
+## Using this SDK inside an agent
+
+The OpenClaw agent ([`osl-oc-agent`](https://github.com/lehelkovach/osl-oc-agent))
+wraps this SDK as its durable-memory skill (`memory.*`, `profile.*`, `dataset.*`,
+`procedure.*` tools). If you are building an agent, that skill is a working
+reference: [`docs/KSG-SKILL.md`](https://github.com/lehelkovach/osl-oc-agent/blob/main/docs/KSG-SKILL.md).
