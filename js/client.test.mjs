@@ -1005,3 +1005,17 @@ test('connect leaves baseUrl alone by default', async () => {
   await client.connect();
   assert.equal(client.baseUrl, 'http://127.0.0.1:3000');
 });
+
+test('seed_social_layer posts to /api2.0/seed/social-layer by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, report: { categories: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_social_layer();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/social-layer');
+  await client.seed_social_layer({ api_prefix: '/api' });
+  assert.equal(calls[1].url, 'https://example.test/api/seed/social-layer');
+});

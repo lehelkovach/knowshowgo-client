@@ -882,6 +882,11 @@ export class KnowShowGoClient {
     return this._request('POST', '/api/seed/openclaw-agent', { json: body });
   }
 
+  seed_social_layer({ api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/social-layer`, { json: {} });
+  }
+
   // ===== Experimental (dev preview) =====
   create_vault({ owner_user_id, agent_session_id = null, title = 'Personal vault', tags, provenance = null } = {}) {
     return this._request('POST', '/api/vaults', {
