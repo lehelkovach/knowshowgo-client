@@ -1247,6 +1247,10 @@ class KnowShowGoClient:
     def seed_openclaw_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/seed/openclaw-agent", json=body or {})
 
+    def seed_social_layer(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/social-layer", json={})
+
     # ===== Experimental (dev preview) =====
 
     def create_vault(
