@@ -20,6 +20,98 @@ export function resolveBaseUrl(explicit) {
   return env.KSG_API_URL || env.KSG_PUBLIC_API_URL || LOCAL_API_BASE_URL;
 }
 
+/** camelCase / PascalCase → snake_case */
+function toSnakeCase(name) {
+  return String(name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/-/g, '_')
+    .toLowerCase();
+}
+
+/**
+ * Resolve a property key from a JS-friendly name against a properties map.
+ * Accepts exact, snake_case, and case-insensitive matches.
+ */
+export function resolvePropertyKey(name, properties = {}) {
+  if (!name || !properties) return null;
+  if (Object.prototype.hasOwnProperty.call(properties, name)) return name;
+  const snake = toSnakeCase(name);
+  if (Object.prototype.hasOwnProperty.call(properties, snake)) return snake;
+  const lower = String(name).toLowerCase();
+  const snakeLower = snake.toLowerCase();
+  for (const key of Object.keys(properties)) {
+    const k = key.toLowerCase();
+    if (k === lower || k === snakeLower) return key;
+  }
+  return null;
+}
+
+/**
+ * ORM-style entity view over `/api2.0/entities/:id/properties`.
+ *   entity.middleName           → winner value
+ *   entity.claims.middleName    → full ranked claim stack
+ *   entity.prop('middle_name')  → { value, confidence, contested, claims }
+ */
+export class EntityProxy {
+  constructor({ uuid = null, properties = {}, policy = null, ok = true, ...rest } = {}) {
+    this.uuid = uuid ?? rest.entityId ?? null;
+    this.ok = ok !== false;
+    this.properties = properties || {};
+    this.policy = policy || null;
+    this.raw = { uuid: this.uuid, properties: this.properties, policy: this.policy, ok: this.ok, ...rest };
+
+    const claimsTarget = {};
+    this.claims = new Proxy(claimsTarget, {
+      get: (_t, prop) => {
+        if (typeof prop !== 'string') return undefined;
+        const key = resolvePropertyKey(prop, this.properties);
+        return key ? this.properties[key]?.claims : undefined;
+      },
+      ownKeys: () => Object.keys(this.properties),
+      getOwnPropertyDescriptor: (_t, prop) => {
+        const key = resolvePropertyKey(prop, this.properties);
+        if (!key) return undefined;
+        return { configurable: true, enumerable: true, value: this.properties[key]?.claims };
+      },
+    });
+
+    // eslint-disable-next-line no-constructor-return -- intentional Proxy wrapper
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'symbol' || prop in target) {
+          return Reflect.get(target, prop, receiver);
+        }
+        if (typeof prop !== 'string') return undefined;
+        const key = resolvePropertyKey(prop, target.properties);
+        if (!key) return undefined;
+        return target.properties[key]?.value;
+      },
+      has(target, prop) {
+        if (prop in target) return true;
+        return Boolean(resolvePropertyKey(prop, target.properties));
+      },
+      ownKeys(target) {
+        return Reflect.ownKeys(target);
+      },
+    });
+  }
+
+  /** Full property cell: { value, confidence, contested, claims } */
+  prop(name) {
+    const key = resolvePropertyKey(name, this.properties);
+    return key ? this.properties[key] : undefined;
+  }
+
+  toJSON() {
+    return {
+      ok: this.ok,
+      uuid: this.uuid,
+      properties: this.properties,
+      policy: this.policy,
+    };
+  }
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -378,6 +470,35 @@ export class KnowShowGoClient {
     return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/explain`, {
       params: { predicate }
     });
+  }
+
+  /**
+   * Ranked property map for an entity (winner + contested claim stack).
+   * Canonical path `/api2.0/entities/:id/properties` with `/api` alias.
+   *
+   * @returns {Promise<{ ok, uuid, properties, policy }>}
+   */
+  get_entity_properties(entity_id, {
+    predicate = null,
+    entityApiPrefix = null,
+  } = {}) {
+    const prefix = entityApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/entities/${encodeURIComponent(entity_id)}/properties`, {
+      params: { predicate },
+    });
+  }
+
+  /**
+   * EntityProxy over get_entity_properties — `.middleName` returns the winner
+   * value; `.claims.middleName` / `.prop('middle_name')` expose the claim stack.
+   */
+  get_entity_snapshot(entity_id, opts = {}) {
+    return this.get_entity_properties(entity_id, opts).then((body) => new EntityProxy(body));
+  }
+
+  /** Alias for get_entity_snapshot. */
+  entity(entity_id, opts = {}) {
+    return this.get_entity_snapshot(entity_id, opts);
   }
 
   // ===== Verification / Hallucination Detection =====

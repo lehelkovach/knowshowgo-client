@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.dirname(__file__))
 from client import (  # noqa: E402
     KnowShowGoClient,
+    EntityProxy,
     PUBLIC_API_BASE_URL,
     LOCAL_API_BASE_URL,
     resolve_base_url,
@@ -53,6 +54,49 @@ class TestKnowShowGoClient(unittest.TestCase):
             "GET",
             "https://example.test/api/entities/topic-1/explain",
             params={"predicate": "status"},
+        )
+
+    def test_get_entity_properties_and_entity_proxy(self):
+        payload = {
+            "ok": True,
+            "uuid": "person:Ada",
+            "properties": {
+                "middle_name": {
+                    "value": "Augusta",
+                    "confidence": 0.9,
+                    "contested": True,
+                    "claims": [
+                        {"value": "Augusta", "rank": 1, "winner": True, "source": "resume"},
+                        {"value": "A.", "rank": 2, "winner": False, "source": "chat"},
+                    ],
+                }
+            },
+        }
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+
+        raw = client.get_entity_properties("person:Ada", predicate="middle_name")
+        self.assertEqual(raw["properties"]["middle_name"]["value"], "Augusta")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api2.0/entities/person:Ada/properties",
+            params={"predicate": "middle_name"},
+        )
+
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+        entity = client.get_entity_snapshot("person:Ada")
+        self.assertIsInstance(entity, EntityProxy)
+        self.assertEqual(entity.middleName, "Augusta")
+        self.assertEqual(entity.middle_name, "Augusta")
+        self.assertEqual(entity.claims["middle_name"][0]["source"], "resume")
+        self.assertTrue(entity.prop("middle_name")["contested"])
+
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+        client.get_entity_properties("person:Ada", entity_api_prefix="/api")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api/entities/person:Ada/properties",
+            params={},
         )
 
     # ===== Topics =====

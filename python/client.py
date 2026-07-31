@@ -26,6 +26,78 @@ def resolve_base_url(explicit: Optional[str] = None) -> str:
     )
 
 
+def _to_snake_case(name: str) -> str:
+    out = []
+    for i, ch in enumerate(name or ""):
+        if ch.isupper() and i > 0 and (name[i - 1].islower() or name[i - 1].isdigit()):
+            out.append("_")
+        out.append(ch.lower() if ch != "-" else "_")
+    return "".join(out)
+
+
+def resolve_property_key(name: Optional[str], properties: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Resolve a JS-friendly attribute name against a properties map."""
+    if not name or not properties:
+        return None
+    if name in properties:
+        return name
+    snake = _to_snake_case(name)
+    if snake in properties:
+        return snake
+    lower = name.lower()
+    snake_lower = snake.lower()
+    for key in properties:
+        k = key.lower()
+        if k == lower or k == snake_lower:
+            return key
+    return None
+
+
+class EntityProxy:
+    """
+    ORM-style entity view over ``/api2.0/entities/:id/properties``.
+
+    ``entity.middle_name`` / ``entity.middleName`` → winner value.
+    ``entity.claims["middle_name"]`` → ranked claim stack.
+    ``entity.prop("middle_name")`` → full cell ``{value, confidence, contested, claims}``.
+    """
+
+    def __init__(self, payload: Optional[Dict[str, Any]] = None):
+        payload = payload or {}
+        self.ok = payload.get("ok", True) is not False
+        self.uuid = payload.get("uuid") or payload.get("entityId")
+        self.properties = payload.get("properties") or {}
+        self.policy = payload.get("policy")
+        self.raw = dict(payload)
+        self.claims = {
+            key: (cell or {}).get("claims")
+            for key, cell in self.properties.items()
+        }
+
+    def prop(self, name: str) -> Optional[Dict[str, Any]]:
+        key = resolve_property_key(name, self.properties)
+        return self.properties.get(key) if key else None
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        key = resolve_property_key(name, self.properties)
+        if key is None:
+            raise AttributeError(name)
+        return self.properties[key].get("value")
+
+    def __contains__(self, name: str) -> bool:
+        return resolve_property_key(name, self.properties) is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "properties": self.properties,
+            "policy": self.policy,
+        }
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -459,6 +531,53 @@ class KnowShowGoClient:
             "GET",
             f"/api/entities/{entity_id}/explain",
             params=params
+        )
+
+    def get_entity_properties(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ranked property map (winner + contested claim stack).
+        Canonical path ``/api2.0/entities/:id/properties`` with ``/api`` alias.
+        """
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/properties",
+            params=params,
+        )
+
+    def get_entity_snapshot(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> EntityProxy:
+        """EntityProxy over get_entity_properties (``.middleName`` → winner)."""
+        body = self.get_entity_properties(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
+        )
+        return EntityProxy(body)
+
+    def entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> EntityProxy:
+        """Alias for get_entity_snapshot."""
+        return self.get_entity_snapshot(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
         )
 
     # ===== Verification / Hallucination Detection =====

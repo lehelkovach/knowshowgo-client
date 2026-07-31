@@ -1048,3 +1048,45 @@ test('search_knowledge posts to /api2.0/knowledge/search with owner headers', as
     headers['X-KSG-Owner'] === 'slack:U1' || headers['x-ksg-owner'] === 'slack:U1',
   );
 });
+
+test('get_entity_properties hits /api2.0 and EntityProxy exposes winner + claims', async () => {
+  const calls = [];
+  const payload = {
+    ok: true,
+    uuid: 'person:Ada',
+    properties: {
+      middle_name: {
+        value: 'Augusta',
+        confidence: 0.9,
+        contested: true,
+        claimCount: 2,
+        claims: [
+          { value: 'Augusta', rank: 1, winner: true, source: 'resume' },
+          { value: 'A.', rank: 2, winner: false, source: 'chat' },
+        ],
+      },
+    },
+    policy: { version: 'v0.2.1' },
+  };
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse(payload);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const raw = await client.get_entity_properties('person:Ada', { predicate: 'middle_name' });
+  assert.equal(raw.properties.middle_name.value, 'Augusta');
+  assert.match(calls[0].url, /\/api2\.0\/entities\/person%3AAda\/properties/);
+  assert.match(calls[0].url, /predicate=middle_name/);
+  assert.equal(calls[0].options.method, 'GET');
+
+  const entity = await client.get_entity_snapshot('person:Ada');
+  assert.equal(entity.middleName, 'Augusta');
+  assert.equal(entity.middle_name, 'Augusta');
+  assert.equal(entity.claims.middleName[0].source, 'resume');
+  assert.equal(entity.prop('middle_name').contested, true);
+
+  await client.get_entity_properties('person:Ada', { entityApiPrefix: '/api' });
+  assert.match(calls[2].url, /\/api\/entities\/person%3AAda\/properties/);
+});

@@ -86,10 +86,16 @@ resolved into current snapshots.
 | `get_snapshot` | `(entityId)` |
 | `get_evidence` | `(entityId, { predicate? })` |
 | `explain_entity` | `(entityId, { predicate? })` |
+| `get_entity_properties` | `(entityId, { predicate?, entityApiPrefix? })` → ranked `{ value, confidence, contested, claims[] }` map (`/api2.0`) |
+| `get_entity_snapshot` / `entity` | `(entityId, …)` → `EntityProxy` (`.middleName` → winner; `.claims.middleName` → stack) |
 
 ```js
 await client.create_assertion({ subject: 'Ada', predicate: 'is_a', obj: 'Mathematician', source: 'app' });
 const snap = await client.get_snapshot('Ada');
+const entity = await client.get_entity_snapshot('Ada');
+entity.middleName;            // winner value
+entity.claims.middleName;     // ranked claim stack
+entity.prop('middle_name');   // full cell
 ```
 
 ---
