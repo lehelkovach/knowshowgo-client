@@ -12,9 +12,13 @@ KSG roadmap: [DEVELOPMENT-PLAN v6.4+](https://github.com/lehelkovach/knowshowgo/
 1. **Bearer API token support** — constructor `apiToken` / env; send
    `Authorization: Bearer ksg_…` (and keep soft `X-KSG-Owner` as fallback).
    Server already verifies tokens for private reads; agent + Chrome need this.
+   Consumed by agent **QA-Auth** fleet vector (`qa:api-token`).
 2. **Entity object model** — `get_entity_properties` / `get_entity_types` /
    `EntityProxy` (`.middleName`, `.getType()`); then `load(name)` → KSGObject.
 3. Parity tests JS + Python for every new `/api2.0` surface; dual-prefix where required.
+   New methods must be fleet-testable (unit + offline mock).
+
+QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
 
 ## Commands
 
