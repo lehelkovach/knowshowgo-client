@@ -1019,3 +1019,32 @@ test('seed_social_layer posts to /api2.0/seed/social-layer by default', async ()
   await client.seed_social_layer({ api_prefix: '/api' });
   assert.equal(calls[1].url, 'https://example.test/api/seed/social-layer');
 });
+
+test('search_knowledge posts to /api2.0/knowledge/search with owner headers', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      query: 'Acme',
+      count: 1,
+      results: [{ kind: 'object', title: 'Acme Offer', score: 1, uuid: 'd1' }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'slack:U1',
+  });
+  const out = await client.search_knowledge({ query: 'Acme', top_k: 5 });
+  assert.equal(out.count, 1);
+  assert.equal(out.results[0].title, 'Acme Offer');
+  assert.match(calls[0].url, /\/api2\.0\/knowledge\/search/);
+  assert.match(calls[0].url, /ownerUserId=slack%3AU1/);
+  assert.equal(calls[0].options.method, 'POST');
+  const headers = calls[0].options.headers || {};
+  assert.ok(
+    headers['X-KSG-Owner'] === 'slack:U1' || headers['x-ksg-owner'] === 'slack:U1',
+  );
+});

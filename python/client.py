@@ -992,6 +992,42 @@ class KnowShowGoClient:
         result = self._request("POST", "/api/concept-objects/search", json=data)
         return result["results"]
 
+    def search_knowledge(
+        self,
+        query: str,
+        top_k: int = 10,
+        similarity_threshold: float = 0.55,
+        categories: Optional[List[str]] = None,
+        include_concepts: bool = True,
+        include_objects: bool = True,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        knowledge_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Unified search over concepts (incl. episodic) + Document/typed objects."""
+        prefix = knowledge_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "query": query,
+            "topK": top_k,
+            "similarityThreshold": similarity_threshold,
+            "categories": categories,
+            "includeConcepts": include_concepts,
+            "includeObjects": include_objects,
+        }
+        result = self._request(
+            "POST",
+            f"{prefix}/knowledge/search",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return {
+            "ok": result.get("ok", True),
+            "query": result.get("query", query),
+            "count": result.get("count", len(result.get("results") or [])),
+            "results": result.get("results") or [],
+        }
+
     def suggest_concept_object_prototypes(
         self,
         label: str = "",

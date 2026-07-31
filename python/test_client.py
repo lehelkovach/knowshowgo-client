@@ -468,6 +468,25 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"query": "Bowie", "text": None, "context": {}, "topK": 3},
         )
 
+    def test_search_knowledge_posts_to_api2(self):
+        client = KnowShowGoClient("https://example.test", default_owner_user_id="slack:U1")
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "ok": True,
+                    "query": "Acme",
+                    "count": 1,
+                    "results": [{"kind": "object", "title": "Acme Offer", "score": 1}],
+                }
+            )
+        )
+        out = client.search_knowledge("Acme", top_k=5)
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["results"][0]["title"], "Acme Offer")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertIn("/api2.0/knowledge/search", args[1])
+
     def test_suggest_concept_object_prototypes_maps_fields(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
