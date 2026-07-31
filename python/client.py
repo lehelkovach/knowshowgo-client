@@ -60,15 +60,18 @@ class EntityProxy:
     ``entity.middle_name`` / ``entity.middleName`` → winner value.
     ``entity.claims["middle_name"]`` → ranked claim stack.
     ``entity.prop("middle_name")`` → full cell ``{value, confidence, contested, claims}``.
+    ``entity.get_type()`` → ranked prototype matches (fuzzy duck typing).
     """
 
-    def __init__(self, payload: Optional[Dict[str, Any]] = None):
+    def __init__(self, payload: Optional[Dict[str, Any]] = None, client: Optional["KnowShowGoClient"] = None):
         payload = payload or {}
         self.ok = payload.get("ok", True) is not False
         self.uuid = payload.get("uuid") or payload.get("entityId")
         self.properties = payload.get("properties") or {}
         self.policy = payload.get("policy")
+        self.types = payload.get("types") or payload.get("matched") or []
         self.raw = dict(payload)
+        self._client = client
         self.claims = {
             key: (cell or {}).get("claims")
             for key, cell in self.properties.items()
@@ -77,6 +80,16 @@ class EntityProxy:
     def prop(self, name: str) -> Optional[Dict[str, Any]]:
         key = resolve_property_key(name, self.properties)
         return self.properties.get(key) if key else None
+
+    def get_type(self, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Ranked prototype matches (closest first)."""
+        if refresh and self._client is not None and self.uuid:
+            body = self._client.get_entity_types(self.uuid)
+            self.types = body.get("types") or body.get("matched") or []
+        return list(self.types or [])
+
+    # camelCase alias for JS parity
+    getType = get_type
 
     def __getattr__(self, name: str):
         if name.startswith("_"):
@@ -95,6 +108,7 @@ class EntityProxy:
             "uuid": self.uuid,
             "properties": self.properties,
             "policy": self.policy,
+            "types": self.types,
         }
 
 
@@ -553,11 +567,33 @@ class KnowShowGoClient:
             params=params,
         )
 
+    def get_entity_types(
+        self,
+        entity_id: str,
+        top_k: int = 5,
+        threshold: float = 0,
+        persist: bool = False,
+        persist_top_k: int = 1,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ranked prototype/type matches (fuzzy duck typing)."""
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {"topK": top_k, "threshold": threshold}
+        if persist:
+            params["persist"] = "true"
+            params["persistTopK"] = persist_top_k
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/types",
+            params=params,
+        )
+
     def get_entity_snapshot(
         self,
         entity_id: str,
         predicate: Optional[str] = None,
         entity_api_prefix: Optional[str] = None,
+        top_k: int = 5,
     ) -> EntityProxy:
         """EntityProxy over get_entity_properties (``.middleName`` → winner)."""
         body = self.get_entity_properties(
@@ -565,7 +601,19 @@ class KnowShowGoClient:
             predicate=predicate,
             entity_api_prefix=entity_api_prefix,
         )
-        return EntityProxy(body)
+        types: List[Dict[str, Any]] = []
+        try:
+            typed = self.get_entity_types(
+                entity_id,
+                top_k=top_k,
+                entity_api_prefix=entity_api_prefix,
+            )
+            types = typed.get("types") or typed.get("matched") or []
+        except Exception:
+            pass
+        body = dict(body)
+        body["types"] = types
+        return EntityProxy(body, client=self)
 
     def entity(
         self,

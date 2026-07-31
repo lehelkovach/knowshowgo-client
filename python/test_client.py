@@ -83,13 +83,25 @@ class TestKnowShowGoClient(unittest.TestCase):
             params={"predicate": "middle_name"},
         )
 
-        client.session.request = MagicMock(return_value=FakeResponse(payload))
+        types_payload = {
+            "ok": True,
+            "uuid": "person:Ada",
+            "types": [{"uuid": "proto-person", "name": "Person", "score": 0.91}],
+        }
+
+        def side_effect(method, url, **kwargs):
+            if "/types" in url:
+                return FakeResponse(types_payload)
+            return FakeResponse(payload)
+
+        client.session.request = MagicMock(side_effect=side_effect)
         entity = client.get_entity_snapshot("person:Ada")
         self.assertIsInstance(entity, EntityProxy)
         self.assertEqual(entity.middleName, "Augusta")
         self.assertEqual(entity.middle_name, "Augusta")
         self.assertEqual(entity.claims["middle_name"][0]["source"], "resume")
         self.assertTrue(entity.prop("middle_name")["contested"])
+        self.assertEqual(entity.get_type()[0]["name"], "Person")
 
         client.session.request = MagicMock(return_value=FakeResponse(payload))
         client.get_entity_properties("person:Ada", entity_api_prefix="/api")
@@ -97,6 +109,15 @@ class TestKnowShowGoClient(unittest.TestCase):
             "GET",
             "https://example.test/api/entities/person:Ada/properties",
             params={},
+        )
+
+        client.session.request = MagicMock(return_value=FakeResponse(types_payload))
+        typed = client.get_entity_types("person:Ada", top_k=3, persist=True)
+        self.assertEqual(typed["types"][0]["name"], "Person")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api2.0/entities/person:Ada/types",
+            params={"topK": 3, "threshold": 0, "persist": "true", "persistTopK": 1},
         )
 
     # ===== Topics =====
