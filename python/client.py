@@ -207,12 +207,17 @@ class KnowShowGoClient:
 
     def connect(
         self,
-        expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.8-dev',
+        expected_channel: Optional[str] = None,
+        expected_release: Optional[str] = None,
         enforce_contract: bool = False,
         adopt_advertised_base_url: bool = False,
     ) -> Dict[str, Any]:
         """Verify channel/release and optionally cache contract for path guard.
+
+        ``expected_channel`` / ``expected_release`` are opt-in assertions: pass them
+        to fail fast against an unexpected server. They default to no assertion
+        because a pinned default rots — the old ``dev`` / ``v0.2.8-dev`` defaults
+        made a bare ``connect()`` raise against the public release API.
 
         ``adopt_advertised_base_url`` re-points this client at ``api.publicBaseUrl``
         from the manifest, so a caller bootstrapped against any reachable host

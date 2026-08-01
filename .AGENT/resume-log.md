@@ -84,6 +84,26 @@ Append-only. Newest entries go at the bottom.
     (suggest/search/suggest-prototypes), composites, logic/syllogisms,
     market/channels/events/ratings. Implement incrementally with parity tests.
 
+## 2026-08-02T05:30:00Z
+
+- Agent: cross-repo docs truth audit (knowshowgo + client + osl-oc-agent)
+- Start branch: `cursor/docs-truth-audit-6c58` off `origin/dev`
+- **Bug found and fixed:** `connect()` defaulted to `expected_channel='dev'` /
+  `expected_release='v0.2.8-dev'` in **both** JS and Python. A bare `client.connect()`
+  against the public API (`channel=release`, `release=v0.2.8`) therefore threw
+  `expected channel dev, got release`. Defaults are now `None`/`null` (opt-in
+  assertion); explicit mismatches still fail fast.
+- Docs: README/AGENTS/API/GETTING-STARTED no longer restate version numbers; they
+  point at the server repo's `VERSION-MATRIX.md`. Pinned `v0.2.7` examples corrected.
+  Bearer-token gap promoted from "a follow-up adds tokens" to an explicit **P0 gap**
+  (server shipped tokens in v0.2.8; this SDK still cannot send them).
+  `visualApiPrefix` marked planned-not-implemented.
+- Tests: `node --test js/client.test.mjs` **61 pass**;
+  `python3 -m unittest discover -s python -p 'test_*.py'` **55 pass**.
+  Added regression tests both languages for bare `connect()` against a release server.
+- Next pending task (unchanged P0): add `apiToken` support so portal-issued `ksg_…`
+  bearer tokens work from SDK / agent / Chrome, plus `/api2.0/auth/tokens` wrappers.
+
 ## 2026-06-16T16:23:20Z
 
 - Agent: client subagent takeover (branch consolidation + dev-API sync)

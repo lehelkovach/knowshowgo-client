@@ -54,8 +54,8 @@ Reads the release manifest and validates it.
 
 | Option | Default | Purpose |
 |---|---|---|
-| `expected_channel` | `'release'` | Throws if `manifest.channel` differs |
-| `expected_release` | `'v0.2.7'` | Throws if `manifest.release` differs |
+| `expected_channel` | `null` (no assertion) | Throws if `manifest.channel` differs |
+| `expected_release` | `null` (no assertion) | Throws if `manifest.release` differs |
 | `enforce_contract` | `false` | Restrict calls to `surfaces.clientContract` paths |
 | `adopt_advertised_base_url` | `false` | Re-point `baseUrl` to `manifest.api.publicBaseUrl` |
 

@@ -843,6 +843,33 @@ test('connect validates release manifest channel', async () => {
   assert.equal(manifest.channel, 'dev');
 });
 
+test('connect without expectations accepts whatever the server advertises', async () => {
+  // Regression: defaults used to be dev/v0.2.8-dev, so a bare connect() threw
+  // against the public release API.
+  const fetchMock = async (url) => {
+    if (url.endsWith('/api/release')) {
+      return makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+    }
+    return makeJsonResponse({ status: 'ok' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const manifest = await client.connect();
+  assert.equal(manifest.channel, 'release');
+  assert.equal(manifest.release, 'v0.2.8');
+});
+
+test('connect still fails fast when the caller asserts a mismatch', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await assert.rejects(
+    () => client.connect({ expected_channel: 'dev' }),
+    /expected channel dev, got release/,
+  );
+});
+
 test('suggest_concept_objects adds suggestions alias from candidates', async () => {
   const fetchMock = async () => makeJsonResponse({ ok: true, candidates: [{ uuid: 'c1' }] });
   const KnowShowGoClient = await loadClientClass();

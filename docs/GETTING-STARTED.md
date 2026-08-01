@@ -16,9 +16,9 @@ against the KnowShowGo (KSG) API, in either JavaScript or Python.
 # JavaScript, from the registry
 npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
 
-# or pin a release tag
+# or pin a release tag (current tag: see VERSION-MATRIX in the server repo)
 npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 The `--legacy-peer-deps` flag is required because the peer package `knowshowgo`
@@ -60,21 +60,27 @@ const client = new KnowShowGoClient({ defaultOwnerUserId: 'my-app' });
 
 ## 4. Verify the server (optional but recommended)
 
-`connect()` reads `GET /api/release` and checks the channel/release match, so you
-fail fast against an unexpected server:
+`connect()` reads `GET /api/release` and caches the contract. Pass
+`expected_channel` / `expected_release` to fail fast against an unexpected server;
+omit them (the default) to accept whatever the service advertises:
 
 ```js
-const manifest = await client.connect({
+const manifest = await client.connect();               // no assertion
+const pinned = await client.connect({                  // fail fast
   expected_channel: 'release',
-  expected_release: 'v0.2.7',
+  expected_release: 'v0.2.8',
 });
 console.log(manifest.version, manifest.api.publicBaseUrl);
 ```
 
 ```python
-manifest = client.connect(expected_channel="release", expected_release="v0.2.7")
+manifest = client.connect()                            # no assertion
+pinned = client.connect(expected_channel="release")    # fail fast
 print(manifest["version"], manifest["api"]["publicBaseUrl"])
 ```
+
+Pin a release only if your code depends on that exact contract — a hardcoded
+expectation is the reason a bare `connect()` used to raise against production.
 
 Pass `adopt_advertised_base_url: true` to re-point the client at the host the
 manifest advertises.
@@ -111,7 +117,7 @@ No Docker needed for the in-memory backend:
 
 ```bash
 git clone https://github.com/lehelkovach/knowshowgo && cd knowshowgo
-git checkout v0.2.7 && npm ci
+git checkout main && npm ci   # or a specific tag from VERSION-MATRIX
 PORT=3000 KSG_MEMORY_BACKEND=in-memory npm start
 # -> http://127.0.0.1:3000/health
 ```

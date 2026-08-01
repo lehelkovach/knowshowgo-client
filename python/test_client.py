@@ -920,6 +920,28 @@ class TestKnowShowGoClient(unittest.TestCase):
         manifest = client.connect(expected_channel='dev', expected_release='v0.2.8-dev')
         self.assertEqual(manifest["channel"], "dev")
 
+    def test_connect_without_expectations_accepts_release_server(self):
+        """Regression: defaults were dev/v0.2.8-dev, so connect() raised on prod."""
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "channel": "release",
+                "release": "v0.2.8",
+                "surfaces": {},
+            })
+        )
+        manifest = client.connect()
+        self.assertEqual(manifest["channel"], "release")
+        self.assertEqual(manifest["release"], "v0.2.8")
+
+    def test_connect_still_raises_on_asserted_mismatch(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"channel": "release", "release": "v0.2.8"})
+        )
+        with self.assertRaises(ValueError):
+            client.connect(expected_channel="dev")
+
     def test_resolve_object_adds_object_uuid_alias(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
