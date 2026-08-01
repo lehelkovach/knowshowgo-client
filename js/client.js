@@ -501,15 +501,45 @@ export class KnowShowGoClient {
   }
 
   // Match a perceived item (text or embedding) against existing prototypes.
-  // `space`: 'centroid' (default) ranks against the running mean of observed
-  // VALUES — use for a value query like "Westerville". 'label' ranks against the
-  // stable embedding of a field's name/aliases — use for a type query like
-  // "Card number", where a value centroid mis-ranks because it drifts toward the
-  // shape of the data (card numbers and CVVs are both digit strings).
-  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0, space = 'centroid' } = {}) {
+  // Nearest-centroid over the values each prototype has absorbed — a value-shaped
+  // question ("which category is this?"). To ask which FIELD a label names, search
+  // property-definition concepts instead (see `search_property_definitions`): a
+  // value centroid drifts toward the shape of the data, so "Card number" would
+  // rank closer to `cvv` than to `number`.
+  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
-      json: { text, embedding, topK: top_k, threshold, space }
+      json: { text, embedding, topK: top_k, threshold }
     }).then(r => r.matches);
+  }
+
+  /**
+   * Which stored field does this label name? Ranks property-definition concepts
+   * over the same vector index every other search uses, filtered by node role.
+   * Returns [{ property, valueType, score, uuid }] best first, one per property.
+   */
+  search_property_definitions(query, { top_k = 20, owner_user_id = null, agent_session_id = null } = {}) {
+    return this.search_concepts(query, {
+      top_k,
+      similarity_threshold: 0,
+      owner_user_id,
+      agent_session_id
+    }).then((results) => {
+      const out = [];
+      const seen = new Set();
+      for (const r of results || []) {
+        if (r?.props?.isObjectPropertyDefinition !== true) continue;
+        const property = r.props.propertyName;
+        if (!property || seen.has(property)) continue;
+        seen.add(property);
+        out.push({
+          property,
+          valueType: r.props.valueType ?? null,
+          score: r.similarity ?? 0,
+          uuid: r.uuid
+        });
+      }
+      return out;
+    });
   }
 
   // Label/tag autocomplete over prototypes (e.g. to pick an object "type").

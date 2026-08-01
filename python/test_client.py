@@ -963,27 +963,32 @@ class TestKnowShowGoClient(unittest.TestCase):
                 "embedding": None,
                 "topK": 3,
                 "threshold": 0.0,
-                "space": "centroid",
             },
         )
 
-    def test_match_prototypes_can_ask_for_label_space(self):
+    def test_search_property_definitions_answers_which_field(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
-        client.session.request = MagicMock(return_value=FakeResponse({"matches": []}))
-
-        client.match_prototypes(text="Card number", top_k=5, space="label")
-
-        client.session.request.assert_called_once_with(
-            "POST",
-            "https://example.test/api2.0/prototypes/match",
-            json={
-                "text": "Card number",
-                "embedding": None,
-                "topK": 5,
-                "threshold": 0.0,
-                "space": "label",
-            },
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"results": [
+                {"uuid": "v1", "similarity": 0.91,
+                 "props": {"isObjectPropertyValue": True, "name": "number:4766"}},
+                {"uuid": "d1", "similarity": 0.78,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "name_on_card", "valueType": "string"}},
+                {"uuid": "d2", "similarity": 0.66,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "number", "valueType": "string"}},
+                {"uuid": "d3", "similarity": 0.51,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "number", "valueType": "string"}},
+            ]})
         )
+
+        defs = client.search_property_definitions("Cardholder name")
+
+        self.assertEqual([d["property"] for d in defs], ["name_on_card", "number"])
+        self.assertEqual(defs[0]["valueType"], "string")
+        self.assertEqual(defs[0]["score"], 0.78)
 
     def test_prototype_api_prefix_falls_back_to_legacy_api(self):
         client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")  # pragma: allowlist secret
@@ -999,7 +1004,6 @@ class TestKnowShowGoClient(unittest.TestCase):
                 "embedding": None,
                 "topK": 5,
                 "threshold": 0.0,
-                "space": "centroid",
             },
         )
 
