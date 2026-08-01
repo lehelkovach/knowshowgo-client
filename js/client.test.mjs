@@ -362,6 +362,40 @@ test('get_procedure targets the procedure uuid endpoint', async () => {
   assert.equal(calls[0].options.method, 'GET');
 });
 
+test('get_procedure passes source A/B query param', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, loadPath: 'dagJson', steps: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.get_procedure('proc-1', { source: 'dagJson' });
+  assert.equal(calls[0].url, 'https://example.test/api/procedures/proc-1?source=dagJson');
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+test('put_procedure_dag maps dag_json body', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, dagJson: { version: 1, steps: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.put_procedure_dag('proc-1', {
+    dag_json: { version: 1, title: 'P', steps: [{ id: '0', title: 'A' }] },
+    rematerialize: false
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/procedures/proc-1/dag');
+  assert.equal(calls[0].options.method, 'PUT');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.dagJson.title, 'P');
+  assert.equal(body.rematerialize, false);
+});
+
 test('add_procedure_step maps insertion anchors and omits undefined fields', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

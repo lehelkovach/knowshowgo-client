@@ -387,6 +387,45 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api/procedures/proc-1",
         )
 
+    def test_get_procedure_passes_source_ab(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "loadPath": "dagJson"})
+        )
+
+        client.get_procedure("proc-1", source="dagJson")
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/procedures/proc-1",
+            params={"source": "dagJson"},
+        )
+
+    def test_put_procedure_dag_maps_body(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True})
+        )
+
+        client.put_procedure_dag(
+            "proc-1",
+            {"version": 1, "title": "P", "steps": [{"id": "0", "title": "A"}]},
+            rematerialize=False,
+        )
+
+        client.session.request.assert_called_once_with(
+            "PUT",
+            "https://example.test/api/procedures/proc-1/dag",
+            json={
+                "dagJson": {
+                    "version": 1,
+                    "title": "P",
+                    "steps": [{"id": "0", "title": "A"}],
+                },
+                "rematerialize": False,
+            },
+        )
+
     def test_add_procedure_step_maps_anchors_and_omits_none(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
