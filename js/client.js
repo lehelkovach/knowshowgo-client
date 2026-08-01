@@ -135,6 +135,20 @@ export class EntityProxy {
   }
 }
 
+
+/**
+ * Match a concrete request path against a release-contract template.
+ * `/api/objects/:uuid` matches `/api/objects/4ee7…`; length must agree.
+ */
+export function matchesRoute(template, actual) {
+  const expected = String(template || "").split("/");
+  const received = String(actual || "").split("/");
+  if (expected.length !== received.length) return false;
+  return expected.every(
+    (segment, i) => segment.startsWith(":") || segment === received[i],
+  );
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -150,6 +164,9 @@ export class KnowShowGoClient {
     defaultOwnerUserId = null,
     defaultAgentSessionId = null,
     authToken = null,
+    accessToken = null,
+    apiToken = null,
+    tokenProvider = null,
     adminSecret = null
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
@@ -167,7 +184,10 @@ export class KnowShowGoClient {
     this.defaultAgentSessionId = defaultAgentSessionId || null;
     // Hard identity. A signed token cannot be spoofed the way the soft owner
     // headers can, and the server prefers it over them when both are present.
-    this.authToken = authToken || null;
+    // Aliases: accessToken / apiToken (assessment + AGENTS.md naming).
+    this.authToken = authToken || accessToken || apiToken || null;
+    /** @type {null|(() => string|Promise<string|null|undefined>)} */
+    this.tokenProvider = typeof tokenProvider === "function" ? tokenProvider : null;
     // Minting a token for someone else needs the server's admin secret, sent as
     // X-KSG-Admin. Without it a caller can only mint for the owner they already
     // hold a token for, which leaves no way to issue the first one.
@@ -175,6 +195,10 @@ export class KnowShowGoClient {
     this._contract = null;
     this._enforceContract = false;
     this._connectPromise = auto_connect ? this.connect() : null;
+    if (this._connectPromise && typeof this._connectPromise.catch === "function") {
+      // Prevent an unhandled rejection if the caller never awaits ready().
+      this._connectPromise.catch(() => {});
+    }
   }
 
   /**
@@ -188,13 +212,16 @@ export class KnowShowGoClient {
   /**
    * Cache release manifest; optionally enforce clientContract path allowlist.
    *
+   * `expected_channel` / `expected_release` are **opt-in**. A bare `connect()`
+   * discovers whatever the server advertises (public release or dev) — pinned
+   * defaults previously made `connect()` throw against api.knowshowgo.com.
+   *
    * `adopt_advertised_base_url` re-points this client at `api.publicBaseUrl`
-   * from the manifest, so a caller bootstrapped against any reachable host ends
-   * up talking to the canonical public API the service advertises.
+   * from the manifest.
    */
   async connect({
-    expected_channel = 'dev',
-    expected_release = 'v0.2.8-dev',
+    expected_channel = null,
+    expected_release = null,
     enforce_contract = false,
     adopt_advertised_base_url = false
   } = {}) {
@@ -217,13 +244,33 @@ export class KnowShowGoClient {
 
   _assertContractPath(method, path) {
     if (!this._enforceContract || !this._contract) return;
-    const prefix = path.split('/:')[0];
     const allowed = this._contract.some(
-      (entry) => entry.method === method && (entry.path === path || entry.path.startsWith(prefix))
+      (entry) => entry.method === method && matchesRoute(entry.path, path),
     );
     if (!allowed) {
-      throw new Error(`endpoint not in dev contract: ${method} ${path}`);
+      throw new Error(`endpoint not in client contract: ${method} ${path}`);
     }
+  }
+
+  /**
+   * Await the optional constructor `auto_connect` handshake.
+   * Safe to call when auto_connect was false (resolves immediately).
+   */
+  async ready() {
+    if (this._connectPromise) await this._connectPromise;
+    return this;
+  }
+
+  async _resolveAuthToken(explicit) {
+    if (explicit !== undefined && explicit !== null) return explicit;
+    if (this.tokenProvider) {
+      const provided = await this.tokenProvider();
+      if (provided != null && provided !== "") {
+        this.authToken = provided;
+        return provided;
+      }
+    }
+    return this.authToken;
   }
 
   /** Swap the bearer token on a live client (e.g. after minting or rotating one). */
@@ -232,17 +279,25 @@ export class KnowShowGoClient {
     return this;
   }
 
-  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret } = {}) {
+  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret, skip_ready = false } = {}) {
+    // Don't deadlock: connect() → get_release_manifest → _request must not await ready().
+    if (!skip_ready && endpoint !== "/api/release" && endpoint !== "/health") {
+      await this.ready();
+    }
     this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
     const ownerUserId = owner_user_id ?? this.defaultOwnerUserId;
     const agentSessionId = agent_session_id ?? this.defaultAgentSessionId;
+    const token = await this._resolveAuthToken(auth_token);
     const mergedParams = { ...(params || {}) };
-    if (ownerUserId != null && mergedParams.ownerUserId == null) {
-      mergedParams.ownerUserId = ownerUserId;
-    }
-    if (agentSessionId != null && mergedParams.agentSessionId == null) {
-      mergedParams.agentSessionId = agentSessionId;
+    // Prefer Authorization over identity-in-query (logs/caches). Soft headers remain.
+    if (!token) {
+      if (ownerUserId != null && mergedParams.ownerUserId == null) {
+        mergedParams.ownerUserId = ownerUserId;
+      }
+      if (agentSessionId != null && mergedParams.agentSessionId == null) {
+        mergedParams.agentSessionId = agentSessionId;
+      }
     }
     for (const [k, v] of Object.entries(mergedParams)) {
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
@@ -253,7 +308,6 @@ export class KnowShowGoClient {
       : { accept: 'application/json' };
     if (ownerUserId) headers['x-ksg-owner'] = String(ownerUserId);
     if (agentSessionId) headers['x-ksg-session'] = String(agentSessionId);
-    const token = auth_token ?? this.authToken;
     if (token) headers.authorization = `Bearer ${token}`;
     const admin = admin_secret ?? this.adminSecret;
     if (admin) headers['x-ksg-admin'] = String(admin);
@@ -290,11 +344,11 @@ export class KnowShowGoClient {
 
   // ===== Health & release =====
   health_check() {
-    return this._request('GET', '/health');
+    return this._request('GET', '/health', { skip_ready: true });
   }
 
   get_release_manifest() {
-    return this._request('GET', '/api/release');
+    return this._request('GET', '/api/release', { skip_ready: true });
   }
 
   // ===== Prototypes =====

@@ -4,7 +4,6 @@
   "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
   "type": "module",
   "main": "js/index.js",
-  "types": "js/client.js",
   "exports": {
     ".": {
       "import": "./js/index.js"
@@ -30,12 +29,6 @@
   ],
   "author": "Leh Kovach",
   "license": "MIT",
-  "peerDependencies": {
-    "knowshowgo": "0.2.8-dev"
-  },
-  "dependencies": {
-    "node-fetch": "^2.6.0"
-  },
   "devDependencies": {
     "jest": "^29.0.0",
     "esbuild": "^0.17.0"
@@ -44,10 +37,11 @@
     "test": "node --test js/client.test.mjs",
     "test:integration": "node --test scripts/live-contract-smoke.js",
     "test:integration:live": "node scripts/live-contract-smoke.js",
-    "test:coverage": "jest --coverage",
     "build": "esbuild js/index.js --bundle --platform=node --format=esm --outfile=dist/index.js",
     "prepack": "npm run build && npm run test",
-    "prepublishOnly": "npm run test && npm run test:integration"
+    "prepublishOnly": "npm run test:all && npm run build",
+    "test:python": "python3 -m unittest discover -s python -p 'test_*.py'",
+    "test:all": "npm test && npm run test:python"
   },
   "files": [
     "js",

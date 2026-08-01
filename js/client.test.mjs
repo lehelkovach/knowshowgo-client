@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-async function loadClientClass() {
+async function loadClientModule() {
   const sourcePath = new URL('./client.js', import.meta.url);
   const source = await readFile(sourcePath, 'utf8');
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-  const mod = await import(moduleUrl);
+  return import(moduleUrl);
+}
+
+async function loadClientClass() {
+  const mod = await loadClientModule();
   return mod.KnowShowGoClient;
 }
 
@@ -1251,4 +1255,132 @@ test('no admin secret means no X-KSG-Admin header', async () => {
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
   await client.list_api_tokens({});
   assert.equal(calls[0].options.headers['x-ksg-admin'], undefined);
+});
+
+
+// ----- P0 transport hardening (connect / route match / tokenProvider) -----
+
+test('matchesRoute matches :param templates segment-wise', async () => {
+  const { matchesRoute } = await loadClientModule();
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/objects/4ee7abcd'), true);
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/objects/4ee7abcd/extra'), false);
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/concepts/4ee7abcd'), false);
+  assert.equal(matchesRoute('/health', '/health'), true);
+});
+
+test('connect without expectations accepts whatever the server advertises', async () => {
+  const fetchMock = async (url) => {
+    if (String(url).endsWith('/api/release')) {
+      return makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+    }
+    return makeJsonResponse({ status: 'ok' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const manifest = await client.connect();
+  assert.equal(manifest.channel, 'release');
+  assert.equal(manifest.release, 'v0.2.8');
+});
+
+test('connect still fails fast when the caller asserts a mismatch', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await assert.rejects(
+    () => client.connect({ expected_channel: 'dev' }),
+    /expected channel dev, got release/,
+  );
+});
+
+test('contract enforcement accepts concrete paths against :uuid templates', async () => {
+  const fetchMock = async (url) => {
+    if (String(url).endsWith('/api/release')) {
+      return makeJsonResponse({
+        channel: 'dev',
+        release: 'v0.2.9-dev',
+        surfaces: {
+          clientContract: [
+            { method: 'GET', path: '/api/objects/:uuid' },
+          ],
+        },
+      });
+    }
+    return makeJsonResponse({ ok: true, uuid: 'x' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.connect({ enforce_contract: true });
+  const obj = await client.get_object('4ee7abcd-0000-0000-0000-000000000001');
+  assert.equal(obj.ok, true);
+});
+
+test('accessToken alias and tokenProvider supply Authorization', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    accessToken: 'from-alias',
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer from-alias');
+
+  calls.length = 0;
+  let n = 0;
+  const rotating = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    tokenProvider: async () => `tok-${++n}`,
+  });
+  await rotating.list_objects({});
+  await rotating.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer tok-1');
+  assert.equal(calls[1].options.headers.authorization, 'Bearer tok-2');
+});
+
+test('bearer token skips ownerUserId in the query string', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'alice',
+    authToken: 'ksg_live',
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer ksg_live');
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'alice');
+  assert.ok(
+    !String(calls[0].url).includes('ownerUserId='),
+    'identity should not leak into the query when bearer is set',
+  );
+});
+
+test('ready() awaits auto_connect before ordinary requests', async () => {
+  const order = [];
+  const fetchMock = async (url) => {
+    order.push(String(url));
+    if (String(url).endsWith('/api/release')) {
+      await new Promise((r) => setTimeout(r, 20));
+      return makeJsonResponse({ channel: 'dev', release: 'v0.2.9-dev', surfaces: {} });
+    }
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    auto_connect: true,
+  });
+  await client.list_objects({});
+  assert.ok(order[0].endsWith('/api/release'), 'release handshake should complete before list');
 });

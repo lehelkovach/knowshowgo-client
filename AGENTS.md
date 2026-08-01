@@ -9,10 +9,9 @@ KSG roadmap: [DEVELOPMENT-PLAN v6.4+](https://github.com/lehelkovach/knowshowgo/
 
 ## Engage now (client)
 
-1. **Bearer API token support** — constructor `apiToken` / env; send
-   `Authorization: Bearer ksg_…` (and keep soft `X-KSG-Owner` as fallback).
-   Server already verifies tokens for private reads; agent + Chrome need this.
-   Consumed by agent **QA-Auth** fleet vector (`qa:api-token`).
+1. **Bearer API token support** — ✅ constructor `authToken` / `accessToken` /
+   `apiToken` / `tokenProvider`; sends `Authorization: Bearer …` (soft
+   `X-KSG-Owner` remains as fallback). Agent + Chrome should pass tokens.
 2. **Entity object model** — `get_entity_properties` / `get_entity_types` /
    `EntityProxy` (`.middleName`, `.getType()`); then `load(name)` → KSGObject.
 3. Parity tests JS + Python for every new `/api2.0` surface; dual-prefix where required.
@@ -23,7 +22,7 @@ QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
 ## Commands
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 node --test js/client.test.mjs
 python3 -m unittest discover -s python -p 'test_*.py'
 npm run build
@@ -36,13 +35,13 @@ npm run build
 | Client | **`0.2.9-dev`** / branch **`dev`** |
 | Server | knowshowgo **`0.2.9-dev`** / **`dev`** |
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
-| `connect()` default | channel **`dev`**, release **`v0.2.8-dev`** |
+| `connect()` default | **no pin** — discovers server; pass `expected_*` to assert |
 
 Release tip: **`main` / `v0.2.7-client`** ↔ KSG **`v0.2.7`**.
 
 The package version and the advertised release are **not** the same number and
 drift apart on purpose: `package.json` is `0.2.9-dev` on both repos while
-`GET /api/release` still advertises `v0.2.8-dev`, so the `connect()` default
+`GET /api/release` on server tip advertises `v0.2.9-dev`; client `connect()` is unpinned
 tracks the manifest rather than the package. Check both before assuming a
 mismatch is a bug.
 
@@ -97,7 +96,7 @@ returns 503 rather than issuing an unverifiable token.
 
 ## Cloud
 
-- Need `--legacy-peer-deps` (peer `knowshowgo` unpublished).
+- Plain `npm install` (no server peerDependency).
 - JS tests: `node --test …` (not jest).
 - Access check: `./scripts/agent-access-check.sh`.
 
