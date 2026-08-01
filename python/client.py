@@ -507,6 +507,32 @@ class KnowShowGoClient:
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
 
+    def resolve_slots(
+        self,
+        labels: List[str],
+        candidates: List[str] = None,
+        floor: float = 0.5,
+        top_k: int = 40,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> Dict[str, Any]:
+        """Resolve observed labels onto stored fields.
+
+        Works for a web form's inputs, a CSV header row, or an API payload — the
+        server ranks and assigns so callers do not each reimplement it.
+        ``candidates`` closes the set to fields you actually hold, and assignment
+        is one-to-one: a field fills at most one label.
+
+        Returns ``{"slots": [{"label", "property", "score"}], "unresolved": [...]}``.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/slots/resolve",
+            json={"labels": labels, "candidates": candidates, "floor": floor, "topK": top_k},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
     def search_property_definitions(
         self,
         query: str,

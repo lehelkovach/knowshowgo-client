@@ -542,6 +542,25 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Resolve observed labels onto stored fields — a form's inputs, a CSV header
+   * row, an API payload. The server ranks and assigns, so callers do not each
+   * reimplement it.
+   *
+   * `candidates` closes the set to fields you actually hold, so a label naming
+   * something unknown resolves to nothing instead of the nearest vector.
+   * Assignment is one-to-one: a field fills at most one label.
+   *
+   * @returns {Promise<{ slots: Array<{label, property, score}>, unresolved: string[] }>}
+   */
+  resolve_slots({ labels = [], candidates = null, floor = 0.5, top_k = 40, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/slots/resolve`, {
+      json: { labels, candidates, floor, topK: top_k },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
   // Label/tag autocomplete over prototypes (e.g. to pick an object "type").
   search_prototypes({ query = '', top_k = 10 } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/search`, {
