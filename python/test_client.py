@@ -1127,5 +1127,84 @@ class TestListParity(unittest.TestCase):
         self.assertEqual(args[1], "https://example.test/api/object-categories")
 
 
+
+class TestP0Transport(unittest.TestCase):
+    def test_matches_route_templates(self):
+        self.assertTrue(matches_route("/api/objects/:uuid", "/api/objects/4ee7abcd"))
+        self.assertFalse(matches_route("/api/objects/:uuid", "/api/objects/4ee7/extra"))
+        self.assertFalse(matches_route("/api/objects/:uuid", "/api/concepts/4ee7abcd"))
+
+    def test_connect_without_expectations_accepts_public_release(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"channel": "release", "release": "v0.2.8", "surfaces": {}})
+        )
+        manifest = client.connect()
+        self.assertEqual(manifest["channel"], "release")
+
+    def test_connect_fails_fast_on_explicit_mismatch(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"channel": "release", "release": "v0.2.8", "surfaces": {}})
+        )
+        with self.assertRaisesRegex(ValueError, "expected channel dev"):
+            client.connect(expected_channel="dev")
+
+    def test_access_token_alias_and_token_provider(self):
+        client = KnowShowGoClient("https://example.test", access_token="from-alias")
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer from-alias")
+
+        n = {"i": 0}
+
+        def provider():
+            n["i"] += 1
+            return f"tok-{n['i']}"
+
+        client = KnowShowGoClient("https://example.test", token_provider=provider)
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        client.list_objects()
+        first = client.session.request.call_args_list[0].kwargs["headers"]["Authorization"]
+        second = client.session.request.call_args_list[1].kwargs["headers"]["Authorization"]
+        self.assertEqual(first, "Bearer tok-1")
+        self.assertEqual(second, "Bearer tok-2")
+
+    def test_bearer_skips_owner_in_query(self):
+        client = KnowShowGoClient(
+            "https://example.test",
+            default_owner_user_id="alice",
+            auth_token="ksg_live",
+        )
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer ksg_live")
+        self.assertEqual(kwargs["headers"]["X-KSG-Owner"], "alice")
+        self.assertNotIn("ownerUserId", kwargs.get("params") or {})
+
+    def test_contract_enforcement_matches_uuid_templates(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            side_effect=[
+                FakeResponse(
+                    {
+                        "channel": "dev",
+                        "release": "v0.2.9-dev",
+                        "surfaces": {
+                            "clientContract": [{"method": "GET", "path": "/api/objects/:uuid"}]
+                        },
+                    }
+                ),
+                FakeResponse({"ok": True, "uuid": "x"}),
+            ]
+        )
+        client.connect(enforce_contract=True)
+        out = client.get_object("4ee7abcd-0000-0000-0000-000000000001")
+        self.assertTrue(out.get("ok"))
+
+
 if __name__ == "__main__":
     unittest.main()
