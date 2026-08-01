@@ -104,3 +104,7 @@ returns 503 rather than issuing an unverifiable token.
 ## Prompting
 
 No separate prompt/handoff docs. Rules here or server CLIENT-SYNC.
+
+## Considerations (filed)
+
+- Client SDK health / fuzzy-ORM gap analysis: [`docs/SDK-ASSESSMENT-2026-08.md`](docs/SDK-ASSESSMENT-2026-08.md)
