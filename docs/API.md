@@ -173,6 +173,25 @@ Smart tag/concept suggestion and search.
 
 ---
 
+## Knowledge search (documents + graph)
+
+Unified search for ingested **Document** / Idea objects plus semantic concepts
+(including episodic document chunks). Canonical namespace `/api2.0` with `/api`
+alias. Pass `owner_user_id` (or set `defaultOwnerUserId`) so private docs are
+visible under read ACL.
+
+| Method | Signature (JS) |
+|---|---|
+| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix? }` |
+
+Returns `{ ok, query, count, results }` where each result has
+`kind` (`concept` \| `object` \| `episode`), `score`, `uuid`, `title`,
+`summary`, optional `category` / `topics` / `excerpt` / `sourceUrl`.
+
+Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None)`.
+
+---
+
 ## Composites
 
 Objects composed of component objects with versioned component assertions.

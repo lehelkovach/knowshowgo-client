@@ -754,6 +754,42 @@ export class KnowShowGoClient {
     }).then(r => r.results);
   }
 
+  /**
+   * Unified knowledge search over concepts (incl. episodic chunks) + typed
+   * objects (Document / Idea / …). Canonical path `/api2.0/knowledge/search`
+   * with `/api` alias. Pass owner identity so private docs are visible.
+   */
+  search_knowledge({
+    query,
+    top_k = 10,
+    similarity_threshold = 0.55,
+    categories = null,
+    include_concepts = true,
+    include_objects = true,
+    owner_user_id = null,
+    agent_session_id = null,
+    knowledgeApiPrefix = null,
+  } = {}) {
+    const prefix = knowledgeApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/knowledge/search`, {
+      json: {
+        query,
+        topK: top_k,
+        similarityThreshold: similarity_threshold,
+        categories,
+        includeConcepts: include_concepts,
+        includeObjects: include_objects,
+      },
+      owner_user_id,
+      agent_session_id,
+    }).then((r) => ({
+      ok: r.ok !== false,
+      query: r.query ?? query,
+      count: r.count ?? (r.results || []).length,
+      results: r.results || [],
+    }));
+  }
+
   suggest_concept_object_prototypes({ label = '', properties = [], context = {}, category_prototype_uuids = null, top_k = 5 } = {}) {
     if (!Array.isArray(properties) || properties.length === 0) {
       throw new Error('properties are required for suggest_concept_object_prototypes');
