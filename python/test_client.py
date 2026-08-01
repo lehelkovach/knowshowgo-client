@@ -958,7 +958,31 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api2.0/prototypes/match",
-            json={"text": "email password submit", "embedding": None, "topK": 3, "threshold": 0.0},
+            json={
+                "text": "email password submit",
+                "embedding": None,
+                "topK": 3,
+                "threshold": 0.0,
+                "space": "centroid",
+            },
+        )
+
+    def test_match_prototypes_can_ask_for_label_space(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(return_value=FakeResponse({"matches": []}))
+
+        client.match_prototypes(text="Card number", top_k=5, space="label")
+
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototypes/match",
+            json={
+                "text": "Card number",
+                "embedding": None,
+                "topK": 5,
+                "threshold": 0.0,
+                "space": "label",
+            },
         )
 
     def test_prototype_api_prefix_falls_back_to_legacy_api(self):
@@ -970,7 +994,13 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/prototypes/match",
-            json={"text": "username password submit", "embedding": None, "topK": 5, "threshold": 0.0},
+            json={
+                "text": "username password submit",
+                "embedding": None,
+                "topK": 5,
+                "threshold": 0.0,
+                "space": "centroid",
+            },
         )
 
     def test_search_prototypes_unwraps_prototypes(self):

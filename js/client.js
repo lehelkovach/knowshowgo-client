@@ -501,9 +501,14 @@ export class KnowShowGoClient {
   }
 
   // Match a perceived item (text or embedding) against existing prototypes.
-  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
+  // `space`: 'centroid' (default) ranks against the running mean of observed
+  // VALUES — use for a value query like "Westerville". 'label' ranks against the
+  // stable embedding of a field's name/aliases — use for a type query like
+  // "Card number", where a value centroid mis-ranks because it drifts toward the
+  // shape of the data (card numbers and CVVs are both digit strings).
+  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0, space = 'centroid' } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
-      json: { text, embedding, topK: top_k, threshold }
+      json: { text, embedding, topK: top_k, threshold, space }
     }).then(r => r.matches);
   }
 

@@ -488,10 +488,25 @@ class KnowShowGoClient:
         text: str = None,
         embedding: List[float] = None,
         top_k: int = 5,
-        threshold: float = 0.0
+        threshold: float = 0.0,
+        space: str = "centroid"
     ) -> List[Dict[str, Any]]:
-        """Rank existing prototypes by how typical the item is of each."""
-        data = {"text": text, "embedding": embedding, "topK": top_k, "threshold": threshold}
+        """Rank existing prototypes by how typical the item is of each.
+
+        ``space`` selects which vector to compare against. ``centroid`` (the
+        default) uses the running mean of observed VALUES — right for a value
+        query like "Westerville". ``label`` uses the stable embedding of a
+        field's name/aliases — right for a type query like "Card number", where
+        a value centroid mis-ranks because it drifts toward the shape of the
+        data (card numbers and CVVs are both digit strings).
+        """
+        data = {
+            "text": text,
+            "embedding": embedding,
+            "topK": top_k,
+            "threshold": threshold,
+            "space": space,
+        }
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
 

@@ -888,6 +888,22 @@ test('match_prototypes posts query and unwraps matches array', async () => {
   assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/match');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.topK, 3);
+  assert.equal(body.space, 'centroid');
+});
+
+test('match_prototypes can ask for label space instead of value centroids', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ matches: [] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  // Type queries ("Card number") must not score against value centroids, which
+  // drift toward the shape of stored data.
+  await client.match_prototypes({ text: 'Card number', space: 'label' });
+  assert.equal(JSON.parse(calls[0].options.body).space, 'label');
 });
 
 test('prototypeApiPrefix falls back to the legacy /api alias when requested', async () => {
