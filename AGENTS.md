@@ -5,6 +5,20 @@
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
+KSG roadmap: [DEVELOPMENT-PLAN v6.4+](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+
+## Engage now (client)
+
+1. **Bearer API token support** — constructor `apiToken` / env; send
+   `Authorization: Bearer ksg_…` (and keep soft `X-KSG-Owner` as fallback).
+   Server already verifies tokens for private reads; agent + Chrome need this.
+   Consumed by agent **QA-Auth** fleet vector (`qa:api-token`).
+2. **Entity object model** — `get_entity_properties` / `get_entity_types` /
+   `EntityProxy` (`.middleName`, `.getType()`); then `load(name)` → KSGObject.
+3. Parity tests JS + Python for every new `/api2.0` surface; dual-prefix where required.
+   New methods must be fleet-testable (unit + offline mock).
+
+QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
 
 ## Commands
 
@@ -43,9 +57,11 @@ Explicit `baseUrl` → `KSG_API_URL` → `KSG_PUBLIC_API_URL` → `http://localh
 Hosted: `KnowShowGoClient.publicApi()` / `PUBLIC_API_BASE_URL` (`https://api.knowshowgo.com`).
 Server runbook: [PUBLIC-API.md](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/PUBLIC-API.md).
 
-## Soft owner identity
+## Soft owner identity + tokens
 
 `defaultOwnerUserId` / `defaultAgentSessionId` → `X-KSG-Owner` / `X-KSG-Session`.
+**Gap (P0):** no Bearer sender yet — add `apiToken` so portal-issued `ksg_…` tokens
+work from SDK/agent/Chrome. Soft headers remain for legacy/local.
 
 ## Environments
 
