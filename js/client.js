@@ -501,10 +501,64 @@ export class KnowShowGoClient {
   }
 
   // Match a perceived item (text or embedding) against existing prototypes.
+  // Nearest-centroid over the values each prototype has absorbed — a value-shaped
+  // question ("which category is this?"). To ask which FIELD a label names, search
+  // property-definition concepts instead (see `search_property_definitions`): a
+  // value centroid drifts toward the shape of the data, so "Card number" would
+  // rank closer to `cvv` than to `number`.
   match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
       json: { text, embedding, topK: top_k, threshold }
     }).then(r => r.matches);
+  }
+
+  /**
+   * Which stored field does this label name? Ranks property-definition concepts
+   * over the same vector index every other search uses, filtered by node role.
+   * Returns [{ property, valueType, score, uuid }] best first, one per property.
+   */
+  search_property_definitions(query, { top_k = 20, owner_user_id = null, agent_session_id = null } = {}) {
+    return this.search_concepts(query, {
+      top_k,
+      similarity_threshold: 0,
+      owner_user_id,
+      agent_session_id
+    }).then((results) => {
+      const out = [];
+      const seen = new Set();
+      for (const r of results || []) {
+        if (r?.props?.isObjectPropertyDefinition !== true) continue;
+        const property = r.props.propertyName;
+        if (!property || seen.has(property)) continue;
+        seen.add(property);
+        out.push({
+          property,
+          valueType: r.props.valueType ?? null,
+          score: r.similarity ?? 0,
+          uuid: r.uuid
+        });
+      }
+      return out;
+    });
+  }
+
+  /**
+   * Resolve observed labels onto stored fields — a form's inputs, a CSV header
+   * row, an API payload. The server ranks and assigns, so callers do not each
+   * reimplement it.
+   *
+   * `candidates` closes the set to fields you actually hold, so a label naming
+   * something unknown resolves to nothing instead of the nearest vector.
+   * Assignment is one-to-one: a field fills at most one label.
+   *
+   * @returns {Promise<{ slots: Array<{label, property, score}>, unresolved: string[] }>}
+   */
+  resolve_slots({ labels = [], candidates = null, floor = 0.5, top_k = 40, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/slots/resolve`, {
+      json: { labels, candidates, floor, topK: top_k },
+      owner_user_id,
+      agent_session_id
+    });
   }
 
   // Label/tag autocomplete over prototypes (e.g. to pick an object "type").

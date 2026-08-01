@@ -888,6 +888,27 @@ test('match_prototypes posts query and unwraps matches array', async () => {
   assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/match');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.topK, 3);
+  assert.equal(body.space, undefined);
+});
+
+test('search_property_definitions answers which field a label names', async () => {
+  const fetchMock = async () => makeJsonResponse({
+    results: [
+      // A value node and a prototype must not be mistaken for field definitions.
+      { uuid: 'v1', similarity: 0.91, props: { isObjectPropertyValue: true, name: 'number:4766' } },
+      { uuid: 'd1', similarity: 0.78, props: { isObjectPropertyDefinition: true, propertyName: 'name_on_card', valueType: 'string' } },
+      { uuid: 'd2', similarity: 0.66, props: { isObjectPropertyDefinition: true, propertyName: 'number', valueType: 'string' } },
+      // Same property from another category collapses to one entry.
+      { uuid: 'd3', similarity: 0.51, props: { isObjectPropertyDefinition: true, propertyName: 'number', valueType: 'string' } }
+    ]
+  });
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const defs = await client.search_property_definitions('Cardholder name');
+  assert.deepEqual(defs.map((d) => d.property), ['name_on_card', 'number']);
+  assert.equal(defs[0].valueType, 'string');
+  assert.equal(defs[0].score, 0.78);
 });
 
 test('prototypeApiPrefix falls back to the legacy /api alias when requested', async () => {
