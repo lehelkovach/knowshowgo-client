@@ -1118,3 +1118,137 @@ test('get_entity_types hits /api2.0 with persist flag', async () => {
   assert.match(calls[0].url, /topK=3/);
   assert.match(calls[0].url, /persist=true/);
 });
+
+// ===== API tokens (hard identity) =====
+// The server has verified bearer auth; until now the SDK could only send the
+// soft X-KSG-Owner header, so callers had no way to use it.
+
+test('create_api_token posts to the token endpoint and returns the raw token once', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, token: 'ksg_abc123', record: { jti: 'j1' } }, 201);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.create_api_token({ owner_user_id: 'alice', label: 'laptop', ttl_days: 30 });
+
+  assert.equal(out.token, 'ksg_abc123');
+  assert.match(calls[0].url, /\/api2\.0\/auth\/tokens/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.ownerUserId, 'alice');
+  assert.equal(body.label, 'laptop');
+  assert.equal(body.ttlDays, 30);
+});
+
+test('an auth token is sent as a bearer header on every request', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    authToken: 'ksg_live'
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer ksg_live');
+});
+
+test('no token means no Authorization header at all', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, undefined);
+});
+
+test('set_auth_token swaps the token on a live client', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, authToken: 'old' });
+  client.set_auth_token('new');
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer new');
+});
+
+test('a per-call token overrides the client default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, authToken: 'default' });
+  await client._request('GET', '/api2.0/auth/tokens', { auth_token: 'override' });
+  assert.equal(calls[0].options.headers.authorization, 'Bearer override');
+});
+
+test('token endpoints honour the /api fallback prefix', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [{ jti: 'j1' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    prototypeApiPrefix: '/api'
+  });
+  const tokens = await client.list_api_tokens({ owner_user_id: 'alice' });
+  assert.equal(tokens[0].jti, 'j1');
+  assert.match(calls[0].url, /\/api\/auth\/tokens/);
+  assert.doesNotMatch(calls[0].url, /api2\.0/);
+});
+
+test('revoke_api_token targets the jti', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, record: { jti: 'j1', revoked: true } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.revoke_api_token('j1', { owner_user_id: 'alice' });
+  assert.equal(out.record.revoked, true);
+  assert.match(calls[0].url, /\/api2\.0\/auth\/tokens\/j1\/revoke/);
+});
+
+test('the admin secret rides along as X-KSG-Admin so the first token can be minted', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, token: 'ksg_x', record: { jti: 'j1' } }, 201);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    adminSecret: 's3cret'
+  });
+  await client.create_api_token({ owner_user_id: 'alice' });
+  assert.equal(calls[0].options.headers['x-ksg-admin'], 's3cret');
+});
+
+test('no admin secret means no X-KSG-Admin header', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.list_api_tokens({});
+  assert.equal(calls[0].options.headers['x-ksg-admin'], undefined);
+});

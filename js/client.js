@@ -148,7 +148,9 @@ export class KnowShowGoClient {
     topicApiPrefix = '/api2.0',
     auto_connect = false,
     defaultOwnerUserId = null,
-    defaultAgentSessionId = null
+    defaultAgentSessionId = null,
+    authToken = null,
+    adminSecret = null
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
     // Wrap the global fetch so it is always invoked with the correct context.
@@ -163,6 +165,13 @@ export class KnowShowGoClient {
     // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
     this.defaultOwnerUserId = defaultOwnerUserId || null;
     this.defaultAgentSessionId = defaultAgentSessionId || null;
+    // Hard identity. A signed token cannot be spoofed the way the soft owner
+    // headers can, and the server prefers it over them when both are present.
+    this.authToken = authToken || null;
+    // Minting a token for someone else needs the server's admin secret, sent as
+    // X-KSG-Admin. Without it a caller can only mint for the owner they already
+    // hold a token for, which leaves no way to issue the first one.
+    this.adminSecret = adminSecret || null;
     this._contract = null;
     this._enforceContract = false;
     this._connectPromise = auto_connect ? this.connect() : null;
@@ -217,7 +226,13 @@ export class KnowShowGoClient {
     }
   }
 
-  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id } = {}) {
+  /** Swap the bearer token on a live client (e.g. after minting or rotating one). */
+  set_auth_token(token) {
+    this.authToken = token || null;
+    return this;
+  }
+
+  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret } = {}) {
     this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
     const ownerUserId = owner_user_id ?? this.defaultOwnerUserId;
@@ -238,6 +253,10 @@ export class KnowShowGoClient {
       : { accept: 'application/json' };
     if (ownerUserId) headers['x-ksg-owner'] = String(ownerUserId);
     if (agentSessionId) headers['x-ksg-session'] = String(agentSessionId);
+    const token = auth_token ?? this.authToken;
+    if (token) headers.authorization = `Bearer ${token}`;
+    const admin = admin_secret ?? this.adminSecret;
+    if (admin) headers['x-ksg-admin'] = String(admin);
 
     let bodyJson = json;
     if (json && typeof json === 'object' && !Array.isArray(json)) {
@@ -349,6 +368,56 @@ export class KnowShowGoClient {
     return this._request('GET', `/api/associations/${encodeURIComponent(uuid)}`, {
       params: { direction }
     }).then(r => r.associations);
+  }
+
+  // ===== API tokens (hard identity) =====
+  // The soft X-KSG-Owner header is client-supplied and therefore trusted only as
+  // far as the caller is; these mint signed tokens the server can actually
+  // verify. Token endpoints share the prototype prefix (/api2.0 with /api kept
+  // as the backward-compatible alias).
+
+  /**
+   * Mint a token for an owner. The raw token is returned exactly once — the
+   * server stores only a record of it — so a caller that drops it must mint
+   * another rather than re-read this one.
+   *
+   * @returns {Promise<{ ok: boolean, token: string, record: object }>}
+   */
+  create_api_token({ owner_user_id = null, label = null, agent_session_id = null, ttl_days = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/auth/tokens`, {
+      json: {
+        ownerUserId: owner_user_id,
+        label,
+        agentSessionId: agent_session_id,
+        ttlDays: ttl_days
+      }
+    });
+  }
+
+  /** List an owner's token records (never the raw tokens). */
+  list_api_tokens({ owner_user_id = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/auth/tokens`, {
+      params: owner_user_id ? { ownerUserId: owner_user_id } : undefined
+    }).then((r) => r.tokens);
+  }
+
+  /** Revoke one token by its `jti`. */
+  revoke_api_token(jti, { owner_user_id = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/auth/tokens/${encodeURIComponent(jti)}/revoke`, {
+      json: { ownerUserId: owner_user_id }
+    });
+  }
+
+  /**
+   * Per-principal request/read/write counts for cost and quota tracking.
+   *
+   * Admin-only, and it authenticates differently from the token endpoints: the
+   * admin secret goes in as the bearer here, not the X-KSG-Admin header.
+   */
+  get_admin_usage({ admin_token = null } = {}) {
+    return this._request('GET', '/api/admin/usage', {
+      auth_token: admin_token ?? this.adminSecret ?? this.authToken
+    });
   }
 
   // ===== Prototype / centroid (prototype-theory) mechanics =====
@@ -1092,6 +1161,10 @@ export class KnowShowGoClient {
   // ===== Seeds =====
   seed_osl_agent(body = {}) {
     return this._request('POST', '/api/seed/osl-agent', { json: body });
+  }
+
+  seed_osl_oc_agent(body = {}) {
+    return this._request('POST', '/api/seed/osl-oc-agent', { json: body });
   }
 
   seed_openclaw_agent(body = {}) {
