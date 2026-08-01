@@ -1,11 +1,16 @@
 # AGENTS.md
 
-> Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
- · knowshowgo-client `dev` (`0.2.9-dev`)
+> Product / MVP cold-start: [`README.md`](README.md). Client tip: `dev` (`0.2.9-dev`).
+
+## Continuity
+
+- **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
+- **Portfolio master:** sibling [`knowshowgo/docs/STACK-MASTER.md`](../knowshowgo/docs/STACK-MASTER.md)
+- Gitflow: branch from **`dev`**, PR into **`dev`**.
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
-KSG roadmap: [DEVELOPMENT-PLAN v6.4+](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+KSG roadmap: [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
 
 ## Engage now (client)
 
