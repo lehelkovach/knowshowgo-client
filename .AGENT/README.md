@@ -1,40 +1,30 @@
 # Client Agent Operating Instructions
 
-Repository: `knowshowgo-client`  
-Repo path in cloud workspace: `/workspace/api`
+Repository: `knowshowgo-client`
 
 ## Required startup sequence
 
-Before making any changes, the client agent must:
+1. Read this file.
+2. Read [`.AGENT/CONTINUITY.md`](./CONTINUITY.md).
+3. Skim [`.AGENT/handoffs/latest.md`](./handoffs/latest.md) for active cross-repo pointers.
+4. For Telnyx/voice takeover: use sibling `osl-oc-agent/.AGENT/handoffs/TELNYX-KICKOFF-PROMPT.txt` (not this repo).
+5. Env secret *names*: `osl-oc-agent/.AGENT/handoffs/CURSOR-ENV-HANDOFF.md`.
 
-1. Read this file (`.AGENT/README.md`).
-2. Read `.AGENT/handoffs/latest.md`.
-3. Read `.AGENT/resume-log.md` and continue from the latest unchecked item.
-4. Run access preflight:
-   - `./scripts/agent-access-check.sh`
-   - If syncing with private upstream core repo, also run:
-     - `UPSTREAM_PRIVATE_REPO=<core-repo-url> ./scripts/agent-access-check.sh`
+## Scope
 
-## Scope boundaries
+- Primary: this SDK (`js/`, `python/`).
+- Pair with sibling `knowshowgo` on **`dev`**.
+- Do not put SIP/Asterisk/Telnyx bootstrap work here.
 
-- Primary scope: this repo only (`/workspace/api`).
-- Upstream reference repo: `/workspace` (private core `knowshowgo`).
-- Do not modify upstream files except for explicit coordination metadata.
+## Verify
 
-## Sync expectations
+```bash
+npm install --legacy-peer-deps
+node --test js/client.test.mjs
+python3 -m unittest discover -s python -p 'test_*.py'
+```
 
-- Keep wrappers aligned with upstream REST/API behavior.
-- Add/adjust targeted tests when wrappers change.
-- Commit small, traceable increments with clear messages.
+## Continuity
 
-## Logging requirements
-
-For each work session, append one entry to `.AGENT/resume-log.md` including:
-
-- timestamp (UTC)
-- branch + commit started from
-- files read
-- files changed
-- tests run and results
-- final commit hash + push result
-- next pending task
+Keep [`.AGENT/CONTINUITY.md`](./CONTINUITY.md) short. Prefer issues/PRs over resume logs.
+v1 `resume-log.md` is historical only — do not append new session queues there.

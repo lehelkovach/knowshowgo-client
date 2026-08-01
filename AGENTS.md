@@ -5,8 +5,10 @@
 ## Continuity
 
 - **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
+- **Latest pointer:** [`.AGENT/handoffs/latest.md`](.AGENT/handoffs/latest.md)
 - **Portfolio master:** sibling [`knowshowgo/docs/STACK-MASTER.md`](../knowshowgo/docs/STACK-MASTER.md)
-- Gitflow: branch from **`dev`**, PR into **`dev`**.
+- **Telnyx/voice:** sibling `osl-oc-agent/.AGENT/handoffs/TELNYX-KICKOFF-PROMPT.txt` (not this repo)
+- Gitflow: branch from **`dev`**, PR into **`dev`**. Continuity for in-flight work lives on **`dev`**.
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
