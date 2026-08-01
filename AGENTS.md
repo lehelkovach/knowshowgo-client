@@ -67,6 +67,47 @@ drift apart on purpose: `package.json` is `0.2.9-dev` on both repos while
 tracks the manifest rather than the package. Check both before assuming a
 mismatch is a bug.
 
+## Querying the graph data model (properties are concepts)
+
+KSG models an entity's **properties and each property value as their own
+concepts**, joined by edges — not as keys in a props blob. A `CreditCard` object
+links `has_property` → property-definition concept and `has_property_value` →
+an embedded value concept; a `concept_ref` property (or `has_component`) points
+at a nested object such as `BillingAddress`, which hangs its own
+`billing_city` / `billing_zip` value concepts.
+
+That means "find the billing city that looks like *washington*" is a graph +
+vector query, not a string scan. Compose it from three shipped methods:
+
+```js
+// value-first: semantic hit on the value concept, then walk back to its owner
+const hits = await client.search_concepts('washington', { top_k: 10 });
+await client.get_associations(hits[0].uuid, { direction: 'outgoing' }); // value_of_property
+await client.get_object(hits[0].props.objectUuid);
+
+// type-first: rank field/category prototypes by meaning
+await client.match_prototypes({ text: 'billing city', top_k: 5 });
+
+// seed + traverse in one round trip
+await client.query_graph({
+  search: { text: 'washington', topK: 5 },
+  traverse: { edgeTypes: ['value_of_property', 'has_property_value', 'has_component'], depth: 2 },
+});
+```
+
+Two limits to state plainly rather than work around:
+
+- **Type ∩ value is not one call.** `prototype_filter` on `search_concepts` is
+  accepted by the server but not enforced, so constrain the field with
+  `match_prototypes` and rank the value with `search_concepts` yourself.
+- **Per-field value prototypes** (a real `billing_city` prototype) exist only for
+  data written through the server's private-payment ingest path; generic object
+  upsert gives every value the same shared value prototype.
+
+Server-side canonical model:
+[`docs/ONTOLOGY-PROTOTYPE-MODEL.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/ONTOLOGY-PROTOTYPE-MODEL.md)
+(Layer 3c).
+
 ## API prefixes
 
 Default `/api2.0`; pass `/api` for regression tests.
