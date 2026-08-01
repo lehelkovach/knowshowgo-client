@@ -112,6 +112,18 @@ class EntityProxy:
         }
 
 
+def matches_route(template: str, actual: str) -> bool:
+    """Segment-wise match of `/api/objects/:uuid` templates to concrete paths."""
+    expected = str(template or "").split("/")
+    received = str(actual or "").split("/")
+    if len(expected) != len(received):
+        return False
+    for seg, got in zip(expected, received):
+        if not seg.startswith(":") and seg != got:
+            return False
+    return True
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -124,7 +136,11 @@ class KnowShowGoClient:
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
         auth_token: Optional[str] = None,
+        access_token: Optional[str] = None,
+        api_token: Optional[str] = None,
+        token_provider=None,
         admin_secret: Optional[str] = None,
+        auto_connect: bool = False,
     ):
         self.base_url = resolve_base_url(base_url).rstrip('/')
         self.session = requests.Session()
@@ -136,13 +152,22 @@ class KnowShowGoClient:
         self.default_agent_session_id = default_agent_session_id
         # Hard identity. A signed token cannot be spoofed the way the soft owner
         # headers can, and the server prefers it over them when both are present.
-        self.auth_token = auth_token
+        self.auth_token = auth_token or access_token or api_token
+        self.token_provider = token_provider if callable(token_provider) else None
         # Minting a token for someone else needs the server's admin secret, sent
         # as X-KSG-Admin. Without it a caller can only mint for the owner they
         # already hold a token for, which leaves no way to issue the first one.
         self.admin_secret = admin_secret
         self._contract = None
         self._enforce_contract = enforce_contract
+        self._connected = False
+        if auto_connect:
+            try:
+                self.connect()
+            except Exception:
+                # Mirror JS: failed auto_connect must not crash construction;
+                # callers that care should call ready()/connect() explicitly.
+                pass
 
     @staticmethod
     def _merge_aliases(body: Dict[str, Any], aliases: Dict[str, str]) -> Dict[str, Any]:
@@ -155,14 +180,26 @@ class KnowShowGoClient:
     def _assert_contract_path(self, method: str, path: str) -> None:
         if not self._enforce_contract or not self._contract:
             return
-        prefix = path.split('/:')[0] if '/:' in path else path
         allowed = any(
-            entry.get('method') == method
-            and (entry.get('path') == path or entry.get('path', '').startswith(prefix))
+            entry.get('method') == method and matches_route(entry.get('path', ''), path)
             for entry in self._contract
         )
         if not allowed:
-            raise ValueError(f'endpoint not in dev contract: {method} {path}')
+            raise ValueError(f'endpoint not in client contract: {method} {path}')
+
+    def ready(self) -> "KnowShowGoClient":
+        """No-op sync counterpart to the JS ready(); connect() is synchronous here."""
+        return self
+
+    def _resolve_auth_token(self, explicit=None):
+        if explicit is not None:
+            return explicit
+        if self.token_provider is not None:
+            provided = self.token_provider()
+            if provided:
+                self.auth_token = provided
+                return provided
+        return self.auth_token
 
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to API"""
@@ -175,9 +212,7 @@ class KnowShowGoClient:
         if agent_session_id is None:
             agent_session_id = self.default_agent_session_id
 
-        auth_token = kwargs.pop("auth_token", None)
-        if auth_token is None:
-            auth_token = self.auth_token
+        auth_token = self._resolve_auth_token(kwargs.pop("auth_token", None))
         admin_secret = kwargs.pop("admin_secret", None)
         if admin_secret is None:
             admin_secret = self.admin_secret
@@ -195,10 +230,12 @@ class KnowShowGoClient:
             kwargs["headers"] = headers
 
         params = dict(kwargs.get("params") or {})
-        if owner_user_id and "ownerUserId" not in params:
-            params["ownerUserId"] = owner_user_id
-        if agent_session_id and "agentSessionId" not in params:
-            params["agentSessionId"] = agent_session_id
+        # Prefer Authorization over identity-in-query (logs/caches).
+        if not auth_token:
+            if owner_user_id and "ownerUserId" not in params:
+                params["ownerUserId"] = owner_user_id
+            if agent_session_id and "agentSessionId" not in params:
+                params["agentSessionId"] = agent_session_id
         if params:
             kwargs["params"] = params
 
@@ -227,16 +264,19 @@ class KnowShowGoClient:
 
     def connect(
         self,
-        expected_channel: str = 'dev',
-        expected_release: str = 'v0.2.8-dev',
+        expected_channel: Optional[str] = None,
+        expected_release: Optional[str] = None,
         enforce_contract: bool = False,
         adopt_advertised_base_url: bool = False,
     ) -> Dict[str, Any]:
-        """Verify channel/release and optionally cache contract for path guard.
+        """Discover the server contract. Channel/release pins are opt-in.
+
+        A bare ``connect()`` accepts whatever the server advertises (public
+        release or dev). Pass ``expected_channel`` / ``expected_release`` to
+        fail fast against an unexpected host.
 
         ``adopt_advertised_base_url`` re-points this client at ``api.publicBaseUrl``
-        from the manifest, so a caller bootstrapped against any reachable host
-        ends up on the canonical public API the service advertises.
+        from the manifest.
         """
         manifest = self.get_release_manifest()
         if expected_channel and manifest.get('channel') != expected_channel:

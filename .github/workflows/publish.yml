@@ -2,109 +2,26 @@ name: Publish to NPM
 
 on:
   push:
-    branches:
-      - main
-      - release/*
-    paths:
-      - package.json
-      - src/**
-      - .github/workflows/publish.yml
-
-env:
-  NODE_VERSION: 18
+    tags:
+      - "v*"
 
 jobs:
-  check-version:
-    name: Check Version
-    runs-on: ubuntu-latest
-    outputs:
-      new-version: ${{ steps.version.outputs.new-version }}
-      needs-publish: ${{ steps.version.outputs.needs-publish }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Get versions
-        id: version
-        run: |
-          CURRENT=$(jq -r '.version' package.json)
-          PUBLISHED=$(npm view @lehelkovach/knowshowgo-client version 2>/dev/null || echo "0.0.0")
-          
-          if [ "$CURRENT" != "$PUBLISHED" ]; then
-            echo "new-version=$CURRENT" >> $GITHUB_OUTPUT
-            echo "needs-publish=true" >> $GITHUB_OUTPUT
-          else
-            echo "needs-publish=false" >> $GITHUB_OUTPUT
-          fi
-
-  test:
-    name: Test & Build
-    runs-on: ubuntu-latest
-    needs: check-version
-    if: needs.check-version.outputs.needs-publish == 'true'
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-
-      - name: Install client
-        run: npm ci
-
-      - name: Run tests
-        run: npm test -- --coverage
-        continue-on-error: true
-
-      - name: Build
-        run: npm run build
-        continue-on-error: true
-
   publish:
-    name: Publish to NPM
+    name: Publish
     runs-on: ubuntu-latest
-    needs: [check-version, test]
-    if: needs.check-version.outputs.needs-publish == 'true'
-
     permissions:
-      contents: read
+      contents: write
       packages: write
-
     steps:
-      - uses: actions/checkout@v3
-
-      - uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: 22
           cache: npm
           registry-url: https://registry.npmjs.org/
-
-      - name: Install
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Publish to npm
-        run: npm publish
+      - run: npm ci
+      - run: npm run test:all
+      - run: npm run build
+      - run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Create release
-        uses: actions/github-script@v6
-        with:
-          script: |
-            const version = require('./package.json').version;
-            github.rest.git.createRef({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              ref: `refs/tags/v${version}`,
-              sha: context.sha
-            }).catch(e => console.log('Tag may already exist:', e.message));
-
-      - name: Notify completion
-        run: |
-          echo "Published @lehelkovach/knowshowgo-client@${{ needs.check-version.outputs.new-version }}"

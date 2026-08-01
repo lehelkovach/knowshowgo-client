@@ -16,16 +16,14 @@ prefixes, or identity headers.
 
 ## Install
 
-The peer package `knowshowgo` (the server) is not published to npm, so install
-with `--legacy-peer-deps` (or from a tag):
+This package is a remote REST client — it does **not** depend on the
+`knowshowgo` server package.
 
 ```bash
-# from the published registry
-npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
+npm install @lehelkovach/knowshowgo-client
 
-# or pin to a release tag from GitHub
-npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+# or pin a GitHub tag
+npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 Python (single-file client, needs `requests`):
@@ -45,10 +43,15 @@ Requirements: **Node >= 18** (built-in `fetch`) or Python 3.8+ with `requests`.
 import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
 
 // Talk to the hosted API; scope reads/writes to your namespace.
-const client = KnowShowGoClient.publicApi({ defaultOwnerUserId: 'my-app' });
+const client = KnowShowGoClient.publicApi({
+  defaultOwnerUserId: 'my-app',
+  authToken: process.env.KSG_API_TOKEN, // or accessToken / tokenProvider
+});
 
 // Optional: verify you match the server you expect.
-await client.connect({ expected_channel: 'release', expected_release: 'v0.2.7' });
+// Optional pin — bare connect() accepts whatever the server advertises:
+await client.connect();
+// await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
 
 // Store a fact, then search it back.
 await client.create_assertion({
