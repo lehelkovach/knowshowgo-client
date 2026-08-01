@@ -154,7 +154,7 @@ Python: `prototype_api_prefix` / `topic_api_prefix`.
 ## Development
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 node --test js/client.test.mjs                       # JS unit tests (Node runner)
 python3 -m unittest discover -s python -p 'test_*.py' # Python unit tests
 npm run build                                         # esbuild bundle -> dist/
@@ -169,7 +169,7 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 | Branch | Client | Server |
 |--------|--------|--------|
 | `main` | `0.2.7` (`v0.2.7-client`) | KSG `v0.2.7` |
-| `dev`  | `0.2.8-dev` | KSG `0.2.8-dev` |
+| `dev`  | `0.2.9-dev` | KSG `0.2.9-dev` / `v0.2.9-dev` |
 
 Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 

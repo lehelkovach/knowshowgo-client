@@ -41,7 +41,7 @@ Release tip: **`main` / `v0.2.7-client`** ↔ KSG **`v0.2.7`**.
 
 The package version and the advertised release are **not** the same number and
 drift apart on purpose: `package.json` is `0.2.9-dev` on both repos while
-`GET /api/release` still advertises `v0.2.8-dev`, so the `connect()` default
+`GET /api/release` on server tip advertises `v0.2.9-dev`; client `connect()` is unpinned
 tracks the manifest rather than the package. Check both before assuming a
 mismatch is a bug.
 
@@ -96,7 +96,7 @@ returns 503 rather than issuing an unverifiable token.
 
 ## Cloud
 
-- Need `--legacy-peer-deps` (peer `knowshowgo` unpublished).
+- Plain `npm install` (no server peerDependency).
 - JS tests: `node --test …` (not jest).
 - Access check: `./scripts/agent-access-check.sh`.
 
