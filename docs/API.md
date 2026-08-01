@@ -159,6 +159,9 @@ Schema-typed objects (instances) and their category prototypes.
 | `list_object_categories` | `()` |
 | `upsert_object` | `{ ... }` create/update instance with assertion-backed props |
 | `get_object` | `(uuid, { owner_user_id?, agent_session_id? })` |
+| `list_memory_roles` | `()` → role catalog (`/api2.0/memory/roles`) |
+| `instantiate_memory` | `{ role, title, … }` role-typed upsert + claims |
+| `get_memory_object` | `(uuid)` object + claims + prototype lineage |
 | `list_objects` | `{ category?, limit?, owner_user_id?, agent_session_id? }` |
 | `resolve_object` | `{ ... }` resolve by tag, title, or embedding |
 | `generalize_object` | `{ ... }` promote a concrete object to a prototype |

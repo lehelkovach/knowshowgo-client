@@ -879,6 +879,85 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Role catalog for typed memory (`mandate` / `schedule` / `rule` / `procedureDag`).
+   * Canonical `/api2.0/memory/roles` with `/api` alias via `prototypeApiPrefix`.
+   */
+  list_memory_roles({ memory_api_prefix = null } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/memory/roles`).then((r) => r.roles || []);
+  }
+
+  /**
+   * Role-typed create: maps `role` → category + parent, then the same write path
+   * as `upsert_object`. Returns claims + prototype lineage.
+   */
+  instantiate_memory({
+    role,
+    title,
+    category_prototype_uuid = null,
+    category_name = null,
+    parent_category_name = null,
+    summary = '',
+    tags = [],
+    properties = [],
+    previous_object_uuid = null,
+    object_lineage_key = null,
+    provenance = null,
+    knowledge_kind = 'personal',
+    sensitivity = 'normal',
+    privacy_override = null,
+    private: is_private = null,
+    owner_user_id = null,
+    agent_session_id = null,
+    memory_api_prefix = null
+  } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/memory/instantiate`, {
+      json: {
+        role,
+        title,
+        categoryPrototypeUuid: category_prototype_uuid,
+        categoryName: category_name,
+        parentCategoryName: parent_category_name,
+        summary,
+        tags,
+        properties,
+        previousObjectUuid: previous_object_uuid,
+        objectLineageKey: object_lineage_key,
+        provenance,
+        knowledgeKind: knowledge_kind,
+        sensitivity,
+        privacyOverride: privacy_override,
+        private: is_private,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id
+      },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
+  /**
+   * Object snapshot + assertion claims + prototype lineage walk.
+   * Same ACL as `get_object`.
+   */
+  get_memory_object(uuid, {
+    owner_user_id = null,
+    agent_session_id = null,
+    memory_api_prefix = null
+  } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/memory/${encodeURIComponent(uuid)}`, {
+      params: {
+        ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
+        agentSessionId: agent_session_id ?? this.defaultAgentSessionId
+      },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
   // Inventory (read-only) for the memory inspector.
   list_objects({ category = null, limit = 200, owner_user_id = null, agent_session_id = null } = {}) {
     return this._request('GET', '/api/objects', {
