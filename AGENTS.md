@@ -1,5 +1,16 @@
 # AGENTS.md
 
+Canonical instructions for coding agents working in the KnowShowGo client SDK.
+
+## Continuity (v2)
+
+- **Policy:** this file. **Ops loop:** [`.AGENT/RUNBOOK.md`](.AGENT/RUNBOOK.md).
+- **Cross-repo env:** `osl-oc-agent/.AGENT/handoffs/CURSOR-ENV-HANDOFF.md` (secret *names* only).
+- **Handoffs:** copy [`.AGENT/handoffs/HANDOFF-TEMPLATE.md`](.AGENT/handoffs/HANDOFF-TEMPLATE.md) to a uniquely named task file only when state must cross sessions before a PR exists.
+- **Do not** append `.AGENT/agent-action-log.md` or use run-once queues. Use issues, commits, and PRs.
+- Template source: sibling `agent-repo-boilerplate` (`main`). Re-sync: `python3 ../agent-repo-boilerplate/scripts/apply_template.py .` (dry-run) then `--apply`.
+- Gitflow: branch from **`dev`**, PR into **`dev`**.
+
 > Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
  · knowshowgo-client `dev` (`0.2.9-dev`)
 
