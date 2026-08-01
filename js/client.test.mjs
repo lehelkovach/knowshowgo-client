@@ -1048,3 +1048,73 @@ test('search_knowledge posts to /api2.0/knowledge/search with owner headers', as
     headers['X-KSG-Owner'] === 'slack:U1' || headers['x-ksg-owner'] === 'slack:U1',
   );
 });
+
+test('get_entity_properties hits /api2.0 and EntityProxy exposes winner + claims', async () => {
+  const calls = [];
+  const payload = {
+    ok: true,
+    uuid: 'person:Ada',
+    properties: {
+      middle_name: {
+        value: 'Augusta',
+        confidence: 0.9,
+        contested: true,
+        claimCount: 2,
+        claims: [
+          { value: 'Augusta', rank: 1, winner: true, source: 'resume' },
+          { value: 'A.', rank: 2, winner: false, source: 'chat' },
+        ],
+      },
+    },
+    policy: { version: 'v0.2.1' },
+  };
+  const typesPayload = {
+    ok: true,
+    uuid: 'person:Ada',
+    types: [{ uuid: 'proto-person', name: 'Person', score: 0.91, rank: 1, source: 'match' }],
+  };
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/types')) return makeJsonResponse(typesPayload);
+    return makeJsonResponse(payload);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const raw = await client.get_entity_properties('person:Ada', { predicate: 'middle_name' });
+  assert.equal(raw.properties.middle_name.value, 'Augusta');
+  assert.match(calls[0].url, /\/api2\.0\/entities\/person%3AAda\/properties/);
+  assert.match(calls[0].url, /predicate=middle_name/);
+  assert.equal(calls[0].options.method, 'GET');
+
+  const entity = await client.get_entity_snapshot('person:Ada');
+  assert.equal(entity.middleName, 'Augusta');
+  assert.equal(entity.middle_name, 'Augusta');
+  assert.equal(entity.claims.middleName[0].source, 'resume');
+  assert.equal(entity.prop('middle_name').contested, true);
+  assert.equal(entity.getType()[0].name, 'Person');
+  assert.ok(calls.some((c) => /\/types/.test(c.url)));
+
+  await client.get_entity_properties('person:Ada', { entityApiPrefix: '/api' });
+  assert.ok(calls.some((c) => /\/api\/entities\/person%3AAda\/properties/.test(c.url)));
+});
+
+test('get_entity_types hits /api2.0 with persist flag', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      uuid: 'c1',
+      types: [{ name: 'Person', score: 0.9 }],
+      persisted: [{ name: 'Person', score: 0.9 }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.get_entity_types('c1', { top_k: 3, persist: true });
+  assert.equal(out.types[0].name, 'Person');
+  assert.match(calls[0].url, /\/api2\.0\/entities\/c1\/types/);
+  assert.match(calls[0].url, /topK=3/);
+  assert.match(calls[0].url, /persist=true/);
+});
