@@ -1002,5 +1002,129 @@ class TestAdvertisedBaseUrl(unittest.TestCase):
         self.assertEqual(client.base_url, "http://127.0.0.1:3000")
 
 
+class TestApiTokens(unittest.TestCase):
+    """The server has verified bearer auth; until now the SDK could only send
+    the soft X-KSG-Owner header, so callers had no way to use it."""
+
+    def test_create_api_token_posts_to_token_endpoint(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "token": "ksg_abc123", "record": {"jti": "j1"}})
+        )
+
+        out = client.create_api_token(owner_user_id="alice", label="laptop", ttl_days=30)
+
+        self.assertEqual(out["token"], "ksg_abc123")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/auth/tokens")
+        self.assertEqual(kwargs["json"]["ownerUserId"], "alice")
+        self.assertEqual(kwargs["json"]["ttlDays"], 30)
+
+    def test_auth_token_is_sent_as_bearer_header(self):
+        client = KnowShowGoClient("https://example.test", auth_token="ksg_live")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer ksg_live")
+
+    def test_no_token_means_no_authorization_header(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertNotIn("Authorization", kwargs.get("headers", {}))
+
+    def test_set_auth_token_swaps_the_token(self):
+        client = KnowShowGoClient("https://example.test", auth_token="old")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.set_auth_token("new")
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer new")
+
+    def test_token_endpoints_honour_the_api_fallback_prefix(self):
+        client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "tokens": [{"jti": "j1"}]})
+        )
+
+        tokens = client.list_api_tokens(owner_user_id="alice")
+
+        self.assertEqual(tokens[0]["jti"], "j1")
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/auth/tokens")
+
+    def test_admin_secret_rides_along_so_the_first_token_can_be_minted(self):
+        client = KnowShowGoClient("https://example.test", admin_secret="s3cret")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "token": "ksg_x", "record": {"jti": "j1"}})
+        )
+
+        client.create_api_token(owner_user_id="alice")
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["X-KSG-Admin"], "s3cret")
+
+    def test_no_admin_secret_means_no_admin_header(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"tokens": []}))
+
+        client.list_api_tokens()
+
+        _, kwargs = client.session.request.call_args
+        self.assertNotIn("X-KSG-Admin", kwargs.get("headers", {}))
+
+    def test_revoke_api_token_targets_the_jti(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "record": {"jti": "j1", "revoked": True}})
+        )
+
+        out = client.revoke_api_token("j1", owner_user_id="alice")
+
+        self.assertTrue(out["record"]["revoked"])
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api2.0/auth/tokens/j1/revoke")
+
+
+class TestListParity(unittest.TestCase):
+    """These two existed in the JS SDK only, so a Python caller had no way to
+    enumerate objects or categories."""
+
+    def test_list_objects_filters_by_category(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"objects": [{"uuid": "o1"}]})
+        )
+
+        objects = client.list_objects(category="GmailAccount", limit=50, owner_user_id="alice")
+
+        self.assertEqual(objects[0]["uuid"], "o1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/objects")
+        self.assertEqual(kwargs["params"]["category"], "GmailAccount")
+        self.assertEqual(kwargs["params"]["limit"], 50)
+        self.assertEqual(kwargs["headers"]["X-KSG-Owner"], "alice")
+
+    def test_list_object_categories_returns_categories(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"categories": [{"name": "GmailAccount", "objectCount": 1}]})
+        )
+
+        categories = client.list_object_categories()
+
+        self.assertEqual(categories[0]["name"], "GmailAccount")
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/object-categories")
+
+
 if __name__ == "__main__":
     unittest.main()

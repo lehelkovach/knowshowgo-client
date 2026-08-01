@@ -123,6 +123,8 @@ class KnowShowGoClient:
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
+        auth_token: Optional[str] = None,
+        admin_secret: Optional[str] = None,
     ):
         self.base_url = resolve_base_url(base_url).rstrip('/')
         self.session = requests.Session()
@@ -132,6 +134,13 @@ class KnowShowGoClient:
         self.topic_api_prefix = topic_api_prefix
         self.default_owner_user_id = default_owner_user_id
         self.default_agent_session_id = default_agent_session_id
+        # Hard identity. A signed token cannot be spoofed the way the soft owner
+        # headers can, and the server prefers it over them when both are present.
+        self.auth_token = auth_token
+        # Minting a token for someone else needs the server's admin secret, sent
+        # as X-KSG-Admin. Without it a caller can only mint for the owner they
+        # already hold a token for, which leaves no way to issue the first one.
+        self.admin_secret = admin_secret
         self._contract = None
         self._enforce_contract = enforce_contract
 
@@ -166,11 +175,22 @@ class KnowShowGoClient:
         if agent_session_id is None:
             agent_session_id = self.default_agent_session_id
 
+        auth_token = kwargs.pop("auth_token", None)
+        if auth_token is None:
+            auth_token = self.auth_token
+        admin_secret = kwargs.pop("admin_secret", None)
+        if admin_secret is None:
+            admin_secret = self.admin_secret
+
         headers = dict(kwargs.pop("headers", None) or {})
         if owner_user_id:
             headers["X-KSG-Owner"] = str(owner_user_id)
         if agent_session_id:
             headers["X-KSG-Session"] = str(agent_session_id)
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        if admin_secret:
+            headers["X-KSG-Admin"] = str(admin_secret)
         if headers:
             kwargs["headers"] = headers
 
@@ -336,6 +356,68 @@ class KnowShowGoClient:
             params={"direction": direction}
         )
         return result["associations"]
+
+    # ===== API tokens (hard identity) =====
+    # The soft X-KSG-Owner header is client-supplied and therefore trusted only
+    # as far as the caller is; these mint signed tokens the server can actually
+    # verify. Token endpoints share the prototype prefix (/api2.0 with /api kept
+    # as the backward-compatible alias).
+
+    def set_auth_token(self, token: Optional[str]) -> "KnowShowGoClient":
+        """Swap the bearer token on a live client (e.g. after minting one)."""
+        self.auth_token = token or None
+        return self
+
+    def create_api_token(
+        self,
+        owner_user_id: Optional[str] = None,
+        label: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        ttl_days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Mint a token for an owner.
+
+        The raw token comes back exactly once — the server stores only a record
+        of it — so a caller that drops it must mint another.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens",
+            json={
+                "ownerUserId": owner_user_id,
+                "label": label,
+                "agentSessionId": agent_session_id,
+                "ttlDays": ttl_days,
+            },
+        )
+
+    def list_api_tokens(self, owner_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List an owner's token records (never the raw tokens)."""
+        params = {"ownerUserId": owner_user_id} if owner_user_id else None
+        result = self._request(
+            "GET", f"{self.prototype_api_prefix}/auth/tokens", params=params
+        )
+        return result.get("tokens", [])
+
+    def revoke_api_token(self, jti: str, owner_user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Revoke one token by its ``jti``."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens/{jti}/revoke",
+            json={"ownerUserId": owner_user_id},
+        )
+
+    def get_admin_usage(self, admin_token: Optional[str] = None) -> Dict[str, Any]:
+        """Per-principal request/read/write counts for cost and quota tracking.
+
+        Admin-only, and it authenticates differently from the token endpoints:
+        the admin secret goes in as the bearer here, not the X-KSG-Admin header.
+        """
+        return self._request(
+            "GET",
+            "/api/admin/usage",
+            auth_token=admin_token or self.admin_secret or self.auth_token,
+        )
 
     # ===== Prototype / centroid (prototype-theory) mechanics =====
     def generalize_from_exemplar(
@@ -857,6 +939,11 @@ class KnowShowGoClient:
         body["categoryPrototypeUuid"] = body.get("categoryPrototypeUuid") or category.get("uuid") or uuid
         return body
 
+    def list_object_categories(self) -> List[Dict[str, Any]]:
+        """List object categories with their object counts."""
+        result = self._request("GET", "/api/object-categories")
+        return result.get("categories", [])
+
     # ===== Objects (v0.2.2) =====
 
     def upsert_object(
@@ -913,6 +1000,30 @@ class KnowShowGoClient:
         if agent_session_id:
             params["agentSessionId"] = agent_session_id
         return self._request("GET", f"/api/objects/{uuid}", params=params)
+
+    def list_objects(
+        self,
+        category: Optional[str] = None,
+        limit: int = 200,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List object entities, optionally filtered to one category.
+
+        The server returns public objects plus the caller's own private ones,
+        so identity matters here even for a read.
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if category:
+            params["category"] = category
+        result = self._request(
+            "GET",
+            "/api/objects",
+            params=params,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return result.get("objects", [])
 
     def resolve_object(
         self,
@@ -1446,6 +1557,9 @@ class KnowShowGoClient:
 
     def seed_osl_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/seed/osl-agent", json=body or {})
+
+    def seed_osl_oc_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/osl-oc-agent", json=body or {})
 
     def seed_openclaw_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/seed/openclaw-agent", json=body or {})
