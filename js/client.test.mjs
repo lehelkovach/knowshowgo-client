@@ -1384,3 +1384,60 @@ test('ready() awaits auto_connect before ordinary requests', async () => {
   await client.list_objects({});
   assert.ok(order[0].endsWith('/api/release'), 'release handshake should complete before list');
 });
+
+test('search_concepts + query_graph + get_associations paths (Todd vault walk)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/concepts/search')) {
+      return makeJsonResponse({
+        results: [{ uuid: 'pay-todd', score: 0.91, name: 'todd-visa', cardholder_name: 'Todd Kovach' }],
+      });
+    }
+    if (String(url).includes('/api/query')) {
+      return makeJsonResponse({
+        hits: [{ uuid: 'person-todd', score: 0.88 }],
+        subgraph: {
+          nodes: [{ uuid: 'person-todd' }, { uuid: 'pay-todd' }],
+          edges: [{ rel: 'owns_payment', from: 'person-todd', to: 'pay-todd' }],
+        },
+      });
+    }
+    if (String(url).includes('/api/associations/')) {
+      return makeJsonResponse({
+        associations: [
+          { rel: 'has_payment_field', to: 'field-pan' },
+          { rel: 'has_payment_field', to: 'field-name' },
+        ],
+      });
+    }
+    return makeJsonResponse({});
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'vault-owner',
+  });
+
+  const search = await client.search_concepts('credit card info with name todd', { top_k: 5 });
+  assert.equal(calls[0].options.method, 'POST');
+  assert.match(calls[0].url, /\/api\/concepts\/search/);
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'vault-owner');
+  const searchBody = JSON.parse(calls[0].options.body);
+  assert.match(String(searchBody.query || ''), /todd/i);
+  assert.equal(search[0].uuid, 'pay-todd');
+
+  const graph = await client.query_graph({
+    search: { text: 'Todd Kovach cardholder', topK: 5 },
+    traverse: { edgeTypes: ['owns_payment', 'has_payment_field'], depth: 2 },
+  });
+  assert.match(calls[1].url, /\/api\/query/);
+  assert.equal(graph.subgraph.edges[0].rel, 'owns_payment');
+
+  const assoc = await client.get_associations('pay-todd', { direction: 'outgoing' });
+  assert.match(calls[2].url, /\/api\/associations\/pay-todd/);
+  assert.ok(calls[2].url.includes('direction=outgoing'));
+  assert.equal(assoc.length, 2);
+  assert.equal(assoc[0].rel, 'has_payment_field');
+});
