@@ -1204,6 +1204,112 @@ export class KnowShowGoClient {
     }));
   }
 
+  /**
+   * Ingest a chat utterance into the semantic graph (MemoryEvent + claims).
+   * Canonical `/api2.0/semantic/remember` with `/api` alias via prototypeApiPrefix.
+   * Pass `plan` when the agent already extracted entities/claims; otherwise the
+   * server runs its heuristic (or fixture) extractor.
+   */
+  semantic_remember({
+    text,
+    speaker = 'user',
+    source = 'conversation',
+    owner_user_id = null,
+    agent_session_id = null,
+    session_id = null,
+    is_private = true,
+    plan = null,
+    provenance = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/remember`, {
+      json: {
+        text,
+        speaker,
+        source,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        sessionId: session_id,
+        private: is_private,
+        plan,
+        provenance,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_recall({
+    query,
+    top_k = 8,
+    expand_depth = 1,
+    similarity_threshold = 0.15,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/recall`, {
+      json: {
+        query,
+        topK: top_k,
+        expandDepth: expand_depth,
+        similarityThreshold: similarity_threshold,
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_ask({
+    subject,
+    predicate,
+    object = undefined,
+    pattern = null,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/ask`, {
+      json: pattern || { subject, predicate, object, ownerUserId: owner_user_id },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_correct({
+    text,
+    speaker = 'user',
+    source = 'correction',
+    owner_user_id = null,
+    agent_session_id = null,
+    session_id = null,
+    is_private = true,
+    plan = null,
+    provenance = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/correct`, {
+      json: {
+        text,
+        speaker,
+        source,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        sessionId: session_id,
+        private: is_private,
+        plan,
+        provenance,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
   suggest_concept_object_prototypes({ label = '', properties = [], context = {}, category_prototype_uuids = null, top_k = 5 } = {}) {
     if (!Array.isArray(properties) || properties.length === 0) {
       throw new Error('properties are required for suggest_concept_object_prototypes');
