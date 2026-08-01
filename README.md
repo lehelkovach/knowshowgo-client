@@ -25,7 +25,7 @@ npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
 
 # or pin to a release tag from GitHub
 npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 Python (single-file client, needs `requests`):
@@ -48,7 +48,7 @@ import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
 const client = KnowShowGoClient.publicApi({ defaultOwnerUserId: 'my-app' });
 
 // Optional: verify you match the server you expect.
-await client.connect({ expected_channel: 'release', expected_release: 'v0.2.7' });
+await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
 
 // Store a fact, then search it back.
 await client.create_assertion({
@@ -68,7 +68,7 @@ console.log(hits);
 from client import KnowShowGoClient
 
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
-client.connect(expected_channel="release", expected_release="v0.2.7")
+client.connect(expected_channel="release", expected_release="v0.2.8")
 
 client.create_assertion(
     subject="Ada Lovelace", predicate="is_a", obj="Mathematician", source="my-app"
@@ -165,8 +165,8 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 
 | Branch | Client | Server |
 |--------|--------|--------|
-| `main` | `0.2.7` (`v0.2.7-client`) | KSG `v0.2.7` |
-| `dev`  | `0.2.8-dev` | KSG `0.2.8-dev` |
+| `main` | `0.2.8` (`v0.2.8-client`) | KSG `v0.2.8` |
+| `dev`  | `0.2.9-dev` | KSG `0.2.9-dev` |
 
 Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 

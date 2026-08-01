@@ -18,7 +18,7 @@ npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
 
 # or pin a release tag
 npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 The `--legacy-peer-deps` flag is required because the peer package `knowshowgo`
@@ -66,13 +66,13 @@ fail fast against an unexpected server:
 ```js
 const manifest = await client.connect({
   expected_channel: 'release',
-  expected_release: 'v0.2.7',
+  expected_release: 'v0.2.8',
 });
 console.log(manifest.version, manifest.api.publicBaseUrl);
 ```
 
 ```python
-manifest = client.connect(expected_channel="release", expected_release="v0.2.7")
+manifest = client.connect(expected_channel="release", expected_release="v0.2.8")
 print(manifest["version"], manifest["api"]["publicBaseUrl"])
 ```
 
@@ -111,7 +111,7 @@ No Docker needed for the in-memory backend:
 
 ```bash
 git clone https://github.com/lehelkovach/knowshowgo && cd knowshowgo
-git checkout v0.2.7 && npm ci
+git checkout v0.2.8 && npm ci
 PORT=3000 KSG_MEMORY_BACKEND=in-memory npm start
 # -> http://127.0.0.1:3000/health
 ```
