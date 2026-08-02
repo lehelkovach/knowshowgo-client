@@ -1,3 +1,4 @@
+import inspect
 import os
 import sys
 import unittest
@@ -9,6 +10,12 @@ from client import (  # noqa: E402
     PUBLIC_API_BASE_URL,
     LOCAL_API_BASE_URL,
     resolve_base_url,
+)
+
+# Read the client's own default rather than restating it. Hardcoding the release
+# here is what broke these tests on the v0.2.8 bump.
+DEFAULT_EXPECTED_RELEASE = (
+    inspect.signature(KnowShowGoClient.connect).parameters["expected_release"].default
 )
 
 
@@ -896,7 +903,9 @@ class TestAdvertisedBaseUrl(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "release",
-                "release": "v0.2.7",
+                # Must track the client's default expected_release, otherwise
+                # connect() without an explicit release rejects this fixture.
+                "release": DEFAULT_EXPECTED_RELEASE,
                 "api": {
                     "publicBaseUrl": "https://api.knowshowgo.com",
                     "prefixes": {"stable": "/api", "current": "/api2.0"},
