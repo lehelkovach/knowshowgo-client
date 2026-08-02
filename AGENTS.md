@@ -1,7 +1,11 @@
 # AGENTS.md
 
 > Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
- · knowshowgo-client `dev` (`0.2.8-dev`)
+
+**Version truth:** this repo's `package.json`, plus
+[VERSION-MATRIX](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/VERSION-MATRIX.md)
+for cross-repo pairing. Do not restate version numbers in docs or pin them as code
+defaults — that is what made a bare `connect()` throw against the public release API.
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
@@ -33,22 +37,20 @@ npm run build
 
 | | |
 |---|---|
-| Client | **`0.2.8-dev`** / branch **`dev`** |
-| Server | knowshowgo **`0.2.8-dev`** / **`dev`** |
-| Contract | `GET /api/release` → **`surfaces.clientContract`** |
-| `connect()` default | channel **`dev`**, release **`v0.2.8-dev`** |
-
-Release tip: **`main` / `v0.2.7-client`** ↔ KSG **`v0.2.7`**.
+| Client / server versions | see [VERSION-MATRIX](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/VERSION-MATRIX.md) |
+| Contract on `dev` | `GET /api/release` → **`surfaces.clientContract`** |
+| Contract on `main` | `GET /api/release` → **`surfaces.mvp`** |
+| `connect()` default | **no channel/release assertion** — opt in per call |
 
 ## API prefixes
 
 Default `/api2.0`; pass `/api` for regression tests.
 
-| Family | JS | Python |
-|---|---|---|
-| Prototypes | `prototypeApiPrefix` | `prototype_api_prefix` |
-| Topics | `topicApiPrefix` | `topic_api_prefix` |
-| Visual | `visualApiPrefix` | `visual_api_prefix` |
+| Family | JS | Python | Status |
+|---|---|---|---|
+| Prototypes | `prototypeApiPrefix` | `prototype_api_prefix` | implemented |
+| Topics | `topicApiPrefix` | `topic_api_prefix` | implemented |
+| Visual | `visualApiPrefix` | `visual_api_prefix` | **planned — not implemented** |
 
 
 ## Public API base URL

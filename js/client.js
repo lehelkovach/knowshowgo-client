@@ -179,13 +179,18 @@ export class KnowShowGoClient {
   /**
    * Cache release manifest; optionally enforce clientContract path allowlist.
    *
+   * `expected_channel` / `expected_release` are **opt-in** assertions: pass them to
+   * fail fast against an unexpected server. They default to no assertion because a
+   * pinned default rots — the old `dev` / `v0.2.8-dev` defaults made a bare
+   * `connect()` throw against the public release API.
+   *
    * `adopt_advertised_base_url` re-points this client at `api.publicBaseUrl`
    * from the manifest, so a caller bootstrapped against any reachable host ends
    * up talking to the canonical public API the service advertises.
    */
   async connect({
-    expected_channel = 'dev',
-    expected_release = 'v0.2.8-dev',
+    expected_channel = null,
+    expected_release = null,
     enforce_contract = false,
     adopt_advertised_base_url = false
   } = {}) {

@@ -23,9 +23,9 @@ with `--legacy-peer-deps` (or from a tag):
 # from the published registry
 npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
 
-# or pin to a release tag from GitHub
+# or pin to a release tag from GitHub (current tag: see VERSION-MATRIX)
 npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 Python (single-file client, needs `requests`):
@@ -48,7 +48,8 @@ import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
 const client = KnowShowGoClient.publicApi({ defaultOwnerUserId: 'my-app' });
 
 // Optional: verify you match the server you expect.
-await client.connect({ expected_channel: 'release', expected_release: 'v0.2.7' });
+// Omit expected_release to accept whatever the service advertises.
+await client.connect({ expected_channel: 'release' });
 
 // Store a fact, then search it back.
 await client.create_assertion({
@@ -68,7 +69,7 @@ console.log(hits);
 from client import KnowShowGoClient
 
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
-client.connect(expected_channel="release", expected_release="v0.2.7")
+client.connect(expected_channel="release")
 
 client.create_assertion(
     subject="Ada Lovelace", predicate="is_a", obj="Mathematician", source="my-app"
@@ -118,9 +119,15 @@ const client = KnowShowGoClient.publicApi({
 ```
 
 This sends `X-KSG-Owner` / `X-KSG-Session` and fills `ownerUserId` on query/body.
-It is **soft** identity (a follow-up adds signed bearer tokens); see the server
-[`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md)
-for the token story.
+
+It is **soft** identity: the caller supplies its own id, so it keeps honest callers in
+their own namespace but is **not** a multi-tenant security boundary.
+
+> **Known gap (P0).** The KSG service ships signed bearer tokens
+> (`Authorization: Bearer ksg_…`, issued from the developer portal), but **this SDK
+> cannot send them yet** — there is no `apiToken` option. Until that lands, SDK, agent,
+> and Chrome callers are limited to soft identity even against a token-enabled server.
+> Server side: [`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md).
 
 ---
 
@@ -163,12 +170,12 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 
 ## Versions
 
-| Branch | Client | Server |
-|--------|--------|--------|
-| `main` | `0.2.7` (`v0.2.7-client`) | KSG `v0.2.7` |
-| `dev`  | `0.2.8-dev` | KSG `0.2.8-dev` |
+This repo's version is `package.json`; the cross-repo pairing table lives in one place:
+[`VERSION-MATRIX.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/VERSION-MATRIX.md).
+Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
 
-Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
+A running service reports its own contract at `GET /api/release` — trust that over any
+number written in a README.
 
 ## License
 
