@@ -607,9 +607,13 @@ class KnowShowGoClient:
         self,
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
-        obj: Optional[Any] = None
+        obj: Optional[Any] = None,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: Optional[int] = None,
+        order: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Get assertions with optional filters"""
+        """Get assertions with optional filters (incl. time window)."""
         params = {}
         if subject:
             params["subject"] = subject
@@ -617,6 +621,14 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         if obj is not None:
             params["object"] = obj
+        if since:
+            params["since"] = since
+        if until:
+            params["until"] = until
+        if limit is not None:
+            params["limit"] = limit
+        if order:
+            params["order"] = order
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
 

@@ -588,11 +588,23 @@ export class KnowShowGoClient {
     });
   }
 
-  get_assertions({ subject = null, predicate = null, obj = undefined } = {}) {
+  get_assertions({
+    subject = null,
+    predicate = null,
+    obj = undefined,
+    since = null,
+    until = null,
+    limit = null,
+    order = null
+  } = {}) {
     const params = {};
     if (subject !== null && subject !== undefined) params.subject = subject;
     if (predicate !== null && predicate !== undefined) params.predicate = predicate;
     if (obj !== undefined) params.object = obj;
+    if (since) params.since = since;
+    if (until) params.until = until;
+    if (limit != null) params.limit = limit;
+    if (order) params.order = order;
     return this._request('GET', '/api/assertions', { params }).then(r => r.assertions);
   }
 
