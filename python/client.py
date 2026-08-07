@@ -1138,9 +1138,10 @@ class KnowShowGoClient:
         steps: Optional[List[Dict[str, Any]]] = None,
         dependencies: Optional[List[List[int]]] = None,
         guards: Optional[Dict[str, Any]] = None,
-        extra_props: Optional[Dict[str, Any]] = None
+        extra_props: Optional[Dict[str, Any]] = None,
+        dag_json: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create a Procedure DAG with steps and dependencies"""
+        """Create a Procedure DAG with steps and dependencies (stores canonical dagJson)."""
         data = {
             "title": title,
             "description": description,
@@ -1151,11 +1152,38 @@ class KnowShowGoClient:
             data["guards"] = guards
         if extra_props is not None:
             data["extraProps"] = extra_props
+        if dag_json is not None:
+            data["dagJson"] = dag_json
         return self._request("POST", "/api/procedures", json=data)
 
-    def get_procedure(self, uuid: str) -> Dict[str, Any]:
-        """Get a compiled Procedure DAG by UUID"""
+    def get_procedure(
+        self,
+        uuid: str,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get a Procedure DAG by UUID.
+
+        source A/B load path: 'dagJson' | 'graph' | 'both' (default both; primary prefers dagJson).
+        """
+        if source is not None:
+            return self._request("GET", f"/api/procedures/{uuid}", params={"source": source})
         return self._request("GET", f"/api/procedures/{uuid}")
+
+    def put_procedure_dag(
+        self,
+        uuid: str,
+        dag_json: Dict[str, Any],
+        rematerialize: bool = True,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Update canonical dagJson (source of truth); optionally rematerialize next→ edges."""
+        data: Dict[str, Any] = {
+            "dagJson": dag_json,
+            "rematerialize": rematerialize,
+        }
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("PUT", f"/api/procedures/{uuid}/dag", json=data)
 
     def add_procedure_step(
         self,

@@ -959,14 +959,46 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
-  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props } = {}) {
+  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
-      json: { title, description, steps, dependencies, guards, extraProps: extra_props }
+      json: {
+        title,
+        description,
+        steps,
+        dependencies,
+        guards,
+        extraProps: extra_props,
+        ...(dag_json != null ? { dagJson: dag_json } : {})
+      }
     });
   }
 
-  get_procedure(uuid) {
-    return this._request('GET', `/api/procedures/${encodeURIComponent(uuid)}`);
+  /**
+   * Get a Procedure DAG.
+   * @param {string} uuid
+   * @param {{ source?: 'dagJson'|'graph'|'both' }} [opts]
+   *   A/B load: dagJson (canonical JSON SoT), graph (edge compile), both (default; primary prefers dagJson).
+   */
+  get_procedure(uuid, { source } = {}) {
+    const params = {};
+    if (source != null && source !== '') params.source = source;
+    return this._request('GET', `/api/procedures/${encodeURIComponent(uuid)}`, { params });
+  }
+
+  /**
+   * Update canonical dagJson (source of truth). Optionally rematerializes next→ edges.
+   */
+  put_procedure_dag(uuid, { dag_json, rematerialize = true, provenance = null } = {}) {
+    if (!dag_json || typeof dag_json !== 'object') {
+      throw new Error('dag_json object is required for put_procedure_dag');
+    }
+    return this._request('PUT', `/api/procedures/${encodeURIComponent(uuid)}/dag`, {
+      json: {
+        dagJson: dag_json,
+        rematerialize,
+        provenance
+      }
+    });
   }
 
   add_procedure_step(procedure_uuid, {
