@@ -15,6 +15,19 @@ Before making any changes, the client agent must:
    - If syncing with private upstream core repo, also run:
      - `UPSTREAM_PRIVATE_REPO=<core-repo-url> ./scripts/agent-access-check.sh`
 
+## Product north star (single source of truth — do not restate)
+
+The fleet is building a **PA desk**: the assistant people hire on Upwork/OnlineJobs.ph,
+delivered as a teachable canvas over KSG memory with approval-gated action. Design and
+build order live in **one place** — sibling `osl-oc-agent/docs/PA-DESK.md` and
+`osl-oc-agent/docs/DEVELOPMENT-PLAN.md` (gate ladder A→E).
+
+This SDK's part arrives late (OSL Gates D–E): thin wrappers for canvas surfaces
+(create / get / patch / fork / search) and the private binding + notification objects,
+**once the `/api2.0` shapes settle server-side**. Until then, do not invent client-side
+schemas for them. Keep the rule that public **layout recipes** are shareable while
+bindings, message bodies, balances and card data stay private/owner-scoped.
+
 ## Scope boundaries
 
 - Primary scope: this repo only (`/workspace/api`).
