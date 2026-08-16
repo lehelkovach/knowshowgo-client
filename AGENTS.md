@@ -37,7 +37,24 @@ npm run build
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
 | `connect()` default | **no pin** — discovers server; pass `expected_*` to assert |
 
-Release tip: **`main` / `v0.2.7-client`** ↔ KSG **`v0.2.7`**.
+Released pairing: see the server repo's
+[`docs/VERSION-MATRIX.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/VERSION-MATRIX.md)
+— do not restate release numbers here.
+
+## peerDependencies policy (deliberate, since 0.2.9)
+
+This SDK is **transport-only**: `package.json` intentionally has **no
+`peerDependencies` entry** for the `knowshowgo` server package.
+
+- The server package is **not published to npm**, so a peer entry breaks plain
+  `npm install` with an E404 (the reason `--legacy-peer-deps` used to be
+  required).
+- Server-version compatibility is enforced at **runtime, not install time**:
+  `connect()` discovers `GET /api/release` and callers may pass
+  `expected_release` / `expected_channel` to assert a contract.
+- Do not re-add the peer entry without revisiting this section; `main` still
+  carrying `peerDependencies.knowshowgo=0.2.8` is pre-policy and ends with the
+  v0.2.9-client release.
 
 The package version and the advertised release are **not** the same number and
 drift apart on purpose: `package.json` is `0.2.9-dev` on both repos while
