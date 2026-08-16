@@ -396,6 +396,78 @@ test('put_procedure_dag maps dag_json body', async () => {
   assert.equal(body.rematerialize, false);
 });
 
+test('list_memory_roles hits /api2.0/memory/roles by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, roles: [{ role: 'mandate' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const roles = await client.list_memory_roles();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/memory/roles');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(roles[0].role, 'mandate');
+});
+
+test('instantiate_memory maps role + upsert fields under /api2.0', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-1', claims: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.instantiate_memory({
+    role: 'schedule',
+    title: 'Sunday chores',
+    properties: [{ propertyName: 'cron', value: '0 9 * * 0' }],
+    private: true,
+    owner_user_id: 'lehel'
+  });
+  assert.match(calls[0].url, /^https:\/\/example\.test\/api2\.0\/memory\/instantiate/);
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.role, 'schedule');
+  assert.equal(body.title, 'Sunday chores');
+  assert.equal(body.private, true);
+  assert.equal(body.ownerUserId, 'lehel');
+  assert.equal(body.properties[0].propertyName, 'cron');
+});
+
+test('instantiate_memory honors memory_api_prefix=/api fallback', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-2' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.instantiate_memory({
+    role: 'mandate',
+    title: 'Pay rent',
+    memory_api_prefix: '/api'
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/memory/instantiate');
+});
+
+test('get_memory_object hits /api2.0/memory/:uuid', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-1', claims: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'lehel'
+  });
+  await client.get_memory_object('mem-1');
+  assert.match(calls[0].url, /https:\/\/example\.test\/api2\.0\/memory\/mem-1/);
+  assert.equal(calls[0].options.method, 'GET');
+});
+
 test('add_procedure_step maps insertion anchors and omits undefined fields', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

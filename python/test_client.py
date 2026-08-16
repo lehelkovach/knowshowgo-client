@@ -401,6 +401,59 @@ class TestKnowShowGoClient(unittest.TestCase):
             params={"source": "dagJson"},
         )
 
+    def test_list_memory_roles_defaults_to_api2(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "roles": [{"role": "mandate"}]})
+        )
+        roles = client.list_memory_roles()
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api2.0/memory/roles",
+        )
+        self.assertEqual(roles[0]["role"], "mandate")
+
+    def test_instantiate_memory_maps_role_body(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "mem-1"})
+        )
+        client.instantiate_memory(
+            role="schedule",
+            title="Sunday chores",
+            private=True,
+            owner_user_id="lehel",
+        )
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/memory/instantiate")
+        self.assertEqual(kwargs["json"]["role"], "schedule")
+        self.assertEqual(kwargs["json"]["title"], "Sunday chores")
+        self.assertEqual(kwargs["json"]["private"], True)
+        self.assertEqual(kwargs["json"]["ownerUserId"], "lehel")
+
+    def test_instantiate_memory_prefix_fallback(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "mem-2"})
+        )
+        client.instantiate_memory(
+            role="mandate", title="Pay rent", memory_api_prefix="/api"
+        )
+        args, _kwargs = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/memory/instantiate")
+
+    def test_get_memory_object_targets_uuid(self):
+        client = KnowShowGoClient("https://example.test", default_owner_user_id="lehel")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "claims": []})
+        )
+        client.get_memory_object("mem-1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.test/api2.0/memory/mem-1")
+        self.assertEqual(kwargs.get("params", {}).get("ownerUserId"), "lehel")
+
     def test_put_procedure_dag_maps_body(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

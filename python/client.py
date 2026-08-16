@@ -1041,6 +1041,89 @@ class KnowShowGoClient:
             params["agentSessionId"] = agent_session_id
         return self._request("GET", f"/api/objects/{uuid}", params=params)
 
+    def list_memory_roles(
+        self, memory_api_prefix: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Role catalog for typed memory (mandate / schedule / rule / procedureDag)."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        result = self._request("GET", f"{prefix}/memory/roles")
+        return result.get("roles", [])
+
+    def instantiate_memory(
+        self,
+        role: str,
+        title: str,
+        category_prototype_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        previous_object_uuid: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        knowledge_kind: str = "personal",
+        sensitivity: str = "normal",
+        privacy_override: Optional[Any] = None,
+        private: Optional[bool] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Role-typed create — same write path as upsert_object, plus claims."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        data: Dict[str, Any] = {
+            "role": role,
+            "title": title,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "previousObjectUuid": previous_object_uuid,
+            "objectLineageKey": object_lineage_key,
+            "provenance": provenance,
+            "knowledgeKind": knowledge_kind,
+            "sensitivity": sensitivity,
+            "privacyOverride": privacy_override,
+        }
+        if private is not None:
+            data["private"] = private
+        if owner_user_id is not None:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id is not None:
+            data["agentSessionId"] = agent_session_id
+        return self._request(
+            "POST",
+            f"{prefix}/memory/instantiate",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def get_memory_object(
+        self,
+        uuid: str,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Object snapshot + assertion claims + prototype lineage."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if owner_user_id or self.default_owner_user_id:
+            params["ownerUserId"] = owner_user_id or self.default_owner_user_id
+        if agent_session_id or self.default_agent_session_id:
+            params["agentSessionId"] = agent_session_id or self.default_agent_session_id
+        return self._request(
+            "GET",
+            f"{prefix}/memory/{uuid}",
+            params=params or None,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
     def list_objects(
         self,
         category: Optional[str] = None,
