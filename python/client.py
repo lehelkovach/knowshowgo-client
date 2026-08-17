@@ -1533,6 +1533,122 @@ class KnowShowGoClient:
             "results": result.get("results") or [],
         }
 
+    def semantic_remember(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "conversation",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ingest a chat utterance into MemoryEvent + claims + associations."""
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "text": text,
+            "speaker": speaker,
+            "source": source,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "sessionId": session_id,
+            "private": is_private,
+            "plan": plan,
+            "provenance": provenance,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/remember",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_recall(
+        self,
+        query: str,
+        top_k: int = 8,
+        expand_depth: int = 1,
+        similarity_threshold: float = 0.15,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/recall",
+            json={
+                "query": query,
+                "topK": top_k,
+                "expandDepth": expand_depth,
+                "similarityThreshold": similarity_threshold,
+                "ownerUserId": owner_user_id,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_ask(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        object: Optional[Any] = None,
+        pattern: Optional[Dict[str, Any]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body = pattern or {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object,
+            "ownerUserId": owner_user_id,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/ask",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_correct(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "correction",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/correct",
+            json={
+                "text": text,
+                "speaker": speaker,
+                "source": source,
+                "ownerUserId": owner_user_id,
+                "agentSessionId": agent_session_id,
+                "sessionId": session_id,
+                "private": is_private,
+                "plan": plan,
+                "provenance": provenance,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
     def suggest_concept_object_prototypes(
         self,
         label: str = "",

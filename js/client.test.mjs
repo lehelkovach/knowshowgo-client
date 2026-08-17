@@ -1568,3 +1568,25 @@ test('search_concepts + query_graph + get_associations paths (Todd vault walk)',
   assert.equal(assoc.length, 2);
   assert.equal(assoc[0].rel, 'has_payment_field');
 });
+
+test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, memoryId: 'm1', state: 'supported', hits: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.semantic_remember({ text: 'Paul owns Spot.', owner_user_id: 'u1' });
+  await client.semantic_recall({ query: 'Spot', owner_user_id: 'u1', top_k: 5 });
+  await client.semantic_ask({ subject: 'Paul', predicate: 'owns', object: 'Spot', owner_user_id: 'u1' });
+
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].url, /\/api2\.0\/semantic\/remember/);
+  assert.match(calls[1].url, /\/api2\.0\/semantic\/recall/);
+  assert.match(calls[2].url, /\/api2\.0\/semantic\/ask/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.text, 'Paul owns Spot.');
+  assert.equal(body.ownerUserId, 'u1');
+});
