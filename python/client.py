@@ -490,10 +490,86 @@ class KnowShowGoClient:
         top_k: int = 5,
         threshold: float = 0.0
     ) -> List[Dict[str, Any]]:
-        """Rank existing prototypes by how typical the item is of each."""
-        data = {"text": text, "embedding": embedding, "topK": top_k, "threshold": threshold}
+        """Rank existing prototypes by how typical the item is of each.
+
+        Nearest-centroid over the values each prototype absorbed, so this answers
+        value-shaped questions ("which category is this?"). To ask which FIELD a
+        label names, use :meth:`search_property_definitions`: a value centroid
+        drifts toward the shape of the data, so "Card number" would rank closer
+        to ``cvv`` than to ``number``.
+        """
+        data = {
+            "text": text,
+            "embedding": embedding,
+            "topK": top_k,
+            "threshold": threshold,
+        }
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
+
+    def resolve_slots(
+        self,
+        labels: List[str],
+        candidates: List[str] = None,
+        floor: float = 0.5,
+        top_k: int = 40,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> Dict[str, Any]:
+        """Resolve observed labels onto stored fields.
+
+        Works for a web form's inputs, a CSV header row, or an API payload — the
+        server ranks and assigns so callers do not each reimplement it.
+        ``candidates`` closes the set to fields you actually hold, and assignment
+        is one-to-one: a field fills at most one label.
+
+        Returns ``{"slots": [{"label", "property", "score"}], "unresolved": [...]}``.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/slots/resolve",
+            json={"labels": labels, "candidates": candidates, "floor": floor, "topK": top_k},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def search_property_definitions(
+        self,
+        query: str,
+        top_k: int = 20,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> List[Dict[str, Any]]:
+        """Which stored field does this label name?
+
+        Ranks property-definition concepts over the same vector index every other
+        search uses, filtered by node role. Returns one entry per property, best
+        first: ``[{"property", "valueType", "score", "uuid"}]``.
+        """
+        results = self.search_concepts(
+            query,
+            top_k=top_k,
+            similarity_threshold=0.0,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        out = []
+        seen = set()
+        for r in results or []:
+            props = r.get("props") or {}
+            if props.get("isObjectPropertyDefinition") is not True:
+                continue
+            prop = props.get("propertyName")
+            if not prop or prop in seen:
+                continue
+            seen.add(prop)
+            out.append({
+                "property": prop,
+                "valueType": props.get("valueType"),
+                "score": r.get("similarity") or 0,
+                "uuid": r.get("uuid"),
+            })
+        return out
 
     def search_prototypes(self, query: str = "", top_k: int = 10) -> List[Dict[str, Any]]:
         """Label/tag autocomplete over prototypes (e.g. to pick an object "type")."""

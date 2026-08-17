@@ -67,6 +67,62 @@ drift apart on purpose: `package.json` is `0.2.9-dev` on both repos while
 tracks the manifest rather than the package. Check both before assuming a
 mismatch is a bug.
 
+## Querying the graph data model (properties are concepts)
+
+KSG models an entity's **properties and each property value as their own
+concepts**, joined by edges — not as keys in a props blob. A `CreditCard` object
+links `has_property` → property-definition concept and `has_property_value` →
+an embedded value concept; a `concept_ref` property (or `has_component`) points
+at a nested object such as `BillingAddress`, which hangs its own
+`billing_city` / `billing_zip` value concepts.
+
+That means "find the billing city that looks like *washington*" is a graph +
+vector query, not a string scan. Compose it from three shipped methods:
+
+```js
+// value-first: semantic hit on the value concept, then walk back to its owner
+const hits = await client.search_concepts('washington', { top_k: 10 });
+await client.get_associations(hits[0].uuid, { direction: 'outgoing' }); // value_of_property
+await client.get_object(hits[0].props.objectUuid);
+
+// type-first: rank field/category prototypes by meaning
+await client.match_prototypes({ text: 'billing city', top_k: 5 });
+
+// seed + traverse in one round trip
+await client.query_graph({
+  search: { text: 'washington', topK: 5 },
+  traverse: { edgeTypes: ['value_of_property', 'has_property_value', 'has_component'], depth: 2 },
+});
+```
+
+Each value is typed by a **`PropertyValue:<name>`** prototype whose embedding is
+the running centroid of values seen for that field, so `match_prototypes({ text:
+'billing city' })` resolves a real node and its `has_exemplar` edges lead to the
+stored values (edge weight `props.w` is typicality).
+
+One limit to state plainly rather than work around: **type ∩ value is not one
+call.** `prototype_filter` on `search_concepts` is accepted by the server but not
+enforced, so constrain the field with `match_prototypes` and rank the value with
+`search_concepts` yourself.
+
+## No domain-specific SDK surfaces
+
+**A new kind of data does not get its own methods.** Cards, form prototypes,
+résumés, job-application datasets and bio are all written with `upsert_object`
+and read back semantically. Wrappers are welcome when they are *query shorthand*
+over the generic endpoints (as the topic/tag helpers are); a bespoke write path
+for a domain is not, because it puts that data outside prototype matching and
+vector recall.
+
+The payment wrappers (`ingest_private_payment`, `list_private_payments`,
+`get_private_payment`, `lookup_private_payment`) and `personal_remember` /
+`personal_recall` predate this rule. They stay for compatibility with deployed
+agents — do not extend them, and do not add siblings for new domains.
+
+Server-side canonical model:
+[`docs/ONTOLOGY-PROTOTYPE-MODEL.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/ONTOLOGY-PROTOTYPE-MODEL.md)
+(Layer 3c).
+
 ## API prefixes
 
 Default `/api2.0`; pass `/api` for regression tests.
