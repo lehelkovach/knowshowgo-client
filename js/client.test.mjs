@@ -1590,3 +1590,70 @@ test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
   assert.equal(body.text, 'Paul owns Spot.');
   assert.equal(body.ownerUserId, 'u1');
 });
+
+// --- create_node_with_document privacy forwarding -------------------------
+// This wrapper had no privacy parameter, so every episodic turn written
+// through it became a public, anonymously readable node. 2,650 such rows were
+// counted on production 2026-08-24.
+
+test('create_node_with_document sends nothing privacy-related by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const uuid = await client.create_node_with_document({ label: 'Berlin', tags: ['place'] });
+  assert.equal(uuid, 'n1');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.label, 'Berlin');
+  assert.equal(body.private, undefined);
+  assert.equal(body.securityClass, undefined);
+  assert.equal(body.ownerUserId, undefined);
+});
+
+test('create_node_with_document forwards private: true', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n2' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'slack:U1'
+  });
+  await client.create_node_with_document({
+    label: 'dataset.choose {"name":"wells-fargo-blackwool"}',
+    private: true,
+    metadata: { episodic: true }
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.private, true);
+  // The owner rides the soft identity header the client already sends, so the
+  // caller does not have to repeat it on every write.
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'slack:U1');
+});
+
+test('create_node_with_document accepts securityClass and an explicit owner', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n3' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.create_node_with_document({
+    label: 'x',
+    securityClass: 'private',
+    ownerUserId: 'lehel',
+    agentSessionId: 'slack:U9'
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.securityClass, 'private');
+  assert.equal(body.private, true, 'securityClass:private implies private:true for older servers');
+  assert.equal(body.ownerUserId, 'lehel');
+  assert.equal(body.agentSessionId, 'slack:U9');
+});
