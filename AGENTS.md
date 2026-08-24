@@ -7,6 +7,10 @@
 - **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
 - **Portfolio master:** sibling [`knowshowgo/docs/STACK-MASTER.md`](../knowshowgo/docs/STACK-MASTER.md)
 - Gitflow: branch from **`dev`**, PR into **`dev`**.
+- The v1 agent contract (`.AGENT/README.md` + `resume-log.md` + `handoffs/latest.md`)
+  is archived under [`.AGENT/archive/v1/`](.AGENT/archive/v1/NOTE.md). It told agents
+  to append a per-session resume log and resume a June 2026 handoff; **this file
+  supersedes it.** No action logs, no run-once queues — work lives in PRs.
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
@@ -27,11 +31,21 @@ QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
 ## Commands
 
 ```bash
-npm install
-node --test js/client.test.mjs
+npm install                                        # plain — see peerDependencies policy
+node --test js/client.test.mjs                     # JS unit tests (NOT jest)
 python3 -m unittest discover -s python -p 'test_*.py'
-npm run build
+npm run build                                      # esbuild -> dist/index.cjs
 ```
+
+**Verified on the `dev` tip, 2026-08-24:** `npm install` clean, JS **84 pass / 0
+fail**, Python **76 pass / 0 fail**. Both suites mock the transport, so no server
+is needed. `npm test` (jest) reports "no tests found" — that is expected, the JS
+tests use the Node built-in runner.
+
+`--legacy-peer-deps` is **not** required here. It is only needed when the sibling
+**server** checkout is on `main`, which still carries
+`peerDependencies.knowshowgo=0.2.8`; `dev` has no peer entry (see the policy
+section below). Any doc telling you to always pass it is pre-0.2.9.
 
 ## Versions (this tip)
 
@@ -45,6 +59,15 @@ npm run build
 Released pairing: see the server repo's
 [`docs/VERSION-MATRIX.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/VERSION-MATRIX.md)
 — do not restate release numbers here.
+
+## Known broken / open
+
+| Thing | State |
+|---|---|
+| `prototype_filter` on `search_concepts` | Accepted by the server, **not enforced**. Type ∩ value is two calls. Do not paper over it in the SDK. |
+| Semantic + slots endpoints against prod | `main`/prod is `v0.2.8` and soft-404s `/api2.0/semantic/*` and `resolve_slots`. They need a server on the KSG `dev` tip. |
+| `dataset.remember` against prod (agent path) | Times out after ~20s as of 2026-08-23; root cause unknown. It is a **server/host** problem, not an SDK one — do not add retries or a client-side workaround before it is diagnosed. |
+| CI | A run that fails in 2–3s with `steps=0` and `BlobNotFound` logs is a GitHub Actions **budget** block, not a test failure. Check Settings → Billing → Budgets. |
 
 ## peerDependencies policy (deliberate, since 0.2.9)
 
@@ -174,9 +197,13 @@ returns 503 rather than issuing an unverifiable token.
 
 ## Cloud
 
-- Plain `npm install` (no server peerDependency).
+- Plain `npm install` (no server peerDependency on `dev`).
 - JS tests: `node --test …` (not jest).
 - Access check: `./scripts/agent-access-check.sh`.
+- For live integration, start the sibling service with
+  `PORT=3000 KSG_MEMORY_BACKEND=in-memory npm start` and construct the client
+  with an explicit `baseUrl` (`http://127.0.0.1:3000`). No Docker required.
+- The Python client needs `requests` installed; the unit tests do not.
 
 ## Prompting
 
