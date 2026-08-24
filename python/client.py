@@ -597,9 +597,20 @@ class KnowShowGoClient:
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         associations: Optional[List[Dict[str, Any]]] = None,
-        prototype_uuid: Optional[str] = None
+        prototype_uuid: Optional[str] = None,
+        private: bool = False,
+        security_class: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
     ) -> str:
-        """Create a node with document metadata and tags"""
+        """Create a node with document metadata and tags.
+
+        `private` exists because this wrapper previously had no way to express
+        privacy, so everything written through it landed in the anonymously
+        readable commons. Pass private=True for owner-scoped data; the owner
+        comes from default_owner_user_id (X-KSG-Owner) unless overridden here.
+        The server refuses a private write it cannot attribute.
+        """
         data = {
             "label": label,
             "summary": summary,
@@ -608,6 +619,14 @@ class KnowShowGoClient:
             "associations": associations or [],
             "prototypeUuid": prototype_uuid
         }
+        if private or security_class == "private":
+            data["private"] = True
+        if security_class:
+            data["securityClass"] = security_class
+        if owner_user_id:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id:
+            data["agentSessionId"] = agent_session_id
         result = self._request("POST", "/api/nodes", json=data)
         return result["uuid"]
 

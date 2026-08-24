@@ -576,16 +576,43 @@ export class KnowShowGoClient {
   }
 
   // ===== Nodes with Documents =====
+  /**
+   * Create a node with an attached document.
+   *
+   * `private` exists because this wrapper previously had no way to express
+   * privacy at all, so everything written through it — every episodic
+   * conversation turn and tool call — landed in the anonymously-readable
+   * commons. Pass `private: true` for anything owner-scoped; the owner comes
+   * from `defaultOwnerUserId` (sent as `X-KSG-Owner`) unless overridden here.
+   *
+   * The server refuses a private write it cannot attribute, so a private node
+   * is never silently stored as unreadable.
+   */
   async create_node_with_document({
     label,
     summary = null,
     tags = [],
     metadata = {},
     associations = [],
-    prototypeUuid = null
+    prototypeUuid = null,
+    private: isPrivate = false,
+    securityClass = null,
+    ownerUserId = null,
+    agentSessionId = null
   }) {
     const out = await this._request('POST', '/api/nodes', {
-      json: { label, summary, tags, metadata, associations, prototypeUuid }
+      json: {
+        label,
+        summary,
+        tags,
+        metadata,
+        associations,
+        prototypeUuid,
+        ...(isPrivate || securityClass === 'private' ? { private: true } : {}),
+        ...(securityClass ? { securityClass } : {}),
+        ...(ownerUserId ? { ownerUserId } : {}),
+        ...(agentSessionId ? { agentSessionId } : {})
+      }
     });
     return out.uuid;
   }
