@@ -893,7 +893,7 @@ class TestKnowShowGoClient(unittest.TestCase):
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect(expected_channel='release', expected_release='v0.2.7')
+        manifest = client.connect(expected_channel='release', expected_release='v0.2.8')
         self.assertEqual(manifest["channel"], "release")
 
     def test_resolve_object_adds_object_uuid_alias(self):
@@ -956,7 +956,7 @@ class TestAdvertisedBaseUrl(unittest.TestCase):
         client.session.request = MagicMock(
             return_value=FakeResponse({
                 "channel": "release",
-                "release": "v0.2.7",
+                "release": "v0.2.8",
                 "api": {
                     "publicBaseUrl": "https://api.knowshowgo.com",
                     "prefixes": {"stable": "/api", "current": "/api2.0"},
