@@ -304,6 +304,30 @@ class KnowShowGoClient:
             json={"conceptUuid": concept_uuid}
         )
 
+    def evaluate_prototype_match(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Evaluate and memoize an exact object/prototype revision pair."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+            },
+        )
+
+    def get_prototype_match_result(self, result_uuid: str) -> Dict[str, Any]:
+        """Retrieve a previously materialized prototype match result."""
+        return self._request(
+            "GET",
+            f"{self.prototype_api_prefix}/prototype-matches/{result_uuid}",
+        )
+
     # ===== Node with Document Methods =====
 
     def create_node_with_document(
@@ -668,7 +692,9 @@ class KnowShowGoClient:
         parent_category_name: Optional[str] = None,
         properties: Optional[List[Dict[str, Any]]] = None,
         source: Optional[str] = None,
-        category_lineage_key: Optional[str] = None
+        category_lineage_key: Optional[str] = None,
+        prototype_match: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Create a new versioned object category"""
         data = {
@@ -679,7 +705,9 @@ class KnowShowGoClient:
             "parentCategoryName": parent_category_name,
             "properties": properties or [],
             "source": source,
-            "categoryLineageKey": category_lineage_key
+            "categoryLineageKey": category_lineage_key,
+            "prototypeMatch": prototype_match,
+            "provenance": provenance,
         }
         return self._request("POST", "/api/object-categories/upsert", json=data)
 

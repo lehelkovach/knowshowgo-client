@@ -283,6 +283,29 @@ export class KnowShowGoClient {
     });
   }
 
+  // Evaluate exact immutable revisions. The server memoizes by both revision
+  // UUIDs, matcher revision, and optional context revision.
+  evaluate_prototype_match({
+    object_revision_uuid,
+    prototype_revision_uuid,
+    context_revision_uuid = null
+  }) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/evaluate`, {
+      json: {
+        objectRevisionUuid: object_revision_uuid,
+        prototypeRevisionUuid: prototype_revision_uuid,
+        contextRevisionUuid: context_revision_uuid
+      }
+    });
+  }
+
+  get_prototype_match_result(result_uuid) {
+    return this._request(
+      'GET',
+      `${this.prototypeApiPrefix}/prototype-matches/${encodeURIComponent(result_uuid)}`
+    );
+  }
+
   // ===== Nodes with Documents =====
   async create_node_with_document({
     label,
@@ -501,7 +524,9 @@ export class KnowShowGoClient {
     parent_category_name = null,
     properties = [],
     source = null,
-    category_lineage_key = null
+    category_lineage_key = null,
+    prototype_match = null,
+    provenance = null
   }) {
     return this._request('POST', '/api/object-categories/upsert', {
       json: {
@@ -512,7 +537,9 @@ export class KnowShowGoClient {
         parentCategoryName: parent_category_name,
         properties,
         source,
-        categoryLineageKey: category_lineage_key
+        categoryLineageKey: category_lineage_key,
+        prototypeMatch: prototype_match,
+        provenance
       }
     });
   }

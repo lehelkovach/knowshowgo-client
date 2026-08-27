@@ -190,6 +190,28 @@ class TestKnowShowGoClient(unittest.TestCase):
                          "https://example.test/api/object-categories/upsert")
         self.assertEqual(called_json["categoryLineageKey"], "category:person")
 
+    def test_upsert_object_category_sends_match_contract_and_provenance(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "categoryPrototypeUuid": "cat-p1"})
+        )
+        contract = {
+            "hardConstraints": [],
+            "softConstraints": [],
+            "minScore": 0.8,
+            "decisionPolicy": "all_hard_and_min_score",
+        }
+
+        client.upsert_object_category(
+            name="PropositionCandidate",
+            prototype_match=contract,
+            provenance={"source": "dogfood", "traceId": "prototype-v1"},
+        )
+
+        called_json = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(called_json["prototypeMatch"], contract)
+        self.assertEqual(called_json["provenance"]["traceId"], "prototype-v1")
+
     def test_get_object_category_targets_uuid(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -824,6 +846,44 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api2.0/prototypes/p1/exemplars",
             json={"conceptUuid": "c2"},
         )
+
+    def test_evaluate_prototype_match_pins_revisions_and_context(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "match", "cacheHit": False})
+        )
+
+        result = client.evaluate_prototype_match(
+            object_revision_uuid="object-v1",
+            prototype_revision_uuid="prototype-v1",
+            context_revision_uuid="context-v1",
+        )
+
+        self.assertEqual(result["decision"], "match")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": "object-v1",
+                "prototypeRevisionUuid": "prototype-v1",
+                "contextRevisionUuid": "context-v1",
+            },
+        )
+
+    def test_get_prototype_match_result_targets_result_uuid(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"prototypeMatchResultUuid": "result-1", "cacheHit": True})
+        )
+
+        result = client.get_prototype_match_result("result-1")
+
+        self.assertTrue(result["cacheHit"])
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api2.0/prototype-matches/result-1",
+        )
+
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

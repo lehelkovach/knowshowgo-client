@@ -223,6 +223,32 @@ test('upsert_object_category maps category_lineage_key', async () => {
   assert.equal(body.categoryLineageKey, 'category:person');
 });
 
+test('upsert_object_category sends prototype match contract and provenance', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, categoryPrototypeUuid: 'cat-p1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const prototypeMatch = {
+    hardConstraints: [],
+    softConstraints: [],
+    minScore: 0.8,
+    decisionPolicy: 'all_hard_and_min_score'
+  };
+
+  await client.upsert_object_category({
+    name: 'PropositionCandidate',
+    prototype_match: prototypeMatch,
+    provenance: { source: 'dogfood', traceId: 'prototype-v1' }
+  });
+
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.prototypeMatch, prototypeMatch);
+  assert.equal(body.provenance.traceId, 'prototype-v1');
+});
+
 test('get_object_category targets the category uuid endpoint', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -824,6 +850,45 @@ test('attach_exemplar targets prototype exemplars endpoint', async () => {
   assert.equal(calls[0].options.method, 'POST');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.conceptUuid, 'c2');
+});
+
+test('evaluate_prototype_match pins revisions and optional context', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ decision: 'match', matcherRevision: 'deterministic-constraint@0.0.1' });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.evaluate_prototype_match({
+    object_revision_uuid: 'object-v1',
+    prototype_revision_uuid: 'prototype-v1',
+    context_revision_uuid: 'context-v1'
+  });
+
+  assert.equal(result.decision, 'match');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/evaluate');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    objectRevisionUuid: 'object-v1',
+    prototypeRevisionUuid: 'prototype-v1',
+    contextRevisionUuid: 'context-v1'
+  });
+});
+
+test('get_prototype_match_result targets immutable result UUID', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ prototypeMatchResultUuid: 'result-1', cacheHit: true });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.get_prototype_match_result('result/1');
+  assert.equal(result.cacheHit, true);
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/result%2F1');
+  assert.equal(calls[0].options.method, 'GET');
 });
 
 test('connect validates release manifest channel', async () => {
