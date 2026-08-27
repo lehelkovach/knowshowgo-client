@@ -227,6 +227,29 @@ test('upsert_object_category maps category_lineage_key', async () => {
   assert.equal(body.categoryLineageKey, 'category:person');
 });
 
+test('upsert_object_category maps prototype match contract fields', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, categoryPrototypeUuid: 'proposition-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.upsert_object_category({
+    name: 'Proposition',
+    hard_constraints: ['has_semantic_expression'],
+    soft_constraints: ['semantic_coherence'],
+    min_score: 0.75,
+    decision_policy: 'hard_gate_min_score'
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.hardConstraints, ['has_semantic_expression']);
+  assert.deepEqual(body.softConstraints, ['semantic_coherence']);
+  assert.equal(body.minScore, 0.75);
+  assert.equal(body.decisionPolicy, 'hard_gate_min_score');
+});
+
 test('get_object_category targets the category uuid endpoint', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -955,6 +978,35 @@ test('attach_exemplar targets prototype exemplars endpoint', async () => {
   assert.equal(calls[0].options.method, 'POST');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.conceptUuid, 'c2');
+});
+
+test('evaluatePrototypeMatch posts exact revision UUIDs', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      objectRevisionUuid: 'object-2',
+      prototypeRevisionUuid: 'prototype-1',
+      contextRevisionUuid: 'context-3',
+      decision: 'match'
+    });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.evaluatePrototypeMatch({
+    objectRevisionUuid: 'object-2',
+    prototypeRevisionUuid: 'prototype-1',
+    contextRevisionUuid: 'context-3'
+  });
+  assert.equal(result.decision, 'match');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/evaluate');
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body, {
+    objectRevisionUuid: 'object-2',
+    prototypeRevisionUuid: 'prototype-1',
+    contextRevisionUuid: 'context-3'
+  });
 });
 
 test('connect validates release manifest channel', async () => {

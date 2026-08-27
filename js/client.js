@@ -575,6 +575,28 @@ export class KnowShowGoClient {
     });
   }
 
+  evaluatePrototypeMatch({
+    objectRevisionUuid,
+    prototypeRevisionUuid,
+    contextRevisionUuid = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/evaluate`, {
+      json: { objectRevisionUuid, prototypeRevisionUuid, contextRevisionUuid }
+    });
+  }
+
+  evaluate_prototype_match({
+    object_revision_uuid,
+    prototype_revision_uuid,
+    context_revision_uuid = null
+  } = {}) {
+    return this.evaluatePrototypeMatch({
+      objectRevisionUuid: object_revision_uuid,
+      prototypeRevisionUuid: prototype_revision_uuid,
+      contextRevisionUuid: context_revision_uuid
+    });
+  }
+
   // ===== Nodes with Documents =====
   /**
    * Create a node with an attached document.
@@ -885,7 +907,11 @@ export class KnowShowGoClient {
     parent_category_name = null,
     properties = [],
     source = null,
-    category_lineage_key = null
+    category_lineage_key = null,
+    hard_constraints = null,
+    soft_constraints = null,
+    min_score = null,
+    decision_policy = null
   }) {
     return this._request('POST', '/api/object-categories/upsert', {
       json: {
@@ -896,7 +922,11 @@ export class KnowShowGoClient {
         parentCategoryName: parent_category_name,
         properties,
         source,
-        categoryLineageKey: category_lineage_key
+        categoryLineageKey: category_lineage_key,
+        hardConstraints: hard_constraints,
+        softConstraints: soft_constraints,
+        minScore: min_score,
+        decisionPolicy: decision_policy
       }
     });
   }
