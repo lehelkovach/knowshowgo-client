@@ -3,6 +3,11 @@
 > Product / MVP cold-start: [`README.md`](README.md) (**MVP at a glance**) · agent repo for product judgment.
  · knowshowgo-client `main` (`v0.2.7-client`)
 
+**This tip is release.** Integration is **`dev`**. `dev` is not `master`.
+
+- **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
+- **TDD process:** [`docs/TDD-LADDER.md`](docs/TDD-LADDER.md) · canonical [KSG TDD-LADDER on `dev`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/TDD-LADDER.md)
+
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.5`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 
