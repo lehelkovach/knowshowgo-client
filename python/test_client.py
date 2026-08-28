@@ -256,6 +256,26 @@ class TestKnowShowGoClient(unittest.TestCase):
                          "https://example.test/api/object-categories/upsert")
         self.assertEqual(called_json["categoryLineageKey"], "category:person")
 
+    def test_upsert_object_category_maps_match_contract(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "categoryPrototypeUuid": "proposition-1"})
+        )
+
+        client.upsert_object_category(
+            name="Proposition",
+            hard_constraints=["has_semantic_expression"],
+            soft_constraints=["semantic_coherence"],
+            min_score=0.75,
+            decision_policy="hard_gate_min_score",
+        )
+
+        body = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(body["hardConstraints"], ["has_semantic_expression"])
+        self.assertEqual(body["softConstraints"], ["semantic_coherence"])
+        self.assertEqual(body["minScore"], 0.75)
+        self.assertEqual(body["decisionPolicy"], "hard_gate_min_score")
+
     def test_get_object_category_targets_uuid(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -1035,6 +1055,26 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api2.0/prototypes/p1/exemplars",
             json={"conceptUuid": "c2"},
         )
+
+    def test_evaluate_prototype_match_posts_revision_uuids(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "match"})
+        )
+
+        result = client.evaluate_prototype_match("object-2", "prototype-1", "context-3")
+
+        self.assertEqual(result["decision"], "match")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": "object-2",
+                "prototypeRevisionUuid": "prototype-1",
+                "contextRevisionUuid": "context-3",
+            },
+        )
+
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
