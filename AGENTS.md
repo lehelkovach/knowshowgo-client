@@ -6,7 +6,8 @@
 
 - **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
 - **Portfolio master:** sibling [`knowshowgo/docs/STACK-MASTER.md`](../knowshowgo/docs/STACK-MASTER.md)
-- Gitflow: branch from **`dev`**, PR into **`dev`**.
+- **TDD ladder:** [`docs/TDD-LADDER.md`](docs/TDD-LADDER.md) (this repo’s slices) · canonical [`knowshowgo/docs/TDD-LADDER.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/TDD-LADDER.md)
+- Gitflow: branch from **`dev`**, PR into **`dev`**. `main` is release. `dev` is not `master`.
 - The v1 agent contract (`.AGENT/README.md` + `resume-log.md` + `handoffs/latest.md`)
   is archived under [`.AGENT/archive/v1/`](.AGENT/archive/v1/NOTE.md). It told agents
   to append a per-session resume log and resume a June 2026 handoff; **this file
@@ -15,6 +16,7 @@
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
 KSG roadmap: [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+TDD process: [TDD-LADDER](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/TDD-LADDER.md).
 
 ## Engage now (client)
 
