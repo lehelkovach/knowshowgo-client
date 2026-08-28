@@ -980,6 +980,27 @@ test('attach_exemplar targets prototype exemplars endpoint', async () => {
   assert.equal(body.conceptUuid, 'c2');
 });
 
+test('evaluatePrototypeMatch is distinct from centroid prototypes/match', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ decision: 'unresolved', hardPass: false });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.evaluatePrototypeMatch({
+    objectRevisionUuid: 'o-god',
+    prototypeRevisionUuid: 'prop-1'
+  });
+  await client.evaluate_prototype_match({
+    object_revision_uuid: 'o-god',
+    prototype_revision_uuid: 'prop-1'
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.url.endsWith('/api2.0/prototype-matches/evaluate')));
+  assert.ok(calls.every((c) => !c.url.includes('/prototypes/match')));
+});
+
 test('evaluatePrototypeMatch posts exact revision UUIDs', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

@@ -1074,6 +1074,7 @@ class TestKnowShowGoClient(unittest.TestCase):
                 "contextRevisionUuid": "context-3",
             },
         )
+        self.assertNotIn("/prototypes/match", "https://example.test/api2.0/prototype-matches/evaluate")
 
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")
