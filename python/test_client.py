@@ -42,6 +42,27 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"delta": 2.0},
         )
 
+    def test_reinforce_assertion_posts_claim_and_speaker(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "reinforced": True})
+        )
+        out = client.reinforce_assertion(
+            "person:Bob", "health", "has cancer", speaker="Tracy"
+        )
+        self.assertTrue(out["reinforced"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/assertions/reinforce",
+            json={
+                "subject": "person:Bob",
+                "predicate": "health",
+                "object": "has cancer",
+                "source": "user",
+                "speaker": "Tracy",
+            },
+        )
+
     def test_explain_entity_passes_optional_predicate(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

@@ -88,6 +88,58 @@ test('vote_assertion returns nested assertion payload', async () => {
   assert.equal(assertion.voteScore, 4);
 });
 
+test('reinforce_assertion and get_beliefs hit belief endpoints', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/beliefs')) {
+      return makeJsonResponse({
+        subject: 'person:Bob',
+        beliefs: { health: { value: 'has cancer', disagreeing: true, speakers: ['Alice', 'Tracy'] } },
+        snapshot: { health: 'has cancer' }
+      });
+    }
+    return makeJsonResponse({ ok: true, reinforced: true, assertion: { uuid: 'a1', voteScore: 10 } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const r = await client.reinforce_assertion({
+    subject: 'person:Bob',
+    predicate: 'health',
+    obj: 'has cancer',
+    speaker: 'Tracy'
+  });
+  assert.equal(r.reinforced, true);
+  assert.match(calls[0].url, /\/api\/assertions\/reinforce$/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.speaker, 'Tracy');
+
+  const beliefs = await client.get_beliefs('person:Bob', { predicate: 'health' });
+  assert.equal(beliefs.snapshot.health, 'has cancer');
+  assert.match(calls[1].url, /\/api\/entities\/person%3ABob\/beliefs/);
+});
+
+test('contradict_assertion and retract_assertion post correctly', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.contradict_assertion({
+    subject: 'person:Bob',
+    predicate: 'health',
+    obj: 'very healthy',
+    speaker: 'Dan',
+    truth: 0.9
+  });
+  assert.match(calls[0].url, /\/api\/assertions\/contradict$/);
+  await client.retract_assertion('a9', { speaker: 'Alice', reason: 'wrong' });
+  assert.match(calls[1].url, /\/api\/assertions\/a9\/retract$/);
+});
+
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
