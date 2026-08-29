@@ -1,12 +1,11 @@
-# Client Logic IR ladder (on `dev`)
+# Client Logic IR
 
-Paired with knowshowgo `dev`. Short feature branches PR into client `dev`.
-Do not cut new work from `logic-ir-dev`.
+Canonical rungs: sibling [`knowshowgo/docs/DEVELOPMENT-PLAN.md`](../knowshowgo/docs/DEVELOPMENT-PLAN.md) § Engage #0.
+
+SDK surfaces (this repo, on `dev`):
 
 - **R0:** `evaluatePrototypeMatch` / `evaluate_prototype_match` → `POST /api2.0/prototype-matches/evaluate`
-- **R1:** persist Logic IR through existing `upsert_object` / `get_object` (no extra HTTP). Pure IR lives in the server repo (`src/logic_ir/`).
-- **R2:** `evaluateLogicInference` / `evaluate_logic_inference` → `POST /api2.0/logic-ir/infer`; `get_object(..., { infer: true })` attaches query-time validity. Matching Argument is not the same as VALID inference.
+- **R1:** persist Logic IR through `upsert_object` / `get_object` (no extra HTTP)
+- **R2:** `evaluateLogicInference` / `evaluate_logic_inference` → `POST /api2.0/logic-ir/infer`; `get_object(..., { infer: true })`
 
-Server ladder: `knowshowgo/docs/DEV-LADDER.md`.
-
-Do not tag client `main` (`vX.Y.Z-client`) until the server rung is live-smoked on the DEV VM. Next rungs ship in the same PR pair into `dev`.
+Do not tag `vX.Y.Z-client` until the server rung is live-smoked on the DEV VM.

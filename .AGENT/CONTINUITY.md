@@ -1,21 +1,23 @@
 # Continuity digest — knowshowgo-client
 
-**Updated:** 2026-08-24 · Agents: read this at session start; keep it short.
+**Updated:** 2026-08-29 · Agents: read this at session start; keep it short.
 
 ## Now
 
-- Policy is root [`AGENTS.md`](../AGENTS.md). The v1 `.AGENT/README.md` contract (resume log, `latest.md` handoff, `/workspace/api` paths) is archived under [`archive/v1/`](./archive/v1/NOTE.md) — do not follow it.
-- Pair with KSG `dev` (`0.2.9-dev`): property-definition search + `resolve_slots` (#37) and `semantic_remember/recall/ask/correct` (#38) are on `dev`.
-- Install with plain `npm install`. `--legacy-peer-deps` is only needed if the sibling **server** checkout is on `main`, which still carries `peerDependencies.knowshowgo=0.2.8`; `dev` deliberately has none.
-- Verified 2026-08-24 on the `dev` tip: `npm install` clean, `node --test js/client.test.mjs` **84/84**, `python3 -m unittest discover -s python -p 'test_*.py'` **76/76**. Both are offline mocks; no server needed.
+- Policy is root [`AGENTS.md`](../AGENTS.md). Pair with KSG **`dev`** (`0.2.9-dev`).
+- Logic IR SDK is on this tip: `evaluatePrototypeMatch`, persist via `upsert_object` /
+  `get_object`, `evaluateLogicInference`, `get_object(..., { infer: true })`.
+  Rungs live in KSG [`docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md) § Engage #0.
+- Gitflow: branch from **`dev`**, PR into **`dev`**. Do not cut work from `logic-ir-dev`.
+- Install with plain `npm install` on `dev` (no server peerDependency).
 
 ## Holds / coordination
 
-- Server must be on KSG `dev` tip for semantic + slots endpoints; released prod (`v0.2.8`) soft-404s those paths.
-- `prototype_filter` on `search_concepts` is accepted by the server but not enforced — type ∩ value still needs two calls. Stated in AGENTS.md; do not "fix" it client-side.
-- Cross-repo version truth is `knowshowgo/docs/VERSION-MATRIX.md`. Do not restate release numbers here.
+- Do not tag `vX.Y.Z-client` until KSG DEV is live-smoked (seed + match + infer).
+- Server must be on KSG `dev` tip for Logic IR / semantic / slots; released prod (`v0.2.8`) does not have R1/R2.
+- `prototype_filter` on `search_concepts` is accepted by the server but not enforced.
+- Cross-repo version truth is `knowshowgo/docs/VERSION-MATRIX.md`.
 
 ## Anti-drift
 
-Keep this file short. Point at KSG `docs/SEMANTIC-MEMORY.md` / `docs/STACK-MASTER.md`
-for product truth.
+Keep this file short. Point at KSG DEVELOPMENT-PLAN for rungs, not a parallel client ladder.

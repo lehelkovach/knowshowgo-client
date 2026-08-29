@@ -14,16 +14,20 @@
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
-KSG roadmap: [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+KSG execute queue (including Logic IR R0–R8): [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
 
 ## Engage now (client)
 
-1. **Bearer API token support** — ✅ constructor `authToken` / `accessToken` /
+1. **Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch`; R1 persist IR
+   via `upsert_object` / `get_object`; R2 `evaluateLogicInference` +
+   `get_object(..., { infer: true })`. Matching Argument ≠ VALID inference.
+   Next client work for R3+ PRs with the server into `dev`.
+2. **Bearer API token support** — ✅ constructor `authToken` / `accessToken` /
    `apiToken` / `tokenProvider`; sends `Authorization: Bearer …` (soft
    `X-KSG-Owner` remains as fallback). Agent + Chrome should pass tokens.
-2. **Entity object model** — `get_entity_properties` / `get_entity_types` /
+3. **Entity object model** — `get_entity_properties` / `get_entity_types` /
    `EntityProxy` (`.middleName`, `.getType()`); then `load(name)` → KSGObject.
-3. Parity tests JS + Python for every new `/api2.0` surface; dual-prefix where required.
+4. Parity tests JS + Python for every new `/api2.0` surface; dual-prefix where required.
    New methods must be fleet-testable (unit + offline mock).
 
 QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
