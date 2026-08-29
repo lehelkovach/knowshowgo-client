@@ -605,6 +605,23 @@ class KnowShowGoClient:
             }
         )
 
+    def evaluate_logic_inference(
+        self,
+        premise_revision_uuids=None,
+        conclusion_revision_uuid=None,
+        argument_revision_uuid=None,
+    ) -> Dict[str, Any]:
+        """Evaluate P1 + P2 ⊢ P3 with the tiny Logic IR inference core."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": list(premise_revision_uuids or []),
+                "conclusionRevisionUuid": conclusion_revision_uuid,
+                "argumentRevisionUuid": argument_revision_uuid,
+            },
+        )
+
     # ===== Node with Document Methods =====
 
     def create_node_with_document(
@@ -1154,7 +1171,8 @@ class KnowShowGoClient:
         agent_session_id: Optional[str] = None,
         match_prototypes: bool = False,
         prototype_revision_uuid: Optional[str] = None,
-        prototype_revision_uuids: Optional[Any] = None
+        prototype_revision_uuids: Optional[Any] = None,
+        infer: bool = False
     ) -> Dict[str, Any]:
         """Get an object entity by UUID. match_prototypes lazily evaluates match contracts."""
         params = {}
@@ -1171,6 +1189,8 @@ class KnowShowGoClient:
                 params["prototypeRevisionUuids"] = ",".join(str(item) for item in prototype_revision_uuids)
             else:
                 params["prototypeRevisionUuids"] = str(prototype_revision_uuids)
+        if infer:
+            params["infer"] = True
         return self._request("GET", f"/api/objects/{uuid}", params=params)
 
     def list_memory_roles(

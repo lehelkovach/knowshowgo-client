@@ -597,6 +597,28 @@ export class KnowShowGoClient {
     });
   }
 
+  evaluateLogicInference({
+    premiseRevisionUuids = [],
+    conclusionRevisionUuid = null,
+    argumentRevisionUuid = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/infer`, {
+      json: { premiseRevisionUuids, conclusionRevisionUuid, argumentRevisionUuid }
+    });
+  }
+
+  evaluate_logic_inference({
+    premise_revision_uuids = [],
+    conclusion_revision_uuid = null,
+    argument_revision_uuid = null
+  } = {}) {
+    return this.evaluateLogicInference({
+      premiseRevisionUuids: premise_revision_uuids,
+      conclusionRevisionUuid: conclusion_revision_uuid,
+      argumentRevisionUuid: argument_revision_uuid
+    });
+  }
+
   // ===== Nodes with Documents =====
   /**
    * Create a node with an attached document.
@@ -984,7 +1006,8 @@ export class KnowShowGoClient {
     agent_session_id = null,
     match_prototypes = false,
     prototype_revision_uuid = null,
-    prototype_revision_uuids = null
+    prototype_revision_uuids = null,
+    infer = false
   } = {}) {
     const params = {
       ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
@@ -997,6 +1020,7 @@ export class KnowShowGoClient {
     } else if (typeof prototype_revision_uuids === 'string' && prototype_revision_uuids) {
       params.prototypeRevisionUuids = prototype_revision_uuids;
     }
+    if (infer) params.infer = true;
     return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
       params,
       owner_user_id,

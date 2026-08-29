@@ -345,6 +345,17 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(params["matchPrototypes"], True)
         self.assertEqual(params["prototypeRevisionUuids"], "proto-a,proto-b")
 
+    def test_get_object_requests_lazy_inference(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "arg-1"})
+        )
+
+        client.get_object("arg-1", infer=True)
+
+        params = client.session.request.call_args.kwargs["params"]
+        self.assertEqual(params["infer"], True)
+
     def test_resolve_object_maps_lineage_and_private(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -1091,6 +1102,28 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
         self.assertNotIn("/prototypes/match", "https://example.test/api2.0/prototype-matches/evaluate")
+
+    def test_evaluate_logic_inference_posts_revision_uuids(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "valid"})
+        )
+
+        result = client.evaluate_logic_inference(
+            premise_revision_uuids=["p1", "p2"],
+            conclusion_revision_uuid="p3",
+        )
+
+        self.assertEqual(result["decision"], "valid")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": ["p1", "p2"],
+                "conclusionRevisionUuid": "p3",
+                "argumentRevisionUuid": None,
+            },
+        )
 
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")

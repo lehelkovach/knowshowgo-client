@@ -1030,6 +1030,32 @@ test('evaluatePrototypeMatch posts exact revision UUIDs', async () => {
   });
 });
 
+test('evaluateLogicInference posts premise and conclusion revision UUIDs', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ decision: 'valid', rule: 'universal_modus_ponens' });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.evaluateLogicInference({
+    premiseRevisionUuids: ['p1', 'p2'],
+    conclusionRevisionUuid: 'p3'
+  });
+  await client.evaluate_logic_inference({
+    argument_revision_uuid: 'arg-1'
+  });
+  assert.equal(result.decision, 'valid');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/logic-ir/infer');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    premiseRevisionUuids: ['p1', 'p2'],
+    conclusionRevisionUuid: 'p3',
+    argumentRevisionUuid: null
+  });
+  assert.equal(calls[1].url, 'https://example.test/api2.0/logic-ir/infer');
+  assert.equal(JSON.parse(calls[1].options.body).argumentRevisionUuid, 'arg-1');
+});
+
 test('connect validates release manifest channel', async () => {
   const fetchMock = async (url) => {
     if (url.endsWith('/api/release')) {
@@ -1250,6 +1276,18 @@ test('get_object can request lazy prototypeMatches', async () => {
   });
   assert.match(calls[0].url, /matchPrototypes=true/);
   assert.match(calls[0].url, /prototypeRevisionUuids=proto-a%2Cproto-b/);
+});
+
+test('get_object can request lazy Logic IR inference', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, object: { uuid: 'arg-1' }, inference: { decision: 'valid' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_object('arg-1', { infer: true });
+  assert.match(calls[0].url, /infer=true/);
 });
 
 test('search_knowledge posts to /api2.0/knowledge/search with owner headers', async () => {
