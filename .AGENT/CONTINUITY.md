@@ -6,7 +6,7 @@
 
 - Policy is root [`AGENTS.md`](../AGENTS.md). Pair with KSG **`dev`** (`0.2.9-dev`).
 - Unified board: KSG [`docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md) v6.6. This repo is **K0** on that board.
-- Right now for the pair is **CH0** (KSG #115), not a new client feature.
+- Replaying **#2** (belief wrappers) onto current `dev` so it pairs with KSG belief APIs. CH0 soak continues in KSG.
 - Gitflow: branch from **`dev`**, PR into **`dev`**.
 
 ## Holds
