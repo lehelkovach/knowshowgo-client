@@ -14,14 +14,14 @@
 
 **Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
-KSG execute queue (including Logic IR R0–R8): [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+KSG execute queue (unified `dev` ladder: CH / K / IR / OSLO): [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
 
 ## Engage now (client)
 
-1. **Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch`; R1 persist IR
+1. **K0 Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch`; R1 persist IR
    via `upsert_object` / `get_object`; R2 `evaluateLogicInference` +
    `get_object(..., { infer: true })`. Matching Argument ≠ VALID inference.
-   Next client work for R3+ PRs with the server into `dev`.
+   Next client work follows the server PR into `dev` (IR3+ after CH0).
 2. **Bearer API token support** — ✅ constructor `authToken` / `accessToken` /
    `apiToken` / `tokenProvider`; sends `Authorization: Bearer …` (soft
    `X-KSG-Owner` remains as fallback). Agent + Chrome should pass tokens.
