@@ -329,6 +329,22 @@ class TestKnowShowGoClient(unittest.TestCase):
             params={"ownerUserId": "user-1"},
         )
 
+    def test_get_object_requests_lazy_prototype_matches(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "obj-1"})
+        )
+
+        client.get_object(
+            "obj-1",
+            match_prototypes=True,
+            prototype_revision_uuids=["proto-a", "proto-b"],
+        )
+
+        params = client.session.request.call_args.kwargs["params"]
+        self.assertEqual(params["matchPrototypes"], True)
+        self.assertEqual(params["prototypeRevisionUuids"], "proto-a,proto-b")
+
     def test_resolve_object_maps_lineage_and_private(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

@@ -1224,6 +1224,34 @@ test('seed_social_layer posts to /api2.0/seed/social-layer by default', async ()
   assert.equal(calls[1].url, 'https://example.test/api/seed/social-layer');
 });
 
+test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, report: { categories: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_logic_ir_primitives();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/logic-ir-primitives');
+});
+
+test('get_object can request lazy prototypeMatches', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, object: { uuid: 'obj-1' }, prototypeMatches: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_object('obj-1', {
+    match_prototypes: true,
+    prototype_revision_uuids: ['proto-a', 'proto-b']
+  });
+  assert.match(calls[0].url, /matchPrototypes=true/);
+  assert.match(calls[0].url, /prototypeRevisionUuids=proto-a%2Cproto-b/);
+});
+
 test('search_knowledge posts to /api2.0/knowledge/search with owner headers', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

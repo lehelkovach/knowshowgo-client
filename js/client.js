@@ -979,12 +979,26 @@ export class KnowShowGoClient {
     });
   }
 
-  get_object(uuid, { owner_user_id = null, agent_session_id = null } = {}) {
+  get_object(uuid, {
+    owner_user_id = null,
+    agent_session_id = null,
+    match_prototypes = false,
+    prototype_revision_uuid = null,
+    prototype_revision_uuids = null
+  } = {}) {
+    const params = {
+      ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
+      agentSessionId: agent_session_id ?? this.defaultAgentSessionId
+    };
+    if (match_prototypes) params.matchPrototypes = true;
+    if (prototype_revision_uuid) params.prototypeRevisionUuid = prototype_revision_uuid;
+    if (Array.isArray(prototype_revision_uuids) && prototype_revision_uuids.length > 0) {
+      params.prototypeRevisionUuids = prototype_revision_uuids.join(',');
+    } else if (typeof prototype_revision_uuids === 'string' && prototype_revision_uuids) {
+      params.prototypeRevisionUuids = prototype_revision_uuids;
+    }
     return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
-      params: {
-        ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
-        agentSessionId: agent_session_id ?? this.defaultAgentSessionId
-      },
+      params,
       owner_user_id,
       agent_session_id
     });
@@ -1534,9 +1548,14 @@ export class KnowShowGoClient {
   }
 
   // ===== Graph query (devExtended) =====
-  query_graph({ search, traverse } = {}) {
+  query_graph({ search, traverse, match_prototypes = false, prototype_revision_uuids = null } = {}) {
     return this._request('POST', '/api/query', {
-      json: { search, traverse }
+      json: {
+        search,
+        traverse,
+        matchPrototypes: match_prototypes || undefined,
+        prototypeRevisionUuids: prototype_revision_uuids || undefined
+      }
     });
   }
 
@@ -1556,6 +1575,11 @@ export class KnowShowGoClient {
   seed_social_layer({ api_prefix = '/api2.0' } = {}) {
     const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
     return this._request('POST', `${prefix}/seed/social-layer`, { json: {} });
+  }
+
+  seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });
   }
 
   // ===== Experimental (dev preview) =====

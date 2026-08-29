@@ -1151,14 +1151,26 @@ class KnowShowGoClient:
         self,
         uuid: str,
         owner_user_id: Optional[str] = None,
-        agent_session_id: Optional[str] = None
+        agent_session_id: Optional[str] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuid: Optional[str] = None,
+        prototype_revision_uuids: Optional[Any] = None
     ) -> Dict[str, Any]:
-        """Get an object entity by UUID"""
+        """Get an object entity by UUID. match_prototypes lazily evaluates match contracts."""
         params = {}
         if owner_user_id:
             params["ownerUserId"] = owner_user_id
         if agent_session_id:
             params["agentSessionId"] = agent_session_id
+        if match_prototypes:
+            params["matchPrototypes"] = True
+        if prototype_revision_uuid:
+            params["prototypeRevisionUuid"] = prototype_revision_uuid
+        if prototype_revision_uuids:
+            if isinstance(prototype_revision_uuids, (list, tuple)):
+                params["prototypeRevisionUuids"] = ",".join(str(item) for item in prototype_revision_uuids)
+            else:
+                params["prototypeRevisionUuids"] = str(prototype_revision_uuids)
         return self._request("GET", f"/api/objects/{uuid}", params=params)
 
     def list_memory_roles(
@@ -1935,10 +1947,17 @@ class KnowShowGoClient:
     def query_graph(
         self,
         search: Optional[Dict[str, Any]] = None,
-        traverse: Optional[Dict[str, Any]] = None
+        traverse: Optional[Dict[str, Any]] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuids: Optional[Any] = None
     ) -> Dict[str, Any]:
         """Run ad-hoc graph search + traversal query"""
-        return self._request("POST", "/api/query", json={"search": search, "traverse": traverse})
+        payload = {"search": search, "traverse": traverse}
+        if match_prototypes:
+            payload["matchPrototypes"] = True
+        if prototype_revision_uuids:
+            payload["prototypeRevisionUuids"] = prototype_revision_uuids
+        return self._request("POST", "/api/query", json=payload)
 
     # ===== Seeds =====
 
@@ -1954,6 +1973,10 @@ class KnowShowGoClient:
     def seed_social_layer(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/social-layer", json={})
+
+    def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
 
     # ===== Experimental (dev preview) =====
 
