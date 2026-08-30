@@ -26,6 +26,104 @@ def resolve_base_url(explicit: Optional[str] = None) -> str:
     )
 
 
+def _to_snake_case(name: str) -> str:
+    out = []
+    for i, ch in enumerate(name or ""):
+        if ch.isupper() and i > 0 and (name[i - 1].islower() or name[i - 1].isdigit()):
+            out.append("_")
+        out.append(ch.lower() if ch != "-" else "_")
+    return "".join(out)
+
+
+def resolve_property_key(name: Optional[str], properties: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Resolve a JS-friendly attribute name against a properties map."""
+    if not name or not properties:
+        return None
+    if name in properties:
+        return name
+    snake = _to_snake_case(name)
+    if snake in properties:
+        return snake
+    lower = name.lower()
+    snake_lower = snake.lower()
+    for key in properties:
+        k = key.lower()
+        if k == lower or k == snake_lower:
+            return key
+    return None
+
+
+class EntityProxy:
+    """
+    ORM-style entity view over ``/api2.0/entities/:id/properties``.
+
+    ``entity.middle_name`` / ``entity.middleName`` → winner value.
+    ``entity.claims["middle_name"]`` → ranked claim stack.
+    ``entity.prop("middle_name")`` → full cell ``{value, confidence, contested, claims}``.
+    ``entity.get_type()`` → ranked prototype matches (fuzzy duck typing).
+    """
+
+    def __init__(self, payload: Optional[Dict[str, Any]] = None, client: Optional["KnowShowGoClient"] = None):
+        payload = payload or {}
+        self.ok = payload.get("ok", True) is not False
+        self.uuid = payload.get("uuid") or payload.get("entityId")
+        self.properties = payload.get("properties") or {}
+        self.policy = payload.get("policy")
+        self.types = payload.get("types") or payload.get("matched") or []
+        self.raw = dict(payload)
+        self._client = client
+        self.claims = {
+            key: (cell or {}).get("claims")
+            for key, cell in self.properties.items()
+        }
+
+    def prop(self, name: str) -> Optional[Dict[str, Any]]:
+        key = resolve_property_key(name, self.properties)
+        return self.properties.get(key) if key else None
+
+    def get_type(self, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Ranked prototype matches (closest first)."""
+        if refresh and self._client is not None and self.uuid:
+            body = self._client.get_entity_types(self.uuid)
+            self.types = body.get("types") or body.get("matched") or []
+        return list(self.types or [])
+
+    # camelCase alias for JS parity
+    getType = get_type
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        key = resolve_property_key(name, self.properties)
+        if key is None:
+            raise AttributeError(name)
+        return self.properties[key].get("value")
+
+    def __contains__(self, name: str) -> bool:
+        return resolve_property_key(name, self.properties) is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "properties": self.properties,
+            "policy": self.policy,
+            "types": self.types,
+        }
+
+
+def matches_route(template: str, actual: str) -> bool:
+    """Segment-wise match of `/api/objects/:uuid` templates to concrete paths."""
+    expected = str(template or "").split("/")
+    received = str(actual or "").split("/")
+    if len(expected) != len(received):
+        return False
+    for seg, got in zip(expected, received):
+        if not seg.startswith(":") and seg != got:
+            return False
+    return True
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -37,6 +135,12 @@ class KnowShowGoClient:
         enforce_contract: bool = False,
         default_owner_user_id: Optional[str] = None,
         default_agent_session_id: Optional[str] = None,
+        auth_token: Optional[str] = None,
+        access_token: Optional[str] = None,
+        api_token: Optional[str] = None,
+        token_provider=None,
+        admin_secret: Optional[str] = None,
+        auto_connect: bool = False,
     ):
         self.base_url = resolve_base_url(base_url).rstrip('/')
         self.session = requests.Session()
@@ -46,8 +150,24 @@ class KnowShowGoClient:
         self.topic_api_prefix = topic_api_prefix
         self.default_owner_user_id = default_owner_user_id
         self.default_agent_session_id = default_agent_session_id
+        # Hard identity. A signed token cannot be spoofed the way the soft owner
+        # headers can, and the server prefers it over them when both are present.
+        self.auth_token = auth_token or access_token or api_token
+        self.token_provider = token_provider if callable(token_provider) else None
+        # Minting a token for someone else needs the server's admin secret, sent
+        # as X-KSG-Admin. Without it a caller can only mint for the owner they
+        # already hold a token for, which leaves no way to issue the first one.
+        self.admin_secret = admin_secret
         self._contract = None
         self._enforce_contract = enforce_contract
+        self._connected = False
+        if auto_connect:
+            try:
+                self.connect()
+            except Exception:
+                # Mirror JS: failed auto_connect must not crash construction;
+                # callers that care should call ready()/connect() explicitly.
+                pass
 
     @staticmethod
     def _merge_aliases(body: Dict[str, Any], aliases: Dict[str, str]) -> Dict[str, Any]:
@@ -60,14 +180,26 @@ class KnowShowGoClient:
     def _assert_contract_path(self, method: str, path: str) -> None:
         if not self._enforce_contract or not self._contract:
             return
-        prefix = path.split('/:')[0] if '/:' in path else path
         allowed = any(
-            entry.get('method') == method
-            and (entry.get('path') == path or entry.get('path', '').startswith(prefix))
+            entry.get('method') == method and matches_route(entry.get('path', ''), path)
             for entry in self._contract
         )
         if not allowed:
-            raise ValueError(f'endpoint not in dev contract: {method} {path}')
+            raise ValueError(f'endpoint not in client contract: {method} {path}')
+
+    def ready(self) -> "KnowShowGoClient":
+        """No-op sync counterpart to the JS ready(); connect() is synchronous here."""
+        return self
+
+    def _resolve_auth_token(self, explicit=None):
+        if explicit is not None:
+            return explicit
+        if self.token_provider is not None:
+            provided = self.token_provider()
+            if provided:
+                self.auth_token = provided
+                return provided
+        return self.auth_token
 
     def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
         """Make HTTP request to API"""
@@ -80,19 +212,30 @@ class KnowShowGoClient:
         if agent_session_id is None:
             agent_session_id = self.default_agent_session_id
 
+        auth_token = self._resolve_auth_token(kwargs.pop("auth_token", None))
+        admin_secret = kwargs.pop("admin_secret", None)
+        if admin_secret is None:
+            admin_secret = self.admin_secret
+
         headers = dict(kwargs.pop("headers", None) or {})
         if owner_user_id:
             headers["X-KSG-Owner"] = str(owner_user_id)
         if agent_session_id:
             headers["X-KSG-Session"] = str(agent_session_id)
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        if admin_secret:
+            headers["X-KSG-Admin"] = str(admin_secret)
         if headers:
             kwargs["headers"] = headers
 
         params = dict(kwargs.get("params") or {})
-        if owner_user_id and "ownerUserId" not in params:
-            params["ownerUserId"] = owner_user_id
-        if agent_session_id and "agentSessionId" not in params:
-            params["agentSessionId"] = agent_session_id
+        # Prefer Authorization over identity-in-query (logs/caches).
+        if not auth_token:
+            if owner_user_id and "ownerUserId" not in params:
+                params["ownerUserId"] = owner_user_id
+            if agent_session_id and "agentSessionId" not in params:
+                params["agentSessionId"] = agent_session_id
         if params:
             kwargs["params"] = params
 
@@ -121,16 +264,19 @@ class KnowShowGoClient:
 
     def connect(
         self,
-        expected_channel: str = 'release',
-        expected_release: str = 'v0.2.8',
+        expected_channel: Optional[str] = None,
+        expected_release: Optional[str] = None,
         enforce_contract: bool = False,
         adopt_advertised_base_url: bool = False,
     ) -> Dict[str, Any]:
-        """Verify channel/release and optionally cache contract for path guard.
+        """Discover the server contract. Channel/release pins are opt-in.
+
+        A bare ``connect()`` accepts whatever the server advertises (public
+        release or dev). Pass ``expected_channel`` / ``expected_release`` to
+        fail fast against an unexpected host.
 
         ``adopt_advertised_base_url`` re-points this client at ``api.publicBaseUrl``
-        from the manifest, so a caller bootstrapped against any reachable host
-        ends up on the canonical public API the service advertises.
+        from the manifest.
         """
         manifest = self.get_release_manifest()
         if expected_channel and manifest.get('channel') != expected_channel:
@@ -251,6 +397,68 @@ class KnowShowGoClient:
         )
         return result["associations"]
 
+    # ===== API tokens (hard identity) =====
+    # The soft X-KSG-Owner header is client-supplied and therefore trusted only
+    # as far as the caller is; these mint signed tokens the server can actually
+    # verify. Token endpoints share the prototype prefix (/api2.0 with /api kept
+    # as the backward-compatible alias).
+
+    def set_auth_token(self, token: Optional[str]) -> "KnowShowGoClient":
+        """Swap the bearer token on a live client (e.g. after minting one)."""
+        self.auth_token = token or None
+        return self
+
+    def create_api_token(
+        self,
+        owner_user_id: Optional[str] = None,
+        label: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        ttl_days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Mint a token for an owner.
+
+        The raw token comes back exactly once — the server stores only a record
+        of it — so a caller that drops it must mint another.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens",
+            json={
+                "ownerUserId": owner_user_id,
+                "label": label,
+                "agentSessionId": agent_session_id,
+                "ttlDays": ttl_days,
+            },
+        )
+
+    def list_api_tokens(self, owner_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List an owner's token records (never the raw tokens)."""
+        params = {"ownerUserId": owner_user_id} if owner_user_id else None
+        result = self._request(
+            "GET", f"{self.prototype_api_prefix}/auth/tokens", params=params
+        )
+        return result.get("tokens", [])
+
+    def revoke_api_token(self, jti: str, owner_user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Revoke one token by its ``jti``."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens/{jti}/revoke",
+            json={"ownerUserId": owner_user_id},
+        )
+
+    def get_admin_usage(self, admin_token: Optional[str] = None) -> Dict[str, Any]:
+        """Per-principal request/read/write counts for cost and quota tracking.
+
+        Admin-only, and it authenticates differently from the token endpoints:
+        the admin secret goes in as the bearer here, not the X-KSG-Admin header.
+        """
+        return self._request(
+            "GET",
+            "/api/admin/usage",
+            auth_token=admin_token or self.admin_secret or self.auth_token,
+        )
+
     # ===== Prototype / centroid (prototype-theory) mechanics =====
     def generalize_from_exemplar(
         self,
@@ -282,10 +490,86 @@ class KnowShowGoClient:
         top_k: int = 5,
         threshold: float = 0.0
     ) -> List[Dict[str, Any]]:
-        """Rank existing prototypes by how typical the item is of each."""
-        data = {"text": text, "embedding": embedding, "topK": top_k, "threshold": threshold}
+        """Rank existing prototypes by how typical the item is of each.
+
+        Nearest-centroid over the values each prototype absorbed, so this answers
+        value-shaped questions ("which category is this?"). To ask which FIELD a
+        label names, use :meth:`search_property_definitions`: a value centroid
+        drifts toward the shape of the data, so "Card number" would rank closer
+        to ``cvv`` than to ``number``.
+        """
+        data = {
+            "text": text,
+            "embedding": embedding,
+            "topK": top_k,
+            "threshold": threshold,
+        }
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
+
+    def resolve_slots(
+        self,
+        labels: List[str],
+        candidates: List[str] = None,
+        floor: float = 0.5,
+        top_k: int = 40,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> Dict[str, Any]:
+        """Resolve observed labels onto stored fields.
+
+        Works for a web form's inputs, a CSV header row, or an API payload — the
+        server ranks and assigns so callers do not each reimplement it.
+        ``candidates`` closes the set to fields you actually hold, and assignment
+        is one-to-one: a field fills at most one label.
+
+        Returns ``{"slots": [{"label", "property", "score"}], "unresolved": [...]}``.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/slots/resolve",
+            json={"labels": labels, "candidates": candidates, "floor": floor, "topK": top_k},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def search_property_definitions(
+        self,
+        query: str,
+        top_k: int = 20,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> List[Dict[str, Any]]:
+        """Which stored field does this label name?
+
+        Ranks property-definition concepts over the same vector index every other
+        search uses, filtered by node role. Returns one entry per property, best
+        first: ``[{"property", "valueType", "score", "uuid"}]``.
+        """
+        results = self.search_concepts(
+            query,
+            top_k=top_k,
+            similarity_threshold=0.0,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        out = []
+        seen = set()
+        for r in results or []:
+            props = r.get("props") or {}
+            if props.get("isObjectPropertyDefinition") is not True:
+                continue
+            prop = props.get("propertyName")
+            if not prop or prop in seen:
+                continue
+            seen.add(prop)
+            out.append({
+                "property": prop,
+                "valueType": props.get("valueType"),
+                "score": r.get("similarity") or 0,
+                "uuid": r.get("uuid"),
+            })
+        return out
 
     def search_prototypes(self, query: str = "", top_k: int = 10) -> List[Dict[str, Any]]:
         """Label/tag autocomplete over prototypes (e.g. to pick an object "type")."""
@@ -304,6 +588,84 @@ class KnowShowGoClient:
             json={"conceptUuid": concept_uuid}
         )
 
+    def evaluate_prototype_match(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Evaluate and cache an exact object/prototype revision pair."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+            }
+        )
+
+    def evaluate_prototype_match_list(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuids=None,
+        context_revision_uuid: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List match decisions for one object vs many prototypes (not WTA)."""
+        payload = {
+            "objectRevisionUuid": object_revision_uuid,
+            "prototypeRevisionUuids": list(prototype_revision_uuids or []),
+            "contextRevisionUuid": context_revision_uuid,
+        }
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/list",
+            json=payload,
+        )
+
+    def cast_object(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None,
+        require_match: bool = True,
+        title: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist a new object under a chosen prototype. Source is unchanged."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/cast",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+                "requireMatch": require_match,
+                "title": title,
+                "objectLineageKey": object_lineage_key,
+            },
+        )
+
+    def evaluate_logic_inference(
+        self,
+        premise_revision_uuids=None,
+        conclusion_revision_uuid=None,
+        argument_revision_uuid=None,
+    ) -> Dict[str, Any]:
+        """Evaluate P1 + P2 ⊢ P3 with the tiny Logic IR inference core."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": list(premise_revision_uuids or []),
+                "conclusionRevisionUuid": conclusion_revision_uuid,
+                "argumentRevisionUuid": argument_revision_uuid,
+            },
+        )
+
     # ===== Node with Document Methods =====
 
     def create_node_with_document(
@@ -313,9 +675,20 @@ class KnowShowGoClient:
         tags: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         associations: Optional[List[Dict[str, Any]]] = None,
-        prototype_uuid: Optional[str] = None
+        prototype_uuid: Optional[str] = None,
+        private: bool = False,
+        security_class: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
     ) -> str:
-        """Create a node with document metadata and tags"""
+        """Create a node with document metadata and tags.
+
+        `private` exists because this wrapper previously had no way to express
+        privacy, so everything written through it landed in the anonymously
+        readable commons. Pass private=True for owner-scoped data; the owner
+        comes from default_owner_user_id (X-KSG-Owner) unless overridden here.
+        The server refuses a private write it cannot attribute.
+        """
         data = {
             "label": label,
             "summary": summary,
@@ -324,6 +697,14 @@ class KnowShowGoClient:
             "associations": associations or [],
             "prototypeUuid": prototype_uuid
         }
+        if private or security_class == "private":
+            data["private"] = True
+        if security_class:
+            data["securityClass"] = security_class
+        if owner_user_id:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id:
+            data["agentSessionId"] = agent_session_id
         result = self._request("POST", "/api/nodes", json=data)
         return result["uuid"]
 
@@ -425,6 +806,86 @@ class KnowShowGoClient:
         )
         return result["assertion"]
 
+    def reinforce_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        delta: Optional[float] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Same claim from another speaker → strengthen belief."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if delta is not None:
+            data["delta"] = delta
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("POST", "/api/assertions/reinforce", json=data)
+
+    def contradict_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+        against_assertion_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Competing claim for same subject/predicate."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        if against_assertion_id is not None:
+            data["againstAssertionId"] = against_assertion_id
+        return self._request("POST", "/api/assertions/contradict", json=data)
+
+    def retract_assertion(
+        self,
+        assertion_id: str,
+        speaker: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Soft-delete an assertion from belief resolution."""
+        return self._request(
+            "POST",
+            f"/api/assertions/{assertion_id}/retract",
+            json={"speaker": speaker, "reason": reason},
+        )
+
+    def get_beliefs(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Live belief snapshot (resolved values + alternatives + speakers)."""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request("GET", f"/api/entities/{entity_id}/beliefs", params=params)
+
     def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
         """Get resolved values for an entity"""
         result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
@@ -459,6 +920,87 @@ class KnowShowGoClient:
             "GET",
             f"/api/entities/{entity_id}/explain",
             params=params
+        )
+
+    def get_entity_properties(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ranked property map (winner + contested claim stack).
+        Canonical path ``/api2.0/entities/:id/properties`` with ``/api`` alias.
+        """
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/properties",
+            params=params,
+        )
+
+    def get_entity_types(
+        self,
+        entity_id: str,
+        top_k: int = 5,
+        threshold: float = 0,
+        persist: bool = False,
+        persist_top_k: int = 1,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ranked prototype/type matches (fuzzy duck typing)."""
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {"topK": top_k, "threshold": threshold}
+        if persist:
+            params["persist"] = "true"
+            params["persistTopK"] = persist_top_k
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/types",
+            params=params,
+        )
+
+    def get_entity_snapshot(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+        top_k: int = 5,
+    ) -> EntityProxy:
+        """EntityProxy over get_entity_properties (``.middleName`` → winner)."""
+        body = self.get_entity_properties(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
+        )
+        types: List[Dict[str, Any]] = []
+        try:
+            typed = self.get_entity_types(
+                entity_id,
+                top_k=top_k,
+                entity_api_prefix=entity_api_prefix,
+            )
+            types = typed.get("types") or typed.get("matched") or []
+        except Exception:
+            pass
+        body = dict(body)
+        body["types"] = types
+        return EntityProxy(body, client=self)
+
+    def entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> EntityProxy:
+        """Alias for get_entity_snapshot."""
+        return self.get_entity_snapshot(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
         )
 
     # ===== Verification / Hallucination Detection =====
@@ -668,7 +1210,11 @@ class KnowShowGoClient:
         parent_category_name: Optional[str] = None,
         properties: Optional[List[Dict[str, Any]]] = None,
         source: Optional[str] = None,
-        category_lineage_key: Optional[str] = None
+        category_lineage_key: Optional[str] = None,
+        hard_constraints: Optional[List[Any]] = None,
+        soft_constraints: Optional[List[Any]] = None,
+        min_score: Optional[float] = None,
+        decision_policy: Optional[str] = None
     ) -> Dict[str, Any]:
         """Create a new versioned object category"""
         data = {
@@ -679,7 +1225,11 @@ class KnowShowGoClient:
             "parentCategoryName": parent_category_name,
             "properties": properties or [],
             "source": source,
-            "categoryLineageKey": category_lineage_key
+            "categoryLineageKey": category_lineage_key,
+            "hardConstraints": hard_constraints,
+            "softConstraints": soft_constraints,
+            "minScore": min_score,
+            "decisionPolicy": decision_policy,
         }
         return self._request("POST", "/api/object-categories/upsert", json=data)
 
@@ -689,6 +1239,11 @@ class KnowShowGoClient:
         category = body.get("category") or {}
         body["categoryPrototypeUuid"] = body.get("categoryPrototypeUuid") or category.get("uuid") or uuid
         return body
+
+    def list_object_categories(self) -> List[Dict[str, Any]]:
+        """List object categories with their object counts."""
+        result = self._request("GET", "/api/object-categories")
+        return result.get("categories", [])
 
     # ===== Objects (v0.2.2) =====
 
@@ -737,15 +1292,137 @@ class KnowShowGoClient:
         self,
         uuid: str,
         owner_user_id: Optional[str] = None,
-        agent_session_id: Optional[str] = None
+        agent_session_id: Optional[str] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuid: Optional[str] = None,
+        prototype_revision_uuids: Optional[Any] = None,
+        infer: bool = False
     ) -> Dict[str, Any]:
-        """Get an object entity by UUID"""
+        """Get an object entity by UUID. match_prototypes lazily evaluates match contracts."""
         params = {}
         if owner_user_id:
             params["ownerUserId"] = owner_user_id
         if agent_session_id:
             params["agentSessionId"] = agent_session_id
+        if match_prototypes:
+            params["matchPrototypes"] = True
+        if prototype_revision_uuid:
+            params["prototypeRevisionUuid"] = prototype_revision_uuid
+        if prototype_revision_uuids:
+            if isinstance(prototype_revision_uuids, (list, tuple)):
+                params["prototypeRevisionUuids"] = ",".join(str(item) for item in prototype_revision_uuids)
+            else:
+                params["prototypeRevisionUuids"] = str(prototype_revision_uuids)
+        if infer:
+            params["infer"] = True
         return self._request("GET", f"/api/objects/{uuid}", params=params)
+
+    def list_memory_roles(
+        self, memory_api_prefix: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Role catalog for typed memory (mandate / schedule / rule / procedureDag)."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        result = self._request("GET", f"{prefix}/memory/roles")
+        return result.get("roles", [])
+
+    def instantiate_memory(
+        self,
+        role: str,
+        title: str,
+        category_prototype_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        previous_object_uuid: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        knowledge_kind: str = "personal",
+        sensitivity: str = "normal",
+        privacy_override: Optional[Any] = None,
+        private: Optional[bool] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Role-typed create — same write path as upsert_object, plus claims."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        data: Dict[str, Any] = {
+            "role": role,
+            "title": title,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "previousObjectUuid": previous_object_uuid,
+            "objectLineageKey": object_lineage_key,
+            "provenance": provenance,
+            "knowledgeKind": knowledge_kind,
+            "sensitivity": sensitivity,
+            "privacyOverride": privacy_override,
+        }
+        if private is not None:
+            data["private"] = private
+        if owner_user_id is not None:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id is not None:
+            data["agentSessionId"] = agent_session_id
+        return self._request(
+            "POST",
+            f"{prefix}/memory/instantiate",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def get_memory_object(
+        self,
+        uuid: str,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Object snapshot + assertion claims + prototype lineage."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if owner_user_id or self.default_owner_user_id:
+            params["ownerUserId"] = owner_user_id or self.default_owner_user_id
+        if agent_session_id or self.default_agent_session_id:
+            params["agentSessionId"] = agent_session_id or self.default_agent_session_id
+        return self._request(
+            "GET",
+            f"{prefix}/memory/{uuid}",
+            params=params or None,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def list_objects(
+        self,
+        category: Optional[str] = None,
+        limit: int = 200,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List object entities, optionally filtered to one category.
+
+        The server returns public objects plus the caller's own private ones,
+        so identity matters here even for a read.
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if category:
+            params["category"] = category
+        result = self._request(
+            "GET",
+            "/api/objects",
+            params=params,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return result.get("objects", [])
 
     def resolve_object(
         self,
@@ -820,9 +1497,10 @@ class KnowShowGoClient:
         steps: Optional[List[Dict[str, Any]]] = None,
         dependencies: Optional[List[List[int]]] = None,
         guards: Optional[Dict[str, Any]] = None,
-        extra_props: Optional[Dict[str, Any]] = None
+        extra_props: Optional[Dict[str, Any]] = None,
+        dag_json: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create a Procedure DAG with steps and dependencies"""
+        """Create a Procedure DAG with steps and dependencies (stores canonical dagJson)."""
         data = {
             "title": title,
             "description": description,
@@ -833,11 +1511,38 @@ class KnowShowGoClient:
             data["guards"] = guards
         if extra_props is not None:
             data["extraProps"] = extra_props
+        if dag_json is not None:
+            data["dagJson"] = dag_json
         return self._request("POST", "/api/procedures", json=data)
 
-    def get_procedure(self, uuid: str) -> Dict[str, Any]:
-        """Get a compiled Procedure DAG by UUID"""
+    def get_procedure(
+        self,
+        uuid: str,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get a Procedure DAG by UUID.
+
+        source A/B load path: 'dagJson' | 'graph' | 'both' (default both; primary prefers dagJson).
+        """
+        if source is not None:
+            return self._request("GET", f"/api/procedures/{uuid}", params={"source": source})
         return self._request("GET", f"/api/procedures/{uuid}")
+
+    def put_procedure_dag(
+        self,
+        uuid: str,
+        dag_json: Dict[str, Any],
+        rematerialize: bool = True,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Update canonical dagJson (source of truth); optionally rematerialize next→ edges."""
+        data: Dict[str, Any] = {
+            "dagJson": dag_json,
+            "rematerialize": rematerialize,
+        }
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("PUT", f"/api/procedures/{uuid}/dag", json=data)
 
     def add_procedure_step(
         self,
@@ -991,6 +1696,158 @@ class KnowShowGoClient:
         }
         result = self._request("POST", "/api/concept-objects/search", json=data)
         return result["results"]
+
+    def search_knowledge(
+        self,
+        query: str,
+        top_k: int = 10,
+        similarity_threshold: float = 0.55,
+        categories: Optional[List[str]] = None,
+        include_concepts: bool = True,
+        include_objects: bool = True,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        knowledge_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Unified search over concepts (incl. episodic) + Document/typed objects."""
+        prefix = knowledge_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "query": query,
+            "topK": top_k,
+            "similarityThreshold": similarity_threshold,
+            "categories": categories,
+            "includeConcepts": include_concepts,
+            "includeObjects": include_objects,
+        }
+        result = self._request(
+            "POST",
+            f"{prefix}/knowledge/search",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return {
+            "ok": result.get("ok", True),
+            "query": result.get("query", query),
+            "count": result.get("count", len(result.get("results") or [])),
+            "results": result.get("results") or [],
+        }
+
+    def semantic_remember(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "conversation",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ingest a chat utterance into MemoryEvent + claims + associations."""
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "text": text,
+            "speaker": speaker,
+            "source": source,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "sessionId": session_id,
+            "private": is_private,
+            "plan": plan,
+            "provenance": provenance,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/remember",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_recall(
+        self,
+        query: str,
+        top_k: int = 8,
+        expand_depth: int = 1,
+        similarity_threshold: float = 0.15,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/recall",
+            json={
+                "query": query,
+                "topK": top_k,
+                "expandDepth": expand_depth,
+                "similarityThreshold": similarity_threshold,
+                "ownerUserId": owner_user_id,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_ask(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        object: Optional[Any] = None,
+        pattern: Optional[Dict[str, Any]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body = pattern or {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object,
+            "ownerUserId": owner_user_id,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/ask",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_correct(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "correction",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/correct",
+            json={
+                "text": text,
+                "speaker": speaker,
+                "source": source,
+                "ownerUserId": owner_user_id,
+                "agentSessionId": agent_session_id,
+                "sessionId": session_id,
+                "private": is_private,
+                "plan": plan,
+                "provenance": provenance,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
 
     def suggest_concept_object_prototypes(
         self,
@@ -1234,18 +2091,36 @@ class KnowShowGoClient:
     def query_graph(
         self,
         search: Optional[Dict[str, Any]] = None,
-        traverse: Optional[Dict[str, Any]] = None
+        traverse: Optional[Dict[str, Any]] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuids: Optional[Any] = None
     ) -> Dict[str, Any]:
         """Run ad-hoc graph search + traversal query"""
-        return self._request("POST", "/api/query", json={"search": search, "traverse": traverse})
+        payload = {"search": search, "traverse": traverse}
+        if match_prototypes:
+            payload["matchPrototypes"] = True
+        if prototype_revision_uuids:
+            payload["prototypeRevisionUuids"] = prototype_revision_uuids
+        return self._request("POST", "/api/query", json=payload)
 
     # ===== Seeds =====
 
     def seed_osl_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/seed/osl-agent", json=body or {})
 
+    def seed_osl_oc_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/osl-oc-agent", json=body or {})
+
     def seed_openclaw_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._request("POST", "/api/seed/openclaw-agent", json=body or {})
+
+    def seed_social_layer(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/social-layer", json={})
+
+    def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
 
     # ===== Experimental (dev preview) =====
 

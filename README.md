@@ -16,16 +16,14 @@ prefixes, or identity headers.
 
 ## Install
 
-The peer package `knowshowgo` (the server) is not published to npm, so install
-with `--legacy-peer-deps` (or from a tag):
+This package is a remote REST client — it does **not** depend on the
+`knowshowgo` server package.
 
 ```bash
-# from the published registry
-npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
+npm install @lehelkovach/knowshowgo-client
 
-# or pin to a release tag from GitHub
-npm install --legacy-peer-deps \
-  git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
+# or pin a GitHub tag
+npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
 ```
 
 Python (single-file client, needs `requests`):
@@ -45,10 +43,15 @@ Requirements: **Node >= 18** (built-in `fetch`) or Python 3.8+ with `requests`.
 import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
 
 // Talk to the hosted API; scope reads/writes to your namespace.
-const client = KnowShowGoClient.publicApi({ defaultOwnerUserId: 'my-app' });
+const client = KnowShowGoClient.publicApi({
+  defaultOwnerUserId: 'my-app',
+  authToken: process.env.KSG_API_TOKEN, // or accessToken / tokenProvider
+});
 
 // Optional: verify you match the server you expect.
-await client.connect({ expected_channel: 'release', expected_release: 'v0.2.7' });
+// Optional pin — bare connect() accepts whatever the server advertises:
+await client.connect();
+// await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
 
 // Store a fact, then search it back.
 await client.create_assertion({
@@ -151,7 +154,7 @@ Python: `prototype_api_prefix` / `topic_api_prefix`.
 ## Development
 
 ```bash
-npm install --legacy-peer-deps
+npm install
 node --test js/client.test.mjs                       # JS unit tests (Node runner)
 python3 -m unittest discover -s python -p 'test_*.py' # Python unit tests
 npm run build                                         # esbuild bundle -> dist/
@@ -166,7 +169,7 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 | Branch | Client | Server |
 |--------|--------|--------|
 | `main` | `0.2.7` (`v0.2.7-client`) | KSG `v0.2.7` |
-| `dev`  | `0.2.8-dev` | KSG `0.2.8-dev` |
+| `dev`  | `0.2.9-dev` | KSG `0.2.9-dev` / `v0.2.9-dev` |
 
 Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 

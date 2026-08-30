@@ -135,3 +135,12 @@ Append-only. Newest entries go at the bottom.
   - Optionally wrap dev's newer experimental routes not in the documented MVP
     surface: `/api/knodes`, `/api/query`, `/api/vaults`, `/api/personal/*`,
     `/api/private/payment*`. Confirm intended client scope before wrapping.
+
+## 2026-08-28T16:10:00Z
+
+- Agent: Cursor Cloud (prototype-match status notes)
+- Branch: `cursor/prototype-match-3bc1`
+- Notes written: `.AGENT/handoffs/2026-08-28-prototype-match-v0.0.1.md`
+- Canonical GO/NO-GO lives on the server repo handoff of the same name.
+- Local client tests already green for evaluatePrototypeMatch. No PR CI in this repo.
+- Next pending task: wait for server GitHub CI; do not add Logic IR here.

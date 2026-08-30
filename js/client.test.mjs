@@ -2,11 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-async function loadClientClass() {
+async function loadClientModule() {
   const sourcePath = new URL('./client.js', import.meta.url);
   const source = await readFile(sourcePath, 'utf8');
   const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
-  const mod = await import(moduleUrl);
+  return import(moduleUrl);
+}
+
+async function loadClientClass() {
+  const mod = await loadClientModule();
   return mod.KnowShowGoClient;
 }
 
@@ -82,6 +86,58 @@ test('vote_assertion returns nested assertion payload', async () => {
   const assertion = await client.vote_assertion('a1', { delta: 3 });
   assert.equal(assertion.id, 'a1');
   assert.equal(assertion.voteScore, 4);
+});
+
+test('reinforce_assertion and get_beliefs hit belief endpoints', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/beliefs')) {
+      return makeJsonResponse({
+        subject: 'person:Bob',
+        beliefs: { health: { value: 'has cancer', disagreeing: true, speakers: ['Alice', 'Tracy'] } },
+        snapshot: { health: 'has cancer' }
+      });
+    }
+    return makeJsonResponse({ ok: true, reinforced: true, assertion: { uuid: 'a1', voteScore: 10 } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const r = await client.reinforce_assertion({
+    subject: 'person:Bob',
+    predicate: 'health',
+    obj: 'has cancer',
+    speaker: 'Tracy'
+  });
+  assert.equal(r.reinforced, true);
+  assert.match(calls[0].url, /\/api\/assertions\/reinforce$/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.speaker, 'Tracy');
+
+  const beliefs = await client.get_beliefs('person:Bob', { predicate: 'health' });
+  assert.equal(beliefs.snapshot.health, 'has cancer');
+  assert.match(calls[1].url, /\/api\/entities\/person%3ABob\/beliefs/);
+});
+
+test('contradict_assertion and retract_assertion post correctly', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.contradict_assertion({
+    subject: 'person:Bob',
+    predicate: 'health',
+    obj: 'very healthy',
+    speaker: 'Dan',
+    truth: 0.9
+  });
+  assert.match(calls[0].url, /\/api\/assertions\/contradict$/);
+  await client.retract_assertion('a9', { speaker: 'Alice', reason: 'wrong' });
+  assert.match(calls[1].url, /\/api\/assertions\/a9\/retract$/);
 });
 
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
@@ -223,6 +279,29 @@ test('upsert_object_category maps category_lineage_key', async () => {
   assert.equal(body.categoryLineageKey, 'category:person');
 });
 
+test('upsert_object_category maps prototype match contract fields', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, categoryPrototypeUuid: 'proposition-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.upsert_object_category({
+    name: 'Proposition',
+    hard_constraints: ['has_semantic_expression'],
+    soft_constraints: ['semantic_coherence'],
+    min_score: 0.75,
+    decision_policy: 'hard_gate_min_score'
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.hardConstraints, ['has_semantic_expression']);
+  assert.deepEqual(body.softConstraints, ['semantic_coherence']);
+  assert.equal(body.minScore, 0.75);
+  assert.equal(body.decisionPolicy, 'hard_gate_min_score');
+});
+
 test('get_object_category targets the category uuid endpoint', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -355,6 +434,112 @@ test('get_procedure targets the procedure uuid endpoint', async () => {
 
   await client.get_procedure('proc-1');
   assert.equal(calls[0].url, 'https://example.test/api/procedures/proc-1');
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+test('get_procedure passes source A/B query param', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, loadPath: 'dagJson', steps: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.get_procedure('proc-1', { source: 'dagJson' });
+  assert.equal(calls[0].url, 'https://example.test/api/procedures/proc-1?source=dagJson');
+  assert.equal(calls[0].options.method, 'GET');
+});
+
+test('put_procedure_dag maps dag_json body', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, dagJson: { version: 1, steps: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.put_procedure_dag('proc-1', {
+    dag_json: { version: 1, title: 'P', steps: [{ id: '0', title: 'A' }] },
+    rematerialize: false
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/procedures/proc-1/dag');
+  assert.equal(calls[0].options.method, 'PUT');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.dagJson.title, 'P');
+  assert.equal(body.rematerialize, false);
+});
+
+test('list_memory_roles hits /api2.0/memory/roles by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, roles: [{ role: 'mandate' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const roles = await client.list_memory_roles();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/memory/roles');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.equal(roles[0].role, 'mandate');
+});
+
+test('instantiate_memory maps role + upsert fields under /api2.0', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-1', claims: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.instantiate_memory({
+    role: 'schedule',
+    title: 'Sunday chores',
+    properties: [{ propertyName: 'cron', value: '0 9 * * 0' }],
+    private: true,
+    owner_user_id: 'lehel'
+  });
+  assert.match(calls[0].url, /^https:\/\/example\.test\/api2\.0\/memory\/instantiate/);
+  assert.equal(calls[0].options.method, 'POST');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.role, 'schedule');
+  assert.equal(body.title, 'Sunday chores');
+  assert.equal(body.private, true);
+  assert.equal(body.ownerUserId, 'lehel');
+  assert.equal(body.properties[0].propertyName, 'cron');
+});
+
+test('instantiate_memory honors memory_api_prefix=/api fallback', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-2' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.instantiate_memory({
+    role: 'mandate',
+    title: 'Pay rent',
+    memory_api_prefix: '/api'
+  });
+  assert.equal(calls[0].url, 'https://example.test/api/memory/instantiate');
+});
+
+test('get_memory_object hits /api2.0/memory/:uuid', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objectUuid: 'mem-1', claims: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'lehel'
+  });
+  await client.get_memory_object('mem-1');
+  assert.match(calls[0].url, /https:\/\/example\.test\/api2\.0\/memory\/mem-1/);
   assert.equal(calls[0].options.method, 'GET');
 });
 
@@ -778,6 +963,27 @@ test('match_prototypes posts query and unwraps matches array', async () => {
   assert.equal(calls[0].url, 'https://example.test/api2.0/prototypes/match');
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.topK, 3);
+  assert.equal(body.space, undefined);
+});
+
+test('search_property_definitions answers which field a label names', async () => {
+  const fetchMock = async () => makeJsonResponse({
+    results: [
+      // A value node and a prototype must not be mistaken for field definitions.
+      { uuid: 'v1', similarity: 0.91, props: { isObjectPropertyValue: true, name: 'number:4766' } },
+      { uuid: 'd1', similarity: 0.78, props: { isObjectPropertyDefinition: true, propertyName: 'name_on_card', valueType: 'string' } },
+      { uuid: 'd2', similarity: 0.66, props: { isObjectPropertyDefinition: true, propertyName: 'number', valueType: 'string' } },
+      // Same property from another category collapses to one entry.
+      { uuid: 'd3', similarity: 0.51, props: { isObjectPropertyDefinition: true, propertyName: 'number', valueType: 'string' } }
+    ]
+  });
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const defs = await client.search_property_definitions('Cardholder name');
+  assert.deepEqual(defs.map((d) => d.property), ['name_on_card', 'number']);
+  assert.equal(defs[0].valueType, 'string');
+  assert.equal(defs[0].score, 0.78);
 });
 
 test('prototypeApiPrefix falls back to the legacy /api alias when requested', async () => {
@@ -826,12 +1032,136 @@ test('attach_exemplar targets prototype exemplars endpoint', async () => {
   assert.equal(body.conceptUuid, 'c2');
 });
 
+test('evaluatePrototypeMatch is distinct from centroid prototypes/match', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ decision: 'unresolved', hardPass: false });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.evaluatePrototypeMatch({
+    objectRevisionUuid: 'o-god',
+    prototypeRevisionUuid: 'prop-1'
+  });
+  await client.evaluate_prototype_match({
+    object_revision_uuid: 'o-god',
+    prototype_revision_uuid: 'prop-1'
+  });
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.url.endsWith('/api2.0/prototype-matches/evaluate')));
+  assert.ok(calls.every((c) => !c.url.includes('/prototypes/match')));
+});
+
+test('evaluatePrototypeMatch posts exact revision UUIDs', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      objectRevisionUuid: 'object-2',
+      prototypeRevisionUuid: 'prototype-1',
+      contextRevisionUuid: 'context-3',
+      decision: 'match'
+    });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.evaluatePrototypeMatch({
+    objectRevisionUuid: 'object-2',
+    prototypeRevisionUuid: 'prototype-1',
+    contextRevisionUuid: 'context-3'
+  });
+  assert.equal(result.decision, 'match');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/evaluate');
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body, {
+    objectRevisionUuid: 'object-2',
+    prototypeRevisionUuid: 'prototype-1',
+    contextRevisionUuid: 'context-3'
+  });
+});
+
+test('evaluatePrototypeMatchList posts a list request, not WTA', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      policy: 'list',
+      wta: false,
+      matches: [{ decision: 'match' }, { decision: 'no_match' }]
+    });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.evaluatePrototypeMatchList({
+    objectRevisionUuid: 'obj-1',
+    prototypeRevisionUuids: ['p-a', 'p-b']
+  });
+  await client.evaluate_prototype_match_list({
+    object_revision_uuid: 'obj-1',
+    prototype_revision_uuids: ['p-a', 'p-b']
+  });
+  assert.equal(result.wta, false);
+  assert.equal(result.policy, 'list');
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.url.endsWith('/api2.0/prototype-matches/list')));
+  assert.ok(calls.every((c) => !c.url.includes('/prototype-matches/evaluate')));
+});
+
+test('cast_object posts an explicit cast and keeps evaluate unchanged', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, wta: false, objectUuid: 'cast-1' });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.cast_object({
+    objectRevisionUuid: 'obj-1',
+    prototypeRevisionUuid: 'proto-claim',
+    requireMatch: true
+  });
+  assert.equal(result.objectUuid, 'cast-1');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/cast');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.requireMatch, true);
+  assert.equal(body.objectRevisionUuid, 'obj-1');
+});
+
+test('evaluateLogicInference posts premise and conclusion revision UUIDs', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ decision: 'valid', rule: 'universal_modus_ponens' });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.evaluateLogicInference({
+    premiseRevisionUuids: ['p1', 'p2'],
+    conclusionRevisionUuid: 'p3'
+  });
+  await client.evaluate_logic_inference({
+    argument_revision_uuid: 'arg-1'
+  });
+  assert.equal(result.decision, 'valid');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/logic-ir/infer');
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    premiseRevisionUuids: ['p1', 'p2'],
+    conclusionRevisionUuid: 'p3',
+    argumentRevisionUuid: null
+  });
+  assert.equal(calls[1].url, 'https://example.test/api2.0/logic-ir/infer');
+  assert.equal(JSON.parse(calls[1].options.body).argumentRevisionUuid, 'arg-1');
+});
+
 test('connect validates release manifest channel', async () => {
   const fetchMock = async (url) => {
     if (url.endsWith('/api/release')) {
       return makeJsonResponse({
-        channel: 'release',
-        release: 'v0.2.8',
+        channel: 'dev',
+        release: 'v0.2.8-dev',
         surfaces: { clientContract: [{ method: 'GET', path: '/health' }] }
       });
     }
@@ -839,8 +1169,8 @@ test('connect validates release manifest channel', async () => {
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
-  const manifest = await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
-  assert.equal(manifest.channel, 'release');
+  const manifest = await client.connect({ expected_channel: 'dev', expected_release: 'v0.2.8-dev' });
+  assert.equal(manifest.channel, 'dev');
 });
 
 test('suggest_concept_objects adds suggestions alias from candidates', async () => {
@@ -968,8 +1298,8 @@ test('connect adopts the advertised public base URL when asked', async () => {
     calls.push(String(url));
     if (String(url).endsWith('/api/release')) {
       return makeJsonResponse({
-        channel: 'release',
-        release: 'v0.2.8',
+        channel: 'dev',
+        release: 'v0.2.8-dev',
         api: {
           publicBaseUrl: 'https://api.knowshowgo.com',
           prefixes: { stable: '/api', current: '/api2.0' }
@@ -994,8 +1324,8 @@ test('connect leaves baseUrl alone by default', async () => {
   const fetchMock = async (url) =>
     String(url).endsWith('/api/release')
       ? makeJsonResponse({
-          channel: 'release',
-          release: 'v0.2.8',
+          channel: 'dev',
+          release: 'v0.2.8-dev',
           api: { publicBaseUrl: 'https://api.knowshowgo.com' },
           surfaces: { clientContract: [] }
         })
@@ -1004,4 +1334,565 @@ test('connect leaves baseUrl alone by default', async () => {
   const client = new KnowShowGoClient({ baseUrl: 'http://127.0.0.1:3000', fetchImpl: fetchMock });
   await client.connect();
   assert.equal(client.baseUrl, 'http://127.0.0.1:3000');
+});
+
+test('seed_social_layer posts to /api2.0/seed/social-layer by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, report: { categories: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_social_layer();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/social-layer');
+  await client.seed_social_layer({ api_prefix: '/api' });
+  assert.equal(calls[1].url, 'https://example.test/api/seed/social-layer');
+});
+
+test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, report: { categories: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_logic_ir_primitives();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/logic-ir-primitives');
+});
+
+test('get_object can request lazy prototypeMatches', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, object: { uuid: 'obj-1' }, prototypeMatches: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_object('obj-1', {
+    match_prototypes: true,
+    prototype_revision_uuids: ['proto-a', 'proto-b']
+  });
+  assert.match(calls[0].url, /matchPrototypes=true/);
+  assert.match(calls[0].url, /prototypeRevisionUuids=proto-a%2Cproto-b/);
+});
+
+test('get_object can request lazy Logic IR inference', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, object: { uuid: 'arg-1' }, inference: { decision: 'valid' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_object('arg-1', { infer: true });
+  assert.match(calls[0].url, /infer=true/);
+});
+
+test('search_knowledge posts to /api2.0/knowledge/search with owner headers', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      query: 'Acme',
+      count: 1,
+      results: [{ kind: 'object', title: 'Acme Offer', score: 1, uuid: 'd1' }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'slack:U1',
+  });
+  const out = await client.search_knowledge({ query: 'Acme', top_k: 5 });
+  assert.equal(out.count, 1);
+  assert.equal(out.results[0].title, 'Acme Offer');
+  assert.match(calls[0].url, /\/api2\.0\/knowledge\/search/);
+  assert.match(calls[0].url, /ownerUserId=slack%3AU1/);
+  assert.equal(calls[0].options.method, 'POST');
+  const headers = calls[0].options.headers || {};
+  assert.ok(
+    headers['X-KSG-Owner'] === 'slack:U1' || headers['x-ksg-owner'] === 'slack:U1',
+  );
+});
+
+test('get_entity_properties hits /api2.0 and EntityProxy exposes winner + claims', async () => {
+  const calls = [];
+  const payload = {
+    ok: true,
+    uuid: 'person:Ada',
+    properties: {
+      middle_name: {
+        value: 'Augusta',
+        confidence: 0.9,
+        contested: true,
+        claimCount: 2,
+        claims: [
+          { value: 'Augusta', rank: 1, winner: true, source: 'resume' },
+          { value: 'A.', rank: 2, winner: false, source: 'chat' },
+        ],
+      },
+    },
+    policy: { version: 'v0.2.1' },
+  };
+  const typesPayload = {
+    ok: true,
+    uuid: 'person:Ada',
+    types: [{ uuid: 'proto-person', name: 'Person', score: 0.91, rank: 1, source: 'match' }],
+  };
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/types')) return makeJsonResponse(typesPayload);
+    return makeJsonResponse(payload);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const raw = await client.get_entity_properties('person:Ada', { predicate: 'middle_name' });
+  assert.equal(raw.properties.middle_name.value, 'Augusta');
+  assert.match(calls[0].url, /\/api2\.0\/entities\/person%3AAda\/properties/);
+  assert.match(calls[0].url, /predicate=middle_name/);
+  assert.equal(calls[0].options.method, 'GET');
+
+  const entity = await client.get_entity_snapshot('person:Ada');
+  assert.equal(entity.middleName, 'Augusta');
+  assert.equal(entity.middle_name, 'Augusta');
+  assert.equal(entity.claims.middleName[0].source, 'resume');
+  assert.equal(entity.prop('middle_name').contested, true);
+  assert.equal(entity.getType()[0].name, 'Person');
+  assert.ok(calls.some((c) => /\/types/.test(c.url)));
+
+  await client.get_entity_properties('person:Ada', { entityApiPrefix: '/api' });
+  assert.ok(calls.some((c) => /\/api\/entities\/person%3AAda\/properties/.test(c.url)));
+});
+
+test('get_entity_types hits /api2.0 with persist flag', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      uuid: 'c1',
+      types: [{ name: 'Person', score: 0.9 }],
+      persisted: [{ name: 'Person', score: 0.9 }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.get_entity_types('c1', { top_k: 3, persist: true });
+  assert.equal(out.types[0].name, 'Person');
+  assert.match(calls[0].url, /\/api2\.0\/entities\/c1\/types/);
+  assert.match(calls[0].url, /topK=3/);
+  assert.match(calls[0].url, /persist=true/);
+});
+
+// ===== API tokens (hard identity) =====
+// The server has verified bearer auth; until now the SDK could only send the
+// soft X-KSG-Owner header, so callers had no way to use it.
+
+test('create_api_token posts to the token endpoint and returns the raw token once', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, token: 'ksg_abc123', record: { jti: 'j1' } }, 201);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.create_api_token({ owner_user_id: 'alice', label: 'laptop', ttl_days: 30 });
+
+  assert.equal(out.token, 'ksg_abc123');
+  assert.match(calls[0].url, /\/api2\.0\/auth\/tokens/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.ownerUserId, 'alice');
+  assert.equal(body.label, 'laptop');
+  assert.equal(body.ttlDays, 30);
+});
+
+test('an auth token is sent as a bearer header on every request', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    authToken: 'ksg_live'
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer ksg_live');
+});
+
+test('no token means no Authorization header at all', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, undefined);
+});
+
+test('set_auth_token swaps the token on a live client', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, authToken: 'old' });
+  client.set_auth_token('new');
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer new');
+});
+
+test('a per-call token overrides the client default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, authToken: 'default' });
+  await client._request('GET', '/api2.0/auth/tokens', { auth_token: 'override' });
+  assert.equal(calls[0].options.headers.authorization, 'Bearer override');
+});
+
+test('token endpoints honour the /api fallback prefix', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [{ jti: 'j1' }] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    prototypeApiPrefix: '/api'
+  });
+  const tokens = await client.list_api_tokens({ owner_user_id: 'alice' });
+  assert.equal(tokens[0].jti, 'j1');
+  assert.match(calls[0].url, /\/api\/auth\/tokens/);
+  assert.doesNotMatch(calls[0].url, /api2\.0/);
+});
+
+test('revoke_api_token targets the jti', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, record: { jti: 'j1', revoked: true } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.revoke_api_token('j1', { owner_user_id: 'alice' });
+  assert.equal(out.record.revoked, true);
+  assert.match(calls[0].url, /\/api2\.0\/auth\/tokens\/j1\/revoke/);
+});
+
+test('the admin secret rides along as X-KSG-Admin so the first token can be minted', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, token: 'ksg_x', record: { jti: 'j1' } }, 201);
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    adminSecret: 's3cret'
+  });
+  await client.create_api_token({ owner_user_id: 'alice' });
+  assert.equal(calls[0].options.headers['x-ksg-admin'], 's3cret');
+});
+
+test('no admin secret means no X-KSG-Admin header', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, tokens: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.list_api_tokens({});
+  assert.equal(calls[0].options.headers['x-ksg-admin'], undefined);
+});
+
+
+// ----- P0 transport hardening (connect / route match / tokenProvider) -----
+
+test('matchesRoute matches :param templates segment-wise', async () => {
+  const { matchesRoute } = await loadClientModule();
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/objects/4ee7abcd'), true);
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/objects/4ee7abcd/extra'), false);
+  assert.equal(matchesRoute('/api/objects/:uuid', '/api/concepts/4ee7abcd'), false);
+  assert.equal(matchesRoute('/health', '/health'), true);
+});
+
+test('connect without expectations accepts whatever the server advertises', async () => {
+  const fetchMock = async (url) => {
+    if (String(url).endsWith('/api/release')) {
+      return makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+    }
+    return makeJsonResponse({ status: 'ok' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const manifest = await client.connect();
+  assert.equal(manifest.channel, 'release');
+  assert.equal(manifest.release, 'v0.2.8');
+});
+
+test('connect still fails fast when the caller asserts a mismatch', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({ channel: 'release', release: 'v0.2.8', surfaces: {} });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await assert.rejects(
+    () => client.connect({ expected_channel: 'dev' }),
+    /expected channel dev, got release/,
+  );
+});
+
+test('contract enforcement accepts concrete paths against :uuid templates', async () => {
+  const fetchMock = async (url) => {
+    if (String(url).endsWith('/api/release')) {
+      return makeJsonResponse({
+        channel: 'dev',
+        release: 'v0.2.9-dev',
+        surfaces: {
+          clientContract: [
+            { method: 'GET', path: '/api/objects/:uuid' },
+          ],
+        },
+      });
+    }
+    return makeJsonResponse({ ok: true, uuid: 'x' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.connect({ enforce_contract: true });
+  const obj = await client.get_object('4ee7abcd-0000-0000-0000-000000000001');
+  assert.equal(obj.ok, true);
+});
+
+test('accessToken alias and tokenProvider supply Authorization', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    accessToken: 'from-alias',
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer from-alias');
+
+  calls.length = 0;
+  let n = 0;
+  const rotating = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    tokenProvider: async () => `tok-${++n}`,
+  });
+  await rotating.list_objects({});
+  await rotating.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer tok-1');
+  assert.equal(calls[1].options.headers.authorization, 'Bearer tok-2');
+});
+
+test('bearer token skips ownerUserId in the query string', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'alice',
+    authToken: 'ksg_live',
+  });
+  await client.list_objects({});
+  assert.equal(calls[0].options.headers.authorization, 'Bearer ksg_live');
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'alice');
+  assert.ok(
+    !String(calls[0].url).includes('ownerUserId='),
+    'identity should not leak into the query when bearer is set',
+  );
+});
+
+test('ready() awaits auto_connect before ordinary requests', async () => {
+  const order = [];
+  const fetchMock = async (url) => {
+    order.push(String(url));
+    if (String(url).endsWith('/api/release')) {
+      await new Promise((r) => setTimeout(r, 20));
+      return makeJsonResponse({ channel: 'dev', release: 'v0.2.9-dev', surfaces: {} });
+    }
+    return makeJsonResponse({ ok: true, objects: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    auto_connect: true,
+  });
+  await client.list_objects({});
+  assert.ok(order[0].endsWith('/api/release'), 'release handshake should complete before list');
+});
+
+test('search_concepts + query_graph + get_associations paths (Todd vault walk)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (String(url).includes('/concepts/search')) {
+      return makeJsonResponse({
+        results: [{ uuid: 'pay-todd', score: 0.91, name: 'todd-visa', cardholder_name: 'Todd Kovach' }],
+      });
+    }
+    if (String(url).includes('/api/query')) {
+      return makeJsonResponse({
+        hits: [{ uuid: 'person-todd', score: 0.88 }],
+        subgraph: {
+          nodes: [{ uuid: 'person-todd' }, { uuid: 'pay-todd' }],
+          edges: [{ rel: 'owns_payment', from: 'person-todd', to: 'pay-todd' }],
+        },
+      });
+    }
+    if (String(url).includes('/api/associations/')) {
+      return makeJsonResponse({
+        associations: [
+          { rel: 'has_payment_field', to: 'field-pan' },
+          { rel: 'has_payment_field', to: 'field-name' },
+        ],
+      });
+    }
+    return makeJsonResponse({});
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'vault-owner',
+  });
+
+  const search = await client.search_concepts('credit card info with name todd', { top_k: 5 });
+  assert.equal(calls[0].options.method, 'POST');
+  assert.match(calls[0].url, /\/api\/concepts\/search/);
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'vault-owner');
+  const searchBody = JSON.parse(calls[0].options.body);
+  assert.match(String(searchBody.query || ''), /todd/i);
+  assert.equal(search[0].uuid, 'pay-todd');
+
+  const graph = await client.query_graph({
+    search: { text: 'Todd Kovach cardholder', topK: 5 },
+    traverse: { edgeTypes: ['owns_payment', 'has_payment_field'], depth: 2 },
+  });
+  assert.match(calls[1].url, /\/api\/query/);
+  assert.equal(graph.subgraph.edges[0].rel, 'owns_payment');
+
+  const assoc = await client.get_associations('pay-todd', { direction: 'outgoing' });
+  assert.match(calls[2].url, /\/api\/associations\/pay-todd/);
+  assert.ok(calls[2].url.includes('direction=outgoing'));
+  assert.equal(assoc.length, 2);
+  assert.equal(assoc[0].rel, 'has_payment_field');
+});
+
+test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, memoryId: 'm1', state: 'supported', hits: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.semantic_remember({ text: 'Paul owns Spot.', owner_user_id: 'u1' });
+  await client.semantic_recall({ query: 'Spot', owner_user_id: 'u1', top_k: 5 });
+  await client.semantic_ask({ subject: 'Paul', predicate: 'owns', object: 'Spot', owner_user_id: 'u1' });
+
+  assert.equal(calls.length, 3);
+  assert.match(calls[0].url, /\/api2\.0\/semantic\/remember/);
+  assert.match(calls[1].url, /\/api2\.0\/semantic\/recall/);
+  assert.match(calls[2].url, /\/api2\.0\/semantic\/ask/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.text, 'Paul owns Spot.');
+  assert.equal(body.ownerUserId, 'u1');
+});
+
+// --- create_node_with_document privacy forwarding -------------------------
+// This wrapper had no privacy parameter, so every episodic turn written
+// through it became a public, anonymously readable node. 2,650 such rows were
+// counted on production 2026-08-24.
+
+test('create_node_with_document sends nothing privacy-related by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const uuid = await client.create_node_with_document({ label: 'Berlin', tags: ['place'] });
+  assert.equal(uuid, 'n1');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.label, 'Berlin');
+  assert.equal(body.private, undefined);
+  assert.equal(body.securityClass, undefined);
+  assert.equal(body.ownerUserId, undefined);
+});
+
+test('create_node_with_document forwards private: true', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n2' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: fetchMock,
+    defaultOwnerUserId: 'slack:U1'
+  });
+  await client.create_node_with_document({
+    label: 'dataset.choose {"name":"wells-fargo-blackwool"}',
+    private: true,
+    metadata: { episodic: true }
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.private, true);
+  // The owner rides the soft identity header the client already sends, so the
+  // caller does not have to repeat it on every write.
+  assert.equal(calls[0].options.headers['x-ksg-owner'], 'slack:U1');
+});
+
+test('create_node_with_document accepts securityClass and an explicit owner', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ uuid: 'n3' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.create_node_with_document({
+    label: 'x',
+    securityClass: 'private',
+    ownerUserId: 'lehel',
+    agentSessionId: 'slack:U9'
+  });
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.securityClass, 'private');
+  assert.equal(body.private, true, 'securityClass:private implies private:true for older servers');
+  assert.equal(body.ownerUserId, 'lehel');
+  assert.equal(body.agentSessionId, 'slack:U9');
 });
