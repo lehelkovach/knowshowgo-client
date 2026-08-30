@@ -14,14 +14,14 @@ against the KnowShowGo (KSG) API, in either JavaScript or Python.
 
 ```bash
 # JavaScript, from the registry
-npm install @lehelkovach/knowshowgo-client --legacy-peer-deps
+npm install @lehelkovach/knowshowgo-client
 
 # or pin a release tag
-npm install --legacy-peer-deps \
+npm install \
   git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.7-client
 ```
 
-The `--legacy-peer-deps` flag is required because the peer package `knowshowgo`
+The `` flag is required because the peer package `knowshowgo`
 (the server) is not published to npm. The SDK's only runtime dependency is
 `node-fetch` (a fallback for older runtimes).
 
@@ -135,3 +135,19 @@ the server [`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main
 - [API reference](API.md) — every method, grouped by domain, JS + Python.
 - Server [runbook](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md).
 - [Pairing rules](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
+
+
+## Authentication (Bearer)
+
+Prefer a server-minted API token over soft owner headers alone:
+
+```js
+const client = new KnowShowGoClient({
+  baseUrl: "https://api.knowshowgo.com",
+  authToken: process.env.KSG_API_TOKEN, // or accessToken / tokenProvider
+  defaultOwnerUserId: "my-app", // still sent as X-KSG-Owner for soft ACL
+});
+await client.connect(); // discovers release; pin with expected_release if you want
+```
+
+Mint tokens via `POST /api2.0/auth/tokens` (see server PUBLIC-API / api-tokens docs).

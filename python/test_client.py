@@ -4,8 +4,10 @@ import unittest
 from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.dirname(__file__))
-from client import (  # noqa: E402
+from client import (
+    matches_route,  # noqa: E402
     KnowShowGoClient,
+    EntityProxy,
     PUBLIC_API_BASE_URL,
     LOCAL_API_BASE_URL,
     resolve_base_url,
@@ -40,6 +42,27 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"delta": 2.0},
         )
 
+    def test_reinforce_assertion_posts_claim_and_speaker(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "reinforced": True})
+        )
+        out = client.reinforce_assertion(
+            "person:Bob", "health", "has cancer", speaker="Tracy"
+        )
+        self.assertTrue(out["reinforced"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/assertions/reinforce",
+            json={
+                "subject": "person:Bob",
+                "predicate": "health",
+                "object": "has cancer",
+                "source": "user",
+                "speaker": "Tracy",
+            },
+        )
+
     def test_explain_entity_passes_optional_predicate(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -53,6 +76,70 @@ class TestKnowShowGoClient(unittest.TestCase):
             "GET",
             "https://example.test/api/entities/topic-1/explain",
             params={"predicate": "status"},
+        )
+
+    def test_get_entity_properties_and_entity_proxy(self):
+        payload = {
+            "ok": True,
+            "uuid": "person:Ada",
+            "properties": {
+                "middle_name": {
+                    "value": "Augusta",
+                    "confidence": 0.9,
+                    "contested": True,
+                    "claims": [
+                        {"value": "Augusta", "rank": 1, "winner": True, "source": "resume"},
+                        {"value": "A.", "rank": 2, "winner": False, "source": "chat"},
+                    ],
+                }
+            },
+        }
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+
+        raw = client.get_entity_properties("person:Ada", predicate="middle_name")
+        self.assertEqual(raw["properties"]["middle_name"]["value"], "Augusta")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api2.0/entities/person:Ada/properties",
+            params={"predicate": "middle_name"},
+        )
+
+        types_payload = {
+            "ok": True,
+            "uuid": "person:Ada",
+            "types": [{"uuid": "proto-person", "name": "Person", "score": 0.91}],
+        }
+
+        def side_effect(method, url, **kwargs):
+            if "/types" in url:
+                return FakeResponse(types_payload)
+            return FakeResponse(payload)
+
+        client.session.request = MagicMock(side_effect=side_effect)
+        entity = client.get_entity_snapshot("person:Ada")
+        self.assertIsInstance(entity, EntityProxy)
+        self.assertEqual(entity.middleName, "Augusta")
+        self.assertEqual(entity.middle_name, "Augusta")
+        self.assertEqual(entity.claims["middle_name"][0]["source"], "resume")
+        self.assertTrue(entity.prop("middle_name")["contested"])
+        self.assertEqual(entity.get_type()[0]["name"], "Person")
+
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+        client.get_entity_properties("person:Ada", entity_api_prefix="/api")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api/entities/person:Ada/properties",
+            params={},
+        )
+
+        client.session.request = MagicMock(return_value=FakeResponse(types_payload))
+        typed = client.get_entity_types("person:Ada", top_k=3, persist=True)
+        self.assertEqual(typed["types"][0]["name"], "Person")
+        client.session.request.assert_called_with(
+            "GET",
+            "https://example.test/api2.0/entities/person:Ada/types",
+            params={"topK": 3, "threshold": 0, "persist": "true", "persistTopK": 1},
         )
 
     # ===== Topics =====
@@ -190,6 +277,26 @@ class TestKnowShowGoClient(unittest.TestCase):
                          "https://example.test/api/object-categories/upsert")
         self.assertEqual(called_json["categoryLineageKey"], "category:person")
 
+    def test_upsert_object_category_maps_match_contract(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "categoryPrototypeUuid": "proposition-1"})
+        )
+
+        client.upsert_object_category(
+            name="Proposition",
+            hard_constraints=["has_semantic_expression"],
+            soft_constraints=["semantic_coherence"],
+            min_score=0.75,
+            decision_policy="hard_gate_min_score",
+        )
+
+        body = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(body["hardConstraints"], ["has_semantic_expression"])
+        self.assertEqual(body["softConstraints"], ["semantic_coherence"])
+        self.assertEqual(body["minScore"], 0.75)
+        self.assertEqual(body["decisionPolicy"], "hard_gate_min_score")
+
     def test_get_object_category_targets_uuid(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -242,6 +349,33 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api/objects/obj-1",
             params={"ownerUserId": "user-1"},
         )
+
+    def test_get_object_requests_lazy_prototype_matches(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "obj-1"})
+        )
+
+        client.get_object(
+            "obj-1",
+            match_prototypes=True,
+            prototype_revision_uuids=["proto-a", "proto-b"],
+        )
+
+        params = client.session.request.call_args.kwargs["params"]
+        self.assertEqual(params["matchPrototypes"], True)
+        self.assertEqual(params["prototypeRevisionUuids"], "proto-a,proto-b")
+
+    def test_get_object_requests_lazy_inference(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "arg-1"})
+        )
+
+        client.get_object("arg-1", infer=True)
+
+        params = client.session.request.call_args.kwargs["params"]
+        self.assertEqual(params["infer"], True)
 
     def test_resolve_object_maps_lineage_and_private(self):
         client = KnowShowGoClient("https://example.test")
@@ -319,6 +453,98 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "GET",
             "https://example.test/api/procedures/proc-1",
+        )
+
+    def test_get_procedure_passes_source_ab(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "loadPath": "dagJson"})
+        )
+
+        client.get_procedure("proc-1", source="dagJson")
+
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/procedures/proc-1",
+            params={"source": "dagJson"},
+        )
+
+    def test_list_memory_roles_defaults_to_api2(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "roles": [{"role": "mandate"}]})
+        )
+        roles = client.list_memory_roles()
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api2.0/memory/roles",
+        )
+        self.assertEqual(roles[0]["role"], "mandate")
+
+    def test_instantiate_memory_maps_role_body(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "mem-1"})
+        )
+        client.instantiate_memory(
+            role="schedule",
+            title="Sunday chores",
+            private=True,
+            owner_user_id="lehel",
+        )
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/memory/instantiate")
+        self.assertEqual(kwargs["json"]["role"], "schedule")
+        self.assertEqual(kwargs["json"]["title"], "Sunday chores")
+        self.assertEqual(kwargs["json"]["private"], True)
+        self.assertEqual(kwargs["json"]["ownerUserId"], "lehel")
+
+    def test_instantiate_memory_prefix_fallback(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "objectUuid": "mem-2"})
+        )
+        client.instantiate_memory(
+            role="mandate", title="Pay rent", memory_api_prefix="/api"
+        )
+        args, _kwargs = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/memory/instantiate")
+
+    def test_get_memory_object_targets_uuid(self):
+        client = KnowShowGoClient("https://example.test", default_owner_user_id="lehel")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "claims": []})
+        )
+        client.get_memory_object("mem-1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.test/api2.0/memory/mem-1")
+        self.assertEqual(kwargs.get("params", {}).get("ownerUserId"), "lehel")
+
+    def test_put_procedure_dag_maps_body(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True})
+        )
+
+        client.put_procedure_dag(
+            "proc-1",
+            {"version": 1, "title": "P", "steps": [{"id": "0", "title": "A"}]},
+            rematerialize=False,
+        )
+
+        client.session.request.assert_called_once_with(
+            "PUT",
+            "https://example.test/api/procedures/proc-1/dag",
+            json={
+                "dagJson": {
+                    "version": 1,
+                    "title": "P",
+                    "steps": [{"id": "0", "title": "A"}],
+                },
+                "rematerialize": False,
+            },
         )
 
     def test_add_procedure_step_maps_anchors_and_omits_none(self):
@@ -467,6 +693,25 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api/concept-objects/search",
             json={"query": "Bowie", "text": None, "context": {}, "topK": 3},
         )
+
+    def test_search_knowledge_posts_to_api2(self):
+        client = KnowShowGoClient("https://example.test", default_owner_user_id="slack:U1")
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "ok": True,
+                    "query": "Acme",
+                    "count": 1,
+                    "results": [{"kind": "object", "title": "Acme Offer", "score": 1}],
+                }
+            )
+        )
+        out = client.search_knowledge("Acme", top_k=5)
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["results"][0]["title"], "Acme Offer")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertIn("/api2.0/knowledge/search", args[1])
 
     def test_suggest_concept_object_prototypes_maps_fields(self):
         client = KnowShowGoClient("https://example.test")
@@ -781,8 +1026,37 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api2.0/prototypes/match",
-            json={"text": "email password submit", "embedding": None, "topK": 3, "threshold": 0.0},
+            json={
+                "text": "email password submit",
+                "embedding": None,
+                "topK": 3,
+                "threshold": 0.0,
+            },
         )
+
+    def test_search_property_definitions_answers_which_field(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"results": [
+                {"uuid": "v1", "similarity": 0.91,
+                 "props": {"isObjectPropertyValue": True, "name": "number:4766"}},
+                {"uuid": "d1", "similarity": 0.78,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "name_on_card", "valueType": "string"}},
+                {"uuid": "d2", "similarity": 0.66,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "number", "valueType": "string"}},
+                {"uuid": "d3", "similarity": 0.51,
+                 "props": {"isObjectPropertyDefinition": True,
+                           "propertyName": "number", "valueType": "string"}},
+            ]})
+        )
+
+        defs = client.search_property_definitions("Cardholder name")
+
+        self.assertEqual([d["property"] for d in defs], ["name_on_card", "number"])
+        self.assertEqual(defs[0]["valueType"], "string")
+        self.assertEqual(defs[0]["score"], 0.78)
 
     def test_prototype_api_prefix_falls_back_to_legacy_api(self):
         client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")  # pragma: allowlist secret
@@ -793,7 +1067,12 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/prototypes/match",
-            json={"text": "username password submit", "embedding": None, "topK": 5, "threshold": 0.0},
+            json={
+                "text": "username password submit",
+                "embedding": None,
+                "topK": 5,
+                "threshold": 0.0,
+            },
         )
 
     def test_search_prototypes_unwraps_prototypes(self):
@@ -824,17 +1103,97 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api2.0/prototypes/p1/exemplars",
             json={"conceptUuid": "c2"},
         )
+
+    def test_evaluate_prototype_match_posts_revision_uuids(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "match"})
+        )
+
+        result = client.evaluate_prototype_match("object-2", "prototype-1", "context-3")
+
+        self.assertEqual(result["decision"], "match")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": "object-2",
+                "prototypeRevisionUuid": "prototype-1",
+                "contextRevisionUuid": "context-3",
+            },
+        )
+        self.assertNotIn("/prototypes/match", "https://example.test/api2.0/prototype-matches/evaluate")
+
+    def test_evaluate_prototype_match_list_posts_list_not_evaluate(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "policy": "list", "wta": False, "matches": []})
+        )
+        result = client.evaluate_prototype_match_list("obj-1", ["p-a", "p-b"])
+        self.assertEqual(result["wta"], False)
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/list",
+            json={
+                "objectRevisionUuid": "obj-1",
+                "prototypeRevisionUuids": ["p-a", "p-b"],
+                "contextRevisionUuid": None,
+            },
+        )
+
+    def test_cast_object_posts_explicit_cast(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "wta": False, "objectUuid": "cast-1"})
+        )
+        result = client.cast_object("obj-1", "proto-claim", require_match=True)
+        self.assertEqual(result["objectUuid"], "cast-1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/cast",
+            json={
+                "objectRevisionUuid": "obj-1",
+                "prototypeRevisionUuid": "proto-claim",
+                "contextRevisionUuid": None,
+                "requireMatch": True,
+                "title": None,
+                "objectLineageKey": None,
+            },
+        )
+
+    def test_evaluate_logic_inference_posts_revision_uuids(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "valid"})
+        )
+
+        result = client.evaluate_logic_inference(
+            premise_revision_uuids=["p1", "p2"],
+            conclusion_revision_uuid="p3",
+        )
+
+        self.assertEqual(result["decision"], "valid")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": ["p1", "p2"],
+                "conclusionRevisionUuid": "p3",
+                "argumentRevisionUuid": None,
+            },
+        )
+
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
             return_value=FakeResponse({
-                "channel": "release",
-                "release": "v0.2.7",
+                "channel": "dev",
+                "release": "v0.2.8-dev",
                 "surfaces": {"clientContract": [{"method": "GET", "path": "/health"}]}
             })
         )
-        manifest = client.connect(expected_channel='release', expected_release='v0.2.7')
-        self.assertEqual(manifest["channel"], "release")
+        manifest = client.connect(expected_channel='dev', expected_release='v0.2.8-dev')
+        self.assertEqual(manifest["channel"], "dev")
 
     def test_resolve_object_adds_object_uuid_alias(self):
         client = KnowShowGoClient("https://example.test")
@@ -895,8 +1254,8 @@ class TestAdvertisedBaseUrl(unittest.TestCase):
         client = KnowShowGoClient("http://127.0.0.1:3000")
         client.session.request = MagicMock(
             return_value=FakeResponse({
-                "channel": "release",
-                "release": "v0.2.7",
+                "channel": "dev",
+                "release": "v0.2.8-dev",
                 "api": {
                     "publicBaseUrl": "https://api.knowshowgo.com",
                     "prefixes": {"stable": "/api", "current": "/api2.0"},
@@ -916,6 +1275,209 @@ class TestAdvertisedBaseUrl(unittest.TestCase):
         client = self._client()
         client.connect()
         self.assertEqual(client.base_url, "http://127.0.0.1:3000")
+
+
+class TestApiTokens(unittest.TestCase):
+    """The server has verified bearer auth; until now the SDK could only send
+    the soft X-KSG-Owner header, so callers had no way to use it."""
+
+    def test_create_api_token_posts_to_token_endpoint(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "token": "ksg_abc123", "record": {"jti": "j1"}})
+        )
+
+        out = client.create_api_token(owner_user_id="alice", label="laptop", ttl_days=30)
+
+        self.assertEqual(out["token"], "ksg_abc123")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/auth/tokens")
+        self.assertEqual(kwargs["json"]["ownerUserId"], "alice")
+        self.assertEqual(kwargs["json"]["ttlDays"], 30)
+
+    def test_auth_token_is_sent_as_bearer_header(self):
+        client = KnowShowGoClient("https://example.test", auth_token="ksg_live")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer ksg_live")
+
+    def test_no_token_means_no_authorization_header(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertNotIn("Authorization", kwargs.get("headers", {}))
+
+    def test_set_auth_token_swaps_the_token(self):
+        client = KnowShowGoClient("https://example.test", auth_token="old")
+        client.session.request = MagicMock(return_value=FakeResponse({"objects": []}))
+
+        client.set_auth_token("new")
+        client.list_objects()
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer new")
+
+    def test_token_endpoints_honour_the_api_fallback_prefix(self):
+        client = KnowShowGoClient("https://example.test", prototype_api_prefix="/api")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "tokens": [{"jti": "j1"}]})
+        )
+
+        tokens = client.list_api_tokens(owner_user_id="alice")
+
+        self.assertEqual(tokens[0]["jti"], "j1")
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/auth/tokens")
+
+    def test_admin_secret_rides_along_so_the_first_token_can_be_minted(self):
+        client = KnowShowGoClient("https://example.test", admin_secret="s3cret")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "token": "ksg_x", "record": {"jti": "j1"}})
+        )
+
+        client.create_api_token(owner_user_id="alice")
+
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["headers"]["X-KSG-Admin"], "s3cret")
+
+    def test_no_admin_secret_means_no_admin_header(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"tokens": []}))
+
+        client.list_api_tokens()
+
+        _, kwargs = client.session.request.call_args
+        self.assertNotIn("X-KSG-Admin", kwargs.get("headers", {}))
+
+    def test_revoke_api_token_targets_the_jti(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "record": {"jti": "j1", "revoked": True}})
+        )
+
+        out = client.revoke_api_token("j1", owner_user_id="alice")
+
+        self.assertTrue(out["record"]["revoked"])
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api2.0/auth/tokens/j1/revoke")
+
+
+class TestListParity(unittest.TestCase):
+    """These two existed in the JS SDK only, so a Python caller had no way to
+    enumerate objects or categories."""
+
+    def test_list_objects_filters_by_category(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"objects": [{"uuid": "o1"}]})
+        )
+
+        objects = client.list_objects(category="GmailAccount", limit=50, owner_user_id="alice")
+
+        self.assertEqual(objects[0]["uuid"], "o1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/objects")
+        self.assertEqual(kwargs["params"]["category"], "GmailAccount")
+        self.assertEqual(kwargs["params"]["limit"], 50)
+        self.assertEqual(kwargs["headers"]["X-KSG-Owner"], "alice")
+
+    def test_list_object_categories_returns_categories(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"categories": [{"name": "GmailAccount", "objectCount": 1}]})
+        )
+
+        categories = client.list_object_categories()
+
+        self.assertEqual(categories[0]["name"], "GmailAccount")
+        args, _ = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api/object-categories")
+
+
+
+class TestP0Transport(unittest.TestCase):
+    def test_matches_route_templates(self):
+        self.assertTrue(matches_route("/api/objects/:uuid", "/api/objects/4ee7abcd"))
+        self.assertFalse(matches_route("/api/objects/:uuid", "/api/objects/4ee7/extra"))
+        self.assertFalse(matches_route("/api/objects/:uuid", "/api/concepts/4ee7abcd"))
+
+    def test_connect_without_expectations_accepts_public_release(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"channel": "release", "release": "v0.2.8", "surfaces": {}})
+        )
+        manifest = client.connect()
+        self.assertEqual(manifest["channel"], "release")
+
+    def test_connect_fails_fast_on_explicit_mismatch(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"channel": "release", "release": "v0.2.8", "surfaces": {}})
+        )
+        with self.assertRaisesRegex(ValueError, "expected channel dev"):
+            client.connect(expected_channel="dev")
+
+    def test_access_token_alias_and_token_provider(self):
+        client = KnowShowGoClient("https://example.test", access_token="from-alias")
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer from-alias")
+
+        n = {"i": 0}
+
+        def provider():
+            n["i"] += 1
+            return f"tok-{n['i']}"
+
+        client = KnowShowGoClient("https://example.test", token_provider=provider)
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        client.list_objects()
+        first = client.session.request.call_args_list[0].kwargs["headers"]["Authorization"]
+        second = client.session.request.call_args_list[1].kwargs["headers"]["Authorization"]
+        self.assertEqual(first, "Bearer tok-1")
+        self.assertEqual(second, "Bearer tok-2")
+
+    def test_bearer_skips_owner_in_query(self):
+        client = KnowShowGoClient(
+            "https://example.test",
+            default_owner_user_id="alice",
+            auth_token="ksg_live",
+        )
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "objects": []}))
+        client.list_objects()
+        kwargs = client.session.request.call_args.kwargs
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer ksg_live")
+        self.assertEqual(kwargs["headers"]["X-KSG-Owner"], "alice")
+        self.assertNotIn("ownerUserId", kwargs.get("params") or {})
+
+    def test_contract_enforcement_matches_uuid_templates(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            side_effect=[
+                FakeResponse(
+                    {
+                        "channel": "dev",
+                        "release": "v0.2.9-dev",
+                        "surfaces": {
+                            "clientContract": [{"method": "GET", "path": "/api/objects/:uuid"}]
+                        },
+                    }
+                ),
+                FakeResponse({"ok": True, "uuid": "x"}),
+            ]
+        )
+        client.connect(enforce_contract=True)
+        out = client.get_object("4ee7abcd-0000-0000-0000-000000000001")
+        self.assertTrue(out.get("ok"))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev]
+
+jobs:
+  js:
+    name: JS (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Pack and import
+        run: |
+          npm pack
+          mkdir -p /tmp/ksg-pack-smoke
+          cd /tmp/ksg-pack-smoke
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE"/lehelkovach-knowshowgo-client-*.tgz
+          node --input-type=module -e "import('@lehelkovach/knowshowgo-client').then(m => { if (!m.KnowShowGoClient) process.exit(1); console.log('import ok'); })"
+
+  python:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install requests
+      - run: python -m unittest discover -s python -p 'test_*.py'

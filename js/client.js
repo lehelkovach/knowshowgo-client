@@ -20,6 +20,135 @@ export function resolveBaseUrl(explicit) {
   return env.KSG_API_URL || env.KSG_PUBLIC_API_URL || LOCAL_API_BASE_URL;
 }
 
+/** camelCase / PascalCase → snake_case */
+function toSnakeCase(name) {
+  return String(name)
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/-/g, '_')
+    .toLowerCase();
+}
+
+/**
+ * Resolve a property key from a JS-friendly name against a properties map.
+ * Accepts exact, snake_case, and case-insensitive matches.
+ */
+export function resolvePropertyKey(name, properties = {}) {
+  if (!name || !properties) return null;
+  if (Object.prototype.hasOwnProperty.call(properties, name)) return name;
+  const snake = toSnakeCase(name);
+  if (Object.prototype.hasOwnProperty.call(properties, snake)) return snake;
+  const lower = String(name).toLowerCase();
+  const snakeLower = snake.toLowerCase();
+  for (const key of Object.keys(properties)) {
+    const k = key.toLowerCase();
+    if (k === lower || k === snakeLower) return key;
+  }
+  return null;
+}
+
+/**
+ * ORM-style entity view over `/api2.0/entities/:id/properties`.
+ *   entity.middleName           → winner value
+ *   entity.claims.middleName    → full ranked claim stack
+ *   entity.prop('middle_name')  → { value, confidence, contested, claims }
+ */
+export class EntityProxy {
+  constructor({ uuid = null, properties = {}, policy = null, ok = true, types = null, ...rest } = {}) {
+    this.uuid = uuid ?? rest.entityId ?? null;
+    this.ok = ok !== false;
+    this.properties = properties || {};
+    this.policy = policy || null;
+    this.types = Array.isArray(types) ? types : (Array.isArray(rest.matched) ? rest.matched : []);
+    this.raw = {
+      uuid: this.uuid,
+      properties: this.properties,
+      policy: this.policy,
+      ok: this.ok,
+      types: this.types,
+      ...rest,
+    };
+
+    const claimsTarget = {};
+    this.claims = new Proxy(claimsTarget, {
+      get: (_t, prop) => {
+        if (typeof prop !== 'string') return undefined;
+        const key = resolvePropertyKey(prop, this.properties);
+        return key ? this.properties[key]?.claims : undefined;
+      },
+      ownKeys: () => Object.keys(this.properties),
+      getOwnPropertyDescriptor: (_t, prop) => {
+        const key = resolvePropertyKey(prop, this.properties);
+        if (!key) return undefined;
+        return { configurable: true, enumerable: true, value: this.properties[key]?.claims };
+      },
+    });
+
+    // eslint-disable-next-line no-constructor-return -- intentional Proxy wrapper
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        if (typeof prop === 'symbol' || prop in target) {
+          return Reflect.get(target, prop, receiver);
+        }
+        if (typeof prop !== 'string') return undefined;
+        const key = resolvePropertyKey(prop, target.properties);
+        if (!key) return undefined;
+        return target.properties[key]?.value;
+      },
+      has(target, prop) {
+        if (prop in target) return true;
+        return Boolean(resolvePropertyKey(prop, target.properties));
+      },
+      ownKeys(target) {
+        return Reflect.ownKeys(target);
+      },
+    });
+  }
+
+  /** Full property cell: { value, confidence, contested, claims } */
+  prop(name) {
+    const key = resolvePropertyKey(name, this.properties);
+    return key ? this.properties[key] : undefined;
+  }
+
+  /**
+   * Ranked prototype matches (closest first). Optionally refresh from the API
+   * when a client is attached via `_client` + `refresh`.
+   */
+  getType({ refresh = false } = {}) {
+    if (refresh && this._client && typeof this._client.get_entity_types === 'function') {
+      return this._client.get_entity_types(this.uuid).then((body) => {
+        this.types = body.types || body.matched || [];
+        return this.types;
+      });
+    }
+    return this.types;
+  }
+
+  toJSON() {
+    return {
+      ok: this.ok,
+      uuid: this.uuid,
+      properties: this.properties,
+      policy: this.policy,
+      types: this.types,
+    };
+  }
+}
+
+
+/**
+ * Match a concrete request path against a release-contract template.
+ * `/api/objects/:uuid` matches `/api/objects/4ee7…`; length must agree.
+ */
+export function matchesRoute(template, actual) {
+  const expected = String(template || "").split("/");
+  const received = String(actual || "").split("/");
+  if (expected.length !== received.length) return false;
+  return expected.every(
+    (segment, i) => segment.startsWith(":") || segment === received[i],
+  );
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -33,7 +162,12 @@ export class KnowShowGoClient {
     topicApiPrefix = '/api2.0',
     auto_connect = false,
     defaultOwnerUserId = null,
-    defaultAgentSessionId = null
+    defaultAgentSessionId = null,
+    authToken = null,
+    accessToken = null,
+    apiToken = null,
+    tokenProvider = null,
+    adminSecret = null
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
     // Wrap the global fetch so it is always invoked with the correct context.
@@ -48,9 +182,23 @@ export class KnowShowGoClient {
     // Soft identity for server read ACL (X-KSG-Owner / query ownerUserId).
     this.defaultOwnerUserId = defaultOwnerUserId || null;
     this.defaultAgentSessionId = defaultAgentSessionId || null;
+    // Hard identity. A signed token cannot be spoofed the way the soft owner
+    // headers can, and the server prefers it over them when both are present.
+    // Aliases: accessToken / apiToken (assessment + AGENTS.md naming).
+    this.authToken = authToken || accessToken || apiToken || null;
+    /** @type {null|(() => string|Promise<string|null|undefined>)} */
+    this.tokenProvider = typeof tokenProvider === "function" ? tokenProvider : null;
+    // Minting a token for someone else needs the server's admin secret, sent as
+    // X-KSG-Admin. Without it a caller can only mint for the owner they already
+    // hold a token for, which leaves no way to issue the first one.
+    this.adminSecret = adminSecret || null;
     this._contract = null;
     this._enforceContract = false;
     this._connectPromise = auto_connect ? this.connect() : null;
+    if (this._connectPromise && typeof this._connectPromise.catch === "function") {
+      // Prevent an unhandled rejection if the caller never awaits ready().
+      this._connectPromise.catch(() => {});
+    }
   }
 
   /**
@@ -64,13 +212,16 @@ export class KnowShowGoClient {
   /**
    * Cache release manifest; optionally enforce clientContract path allowlist.
    *
+   * `expected_channel` / `expected_release` are **opt-in**. A bare `connect()`
+   * discovers whatever the server advertises (public release or dev) — pinned
+   * defaults previously made `connect()` throw against api.knowshowgo.com.
+   *
    * `adopt_advertised_base_url` re-points this client at `api.publicBaseUrl`
-   * from the manifest, so a caller bootstrapped against any reachable host ends
-   * up talking to the canonical public API the service advertises.
+   * from the manifest.
    */
   async connect({
-    expected_channel = 'release',
-    expected_release = 'v0.2.8',
+    expected_channel = null,
+    expected_release = null,
     enforce_contract = false,
     adopt_advertised_base_url = false
   } = {}) {
@@ -93,26 +244,60 @@ export class KnowShowGoClient {
 
   _assertContractPath(method, path) {
     if (!this._enforceContract || !this._contract) return;
-    const prefix = path.split('/:')[0];
     const allowed = this._contract.some(
-      (entry) => entry.method === method && (entry.path === path || entry.path.startsWith(prefix))
+      (entry) => entry.method === method && matchesRoute(entry.path, path),
     );
     if (!allowed) {
-      throw new Error(`endpoint not in dev contract: ${method} ${path}`);
+      throw new Error(`endpoint not in client contract: ${method} ${path}`);
     }
   }
 
-  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id } = {}) {
+  /**
+   * Await the optional constructor `auto_connect` handshake.
+   * Safe to call when auto_connect was false (resolves immediately).
+   */
+  async ready() {
+    if (this._connectPromise) await this._connectPromise;
+    return this;
+  }
+
+  async _resolveAuthToken(explicit) {
+    if (explicit !== undefined && explicit !== null) return explicit;
+    if (this.tokenProvider) {
+      const provided = await this.tokenProvider();
+      if (provided != null && provided !== "") {
+        this.authToken = provided;
+        return provided;
+      }
+    }
+    return this.authToken;
+  }
+
+  /** Swap the bearer token on a live client (e.g. after minting or rotating one). */
+  set_auth_token(token) {
+    this.authToken = token || null;
+    return this;
+  }
+
+  async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret, skip_ready = false } = {}) {
+    // Don't deadlock: connect() → get_release_manifest → _request must not await ready().
+    if (!skip_ready && endpoint !== "/api/release" && endpoint !== "/health") {
+      await this.ready();
+    }
     this._assertContractPath(method, endpoint);
     const url = new URL(this.baseUrl + endpoint);
     const ownerUserId = owner_user_id ?? this.defaultOwnerUserId;
     const agentSessionId = agent_session_id ?? this.defaultAgentSessionId;
+    const token = await this._resolveAuthToken(auth_token);
     const mergedParams = { ...(params || {}) };
-    if (ownerUserId != null && mergedParams.ownerUserId == null) {
-      mergedParams.ownerUserId = ownerUserId;
-    }
-    if (agentSessionId != null && mergedParams.agentSessionId == null) {
-      mergedParams.agentSessionId = agentSessionId;
+    // Prefer Authorization over identity-in-query (logs/caches). Soft headers remain.
+    if (!token) {
+      if (ownerUserId != null && mergedParams.ownerUserId == null) {
+        mergedParams.ownerUserId = ownerUserId;
+      }
+      if (agentSessionId != null && mergedParams.agentSessionId == null) {
+        mergedParams.agentSessionId = agentSessionId;
+      }
     }
     for (const [k, v] of Object.entries(mergedParams)) {
       if (v !== undefined && v !== null) url.searchParams.set(k, String(v));
@@ -123,6 +308,9 @@ export class KnowShowGoClient {
       : { accept: 'application/json' };
     if (ownerUserId) headers['x-ksg-owner'] = String(ownerUserId);
     if (agentSessionId) headers['x-ksg-session'] = String(agentSessionId);
+    if (token) headers.authorization = `Bearer ${token}`;
+    const admin = admin_secret ?? this.adminSecret;
+    if (admin) headers['x-ksg-admin'] = String(admin);
 
     let bodyJson = json;
     if (json && typeof json === 'object' && !Array.isArray(json)) {
@@ -156,11 +344,11 @@ export class KnowShowGoClient {
 
   // ===== Health & release =====
   health_check() {
-    return this._request('GET', '/health');
+    return this._request('GET', '/health', { skip_ready: true });
   }
 
   get_release_manifest() {
-    return this._request('GET', '/api/release');
+    return this._request('GET', '/api/release', { skip_ready: true });
   }
 
   // ===== Prototypes =====
@@ -236,6 +424,56 @@ export class KnowShowGoClient {
     }).then(r => r.associations);
   }
 
+  // ===== API tokens (hard identity) =====
+  // The soft X-KSG-Owner header is client-supplied and therefore trusted only as
+  // far as the caller is; these mint signed tokens the server can actually
+  // verify. Token endpoints share the prototype prefix (/api2.0 with /api kept
+  // as the backward-compatible alias).
+
+  /**
+   * Mint a token for an owner. The raw token is returned exactly once — the
+   * server stores only a record of it — so a caller that drops it must mint
+   * another rather than re-read this one.
+   *
+   * @returns {Promise<{ ok: boolean, token: string, record: object }>}
+   */
+  create_api_token({ owner_user_id = null, label = null, agent_session_id = null, ttl_days = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/auth/tokens`, {
+      json: {
+        ownerUserId: owner_user_id,
+        label,
+        agentSessionId: agent_session_id,
+        ttlDays: ttl_days
+      }
+    });
+  }
+
+  /** List an owner's token records (never the raw tokens). */
+  list_api_tokens({ owner_user_id = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/auth/tokens`, {
+      params: owner_user_id ? { ownerUserId: owner_user_id } : undefined
+    }).then((r) => r.tokens);
+  }
+
+  /** Revoke one token by its `jti`. */
+  revoke_api_token(jti, { owner_user_id = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/auth/tokens/${encodeURIComponent(jti)}/revoke`, {
+      json: { ownerUserId: owner_user_id }
+    });
+  }
+
+  /**
+   * Per-principal request/read/write counts for cost and quota tracking.
+   *
+   * Admin-only, and it authenticates differently from the token endpoints: the
+   * admin secret goes in as the bearer here, not the X-KSG-Admin header.
+   */
+  get_admin_usage({ admin_token = null } = {}) {
+    return this._request('GET', '/api/admin/usage', {
+      auth_token: admin_token ?? this.adminSecret ?? this.authToken
+    });
+  }
+
   // ===== Prototype / centroid (prototype-theory) mechanics =====
   // Generalize an exemplar into a category: the service embeds it (if needed),
   // finds the nearest prototype by centroid similarity, and folds it in,
@@ -263,10 +501,64 @@ export class KnowShowGoClient {
   }
 
   // Match a perceived item (text or embedding) against existing prototypes.
+  // Nearest-centroid over the values each prototype has absorbed — a value-shaped
+  // question ("which category is this?"). To ask which FIELD a label names, search
+  // property-definition concepts instead (see `search_property_definitions`): a
+  // value centroid drifts toward the shape of the data, so "Card number" would
+  // rank closer to `cvv` than to `number`.
   match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
       json: { text, embedding, topK: top_k, threshold }
     }).then(r => r.matches);
+  }
+
+  /**
+   * Which stored field does this label name? Ranks property-definition concepts
+   * over the same vector index every other search uses, filtered by node role.
+   * Returns [{ property, valueType, score, uuid }] best first, one per property.
+   */
+  search_property_definitions(query, { top_k = 20, owner_user_id = null, agent_session_id = null } = {}) {
+    return this.search_concepts(query, {
+      top_k,
+      similarity_threshold: 0,
+      owner_user_id,
+      agent_session_id
+    }).then((results) => {
+      const out = [];
+      const seen = new Set();
+      for (const r of results || []) {
+        if (r?.props?.isObjectPropertyDefinition !== true) continue;
+        const property = r.props.propertyName;
+        if (!property || seen.has(property)) continue;
+        seen.add(property);
+        out.push({
+          property,
+          valueType: r.props.valueType ?? null,
+          score: r.similarity ?? 0,
+          uuid: r.uuid
+        });
+      }
+      return out;
+    });
+  }
+
+  /**
+   * Resolve observed labels onto stored fields — a form's inputs, a CSV header
+   * row, an API payload. The server ranks and assigns, so callers do not each
+   * reimplement it.
+   *
+   * `candidates` closes the set to fields you actually hold, so a label naming
+   * something unknown resolves to nothing instead of the nearest vector.
+   * Assignment is one-to-one: a field fills at most one label.
+   *
+   * @returns {Promise<{ slots: Array<{label, property, score}>, unresolved: string[] }>}
+   */
+  resolve_slots({ labels = [], candidates = null, floor = 0.5, top_k = 40, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/slots/resolve`, {
+      json: { labels, candidates, floor, topK: top_k },
+      owner_user_id,
+      agent_session_id
+    });
   }
 
   // Label/tag autocomplete over prototypes (e.g. to pick an object "type").
@@ -283,17 +575,154 @@ export class KnowShowGoClient {
     });
   }
 
+  evaluatePrototypeMatch({
+    objectRevisionUuid,
+    prototypeRevisionUuid,
+    contextRevisionUuid = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/evaluate`, {
+      json: { objectRevisionUuid, prototypeRevisionUuid, contextRevisionUuid }
+    });
+  }
+
+  evaluate_prototype_match({
+    object_revision_uuid,
+    prototype_revision_uuid,
+    context_revision_uuid = null
+  } = {}) {
+    return this.evaluatePrototypeMatch({
+      objectRevisionUuid: object_revision_uuid,
+      prototypeRevisionUuid: prototype_revision_uuid,
+      contextRevisionUuid: context_revision_uuid
+    });
+  }
+
+  /**
+   * Additive list API. Does not replace evaluatePrototypeMatch and does not
+   * WTA-cast. Empty prototypeRevisionUuids → server lists matchable prototypes.
+   */
+  evaluatePrototypeMatchList({
+    objectRevisionUuid,
+    prototypeRevisionUuids = [],
+    contextRevisionUuid = null,
+    limit = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/list`, {
+      json: {
+        objectRevisionUuid,
+        prototypeRevisionUuids,
+        contextRevisionUuid,
+        ...(limit != null ? { limit } : {})
+      }
+    });
+  }
+
+  evaluate_prototype_match_list({
+    object_revision_uuid,
+    prototype_revision_uuids = [],
+    context_revision_uuid = null,
+    limit = null
+  } = {}) {
+    return this.evaluatePrototypeMatchList({
+      objectRevisionUuid: object_revision_uuid,
+      prototypeRevisionUuids: prototype_revision_uuids,
+      contextRevisionUuid: context_revision_uuid,
+      limit
+    });
+  }
+
+  /**
+   * Persist a new object under a chosen prototype. Source revision is unchanged.
+   * requireMatch defaults true (409 when the list/evaluate decision is not match).
+   */
+  cast_object({
+    objectRevisionUuid,
+    prototypeRevisionUuid,
+    contextRevisionUuid = null,
+    requireMatch = true,
+    title = null,
+    objectLineageKey = null,
+    owner_user_id = null,
+    agent_session_id = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/cast`, {
+      json: {
+        objectRevisionUuid,
+        prototypeRevisionUuid,
+        contextRevisionUuid,
+        requireMatch,
+        title,
+        objectLineageKey
+      },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
+  castObject(args = {}) {
+    return this.cast_object(args);
+  }
+
+  evaluateLogicInference({
+    premiseRevisionUuids = [],
+    conclusionRevisionUuid = null,
+    argumentRevisionUuid = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/infer`, {
+      json: { premiseRevisionUuids, conclusionRevisionUuid, argumentRevisionUuid }
+    });
+  }
+
+  evaluate_logic_inference({
+    premise_revision_uuids = [],
+    conclusion_revision_uuid = null,
+    argument_revision_uuid = null
+  } = {}) {
+    return this.evaluateLogicInference({
+      premiseRevisionUuids: premise_revision_uuids,
+      conclusionRevisionUuid: conclusion_revision_uuid,
+      argumentRevisionUuid: argument_revision_uuid
+    });
+  }
+
   // ===== Nodes with Documents =====
+  /**
+   * Create a node with an attached document.
+   *
+   * `private` exists because this wrapper previously had no way to express
+   * privacy at all, so everything written through it — every episodic
+   * conversation turn and tool call — landed in the anonymously-readable
+   * commons. Pass `private: true` for anything owner-scoped; the owner comes
+   * from `defaultOwnerUserId` (sent as `X-KSG-Owner`) unless overridden here.
+   *
+   * The server refuses a private write it cannot attribute, so a private node
+   * is never silently stored as unreadable.
+   */
   async create_node_with_document({
     label,
     summary = null,
     tags = [],
     metadata = {},
     associations = [],
-    prototypeUuid = null
+    prototypeUuid = null,
+    private: isPrivate = false,
+    securityClass = null,
+    ownerUserId = null,
+    agentSessionId = null
   }) {
     const out = await this._request('POST', '/api/nodes', {
-      json: { label, summary, tags, metadata, associations, prototypeUuid }
+      json: {
+        label,
+        summary,
+        tags,
+        metadata,
+        associations,
+        prototypeUuid,
+        ...(isPrivate || securityClass === 'private' ? { private: true } : {}),
+        ...(securityClass ? { securityClass } : {}),
+        ...(ownerUserId ? { ownerUserId } : {}),
+        ...(agentSessionId ? { agentSessionId } : {})
+      }
     });
     return out.uuid;
   }
@@ -364,6 +793,69 @@ export class KnowShowGoClient {
     }).then(r => r.assertion);
   }
 
+  /** Same claim from another speaker → strengthen belief (voteScore + speakers). */
+  reinforce_assertion({
+    subject,
+    predicate,
+    obj,
+    speaker = null,
+    delta = null,
+    truth = null,
+    source = 'user',
+    provenance = null
+  } = {}) {
+    return this._request('POST', '/api/assertions/reinforce', {
+      json: {
+        subject,
+        predicate,
+        object: obj,
+        speaker,
+        delta,
+        truth,
+        source,
+        provenance
+      }
+    });
+  }
+
+  /** Competing claim for same subject/predicate (keeps prior evidence). */
+  contradict_assertion({
+    subject,
+    predicate,
+    obj,
+    speaker = null,
+    truth = null,
+    source = 'user',
+    provenance = null,
+    against_assertion_id = null
+  } = {}) {
+    return this._request('POST', '/api/assertions/contradict', {
+      json: {
+        subject,
+        predicate,
+        object: obj,
+        speaker,
+        truth,
+        source,
+        provenance,
+        againstAssertionId: against_assertion_id
+      }
+    });
+  }
+
+  retract_assertion(assertion_id, { speaker = null, reason = null } = {}) {
+    return this._request('POST', `/api/assertions/${encodeURIComponent(assertion_id)}/retract`, {
+      json: { speaker, reason }
+    });
+  }
+
+  /** Live belief snapshot: resolved values + alternatives + speakers. */
+  get_beliefs(entity_id, { predicate = null } = {}) {
+    return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/beliefs`, {
+      params: { predicate }
+    });
+  }
+
   get_snapshot(entity_id) {
     return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/snapshot`).then(r => r.snapshot);
   }
@@ -377,6 +869,71 @@ export class KnowShowGoClient {
   explain_entity(entity_id, { predicate = null } = {}) {
     return this._request('GET', `/api/entities/${encodeURIComponent(entity_id)}/explain`, {
       params: { predicate }
+    });
+  }
+
+  /**
+   * Ranked property map for an entity (winner + contested claim stack).
+   * Canonical path `/api2.0/entities/:id/properties` with `/api` alias.
+   *
+   * @returns {Promise<{ ok, uuid, properties, policy }>}
+   */
+  get_entity_properties(entity_id, {
+    predicate = null,
+    entityApiPrefix = null,
+  } = {}) {
+    const prefix = entityApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/entities/${encodeURIComponent(entity_id)}/properties`, {
+      params: { predicate },
+    });
+  }
+
+  /**
+   * EntityProxy over get_entity_properties — `.middleName` returns the winner
+   * value; `.claims.middleName` / `.prop('middle_name')` expose the claim stack.
+   * Also hydrates `.getType()` from /entities/:id/types when available.
+   */
+  async get_entity_snapshot(entity_id, opts = {}) {
+    const body = await this.get_entity_properties(entity_id, opts);
+    let types = null;
+    try {
+      const typed = await this.get_entity_types(entity_id, {
+        top_k: opts.top_k ?? opts.topK ?? 5,
+        entityApiPrefix: opts.entityApiPrefix,
+      });
+      types = typed.types || typed.matched || [];
+    } catch {
+      /* older server without /types */
+    }
+    const proxy = new EntityProxy({ ...body, types });
+    proxy._client = this;
+    return proxy;
+  }
+
+  /** Alias for get_entity_snapshot. */
+  entity(entity_id, opts = {}) {
+    return this.get_entity_snapshot(entity_id, opts);
+  }
+
+  /**
+   * Ranked prototype/type matches (fuzzy duck typing).
+   * Canonical path `/api2.0/entities/:id/types` with `/api` alias.
+   */
+  get_entity_types(entity_id, {
+    top_k = 5,
+    threshold = 0,
+    persist = false,
+    persist_top_k = 1,
+    entityApiPrefix = null,
+  } = {}) {
+    const prefix = entityApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    const params = { topK: top_k, threshold };
+    if (persist) {
+      params.persist = 'true';
+      params.persistTopK = persist_top_k;
+    }
+    return this._request('GET', `${prefix}/entities/${encodeURIComponent(entity_id)}/types`, {
+      params,
     });
   }
 
@@ -501,7 +1058,11 @@ export class KnowShowGoClient {
     parent_category_name = null,
     properties = [],
     source = null,
-    category_lineage_key = null
+    category_lineage_key = null,
+    hard_constraints = null,
+    soft_constraints = null,
+    min_score = null,
+    decision_policy = null
   }) {
     return this._request('POST', '/api/object-categories/upsert', {
       json: {
@@ -512,7 +1073,11 @@ export class KnowShowGoClient {
         parentCategoryName: parent_category_name,
         properties,
         source,
-        categoryLineageKey: category_lineage_key
+        categoryLineageKey: category_lineage_key,
+        hardConstraints: hard_constraints,
+        softConstraints: soft_constraints,
+        minScore: min_score,
+        decisionPolicy: decision_policy
       }
     });
   }
@@ -565,8 +1130,103 @@ export class KnowShowGoClient {
     });
   }
 
-  get_object(uuid, { owner_user_id = null, agent_session_id = null } = {}) {
+  get_object(uuid, {
+    owner_user_id = null,
+    agent_session_id = null,
+    match_prototypes = false,
+    prototype_revision_uuid = null,
+    prototype_revision_uuids = null,
+    infer = false
+  } = {}) {
+    const params = {
+      ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
+      agentSessionId: agent_session_id ?? this.defaultAgentSessionId
+    };
+    if (match_prototypes) params.matchPrototypes = true;
+    if (prototype_revision_uuid) params.prototypeRevisionUuid = prototype_revision_uuid;
+    if (Array.isArray(prototype_revision_uuids) && prototype_revision_uuids.length > 0) {
+      params.prototypeRevisionUuids = prototype_revision_uuids.join(',');
+    } else if (typeof prototype_revision_uuids === 'string' && prototype_revision_uuids) {
+      params.prototypeRevisionUuids = prototype_revision_uuids;
+    }
+    if (infer) params.infer = true;
     return this._request('GET', `/api/objects/${encodeURIComponent(uuid)}`, {
+      params,
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
+  /**
+   * Role catalog for typed memory (`mandate` / `schedule` / `rule` / `procedureDag`).
+   * Canonical `/api2.0/memory/roles` with `/api` alias via `prototypeApiPrefix`.
+   */
+  list_memory_roles({ memory_api_prefix = null } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/memory/roles`).then((r) => r.roles || []);
+  }
+
+  /**
+   * Role-typed create: maps `role` → category + parent, then the same write path
+   * as `upsert_object`. Returns claims + prototype lineage.
+   */
+  instantiate_memory({
+    role,
+    title,
+    category_prototype_uuid = null,
+    category_name = null,
+    parent_category_name = null,
+    summary = '',
+    tags = [],
+    properties = [],
+    previous_object_uuid = null,
+    object_lineage_key = null,
+    provenance = null,
+    knowledge_kind = 'personal',
+    sensitivity = 'normal',
+    privacy_override = null,
+    private: is_private = null,
+    owner_user_id = null,
+    agent_session_id = null,
+    memory_api_prefix = null
+  } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/memory/instantiate`, {
+      json: {
+        role,
+        title,
+        categoryPrototypeUuid: category_prototype_uuid,
+        categoryName: category_name,
+        parentCategoryName: parent_category_name,
+        summary,
+        tags,
+        properties,
+        previousObjectUuid: previous_object_uuid,
+        objectLineageKey: object_lineage_key,
+        provenance,
+        knowledgeKind: knowledge_kind,
+        sensitivity,
+        privacyOverride: privacy_override,
+        private: is_private,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id
+      },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
+  /**
+   * Object snapshot + assertion claims + prototype lineage walk.
+   * Same ACL as `get_object`.
+   */
+  get_memory_object(uuid, {
+    owner_user_id = null,
+    agent_session_id = null,
+    memory_api_prefix = null
+  } = {}) {
+    const prefix = memory_api_prefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('GET', `${prefix}/memory/${encodeURIComponent(uuid)}`, {
       params: {
         ownerUserId: owner_user_id ?? this.defaultOwnerUserId,
         agentSessionId: agent_session_id ?? this.defaultAgentSessionId
@@ -656,14 +1316,46 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
-  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props } = {}) {
+  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
-      json: { title, description, steps, dependencies, guards, extraProps: extra_props }
+      json: {
+        title,
+        description,
+        steps,
+        dependencies,
+        guards,
+        extraProps: extra_props,
+        ...(dag_json != null ? { dagJson: dag_json } : {})
+      }
     });
   }
 
-  get_procedure(uuid) {
-    return this._request('GET', `/api/procedures/${encodeURIComponent(uuid)}`);
+  /**
+   * Get a Procedure DAG.
+   * @param {string} uuid
+   * @param {{ source?: 'dagJson'|'graph'|'both' }} [opts]
+   *   A/B load: dagJson (canonical JSON SoT), graph (edge compile), both (default; primary prefers dagJson).
+   */
+  get_procedure(uuid, { source } = {}) {
+    const params = {};
+    if (source != null && source !== '') params.source = source;
+    return this._request('GET', `/api/procedures/${encodeURIComponent(uuid)}`, { params });
+  }
+
+  /**
+   * Update canonical dagJson (source of truth). Optionally rematerializes next→ edges.
+   */
+  put_procedure_dag(uuid, { dag_json, rematerialize = true, provenance = null } = {}) {
+    if (!dag_json || typeof dag_json !== 'object') {
+      throw new Error('dag_json object is required for put_procedure_dag');
+    }
+    return this._request('PUT', `/api/procedures/${encodeURIComponent(uuid)}/dag`, {
+      json: {
+        dagJson: dag_json,
+        rematerialize,
+        provenance
+      }
+    });
   }
 
   add_procedure_step(procedure_uuid, {
@@ -752,6 +1444,148 @@ export class KnowShowGoClient {
     return this._request('POST', '/api/concept-objects/search', {
       json: { query, text, context, topK: top_k }
     }).then(r => r.results);
+  }
+
+  /**
+   * Unified knowledge search over concepts (incl. episodic chunks) + typed
+   * objects (Document / Idea / …). Canonical path `/api2.0/knowledge/search`
+   * with `/api` alias. Pass owner identity so private docs are visible.
+   */
+  search_knowledge({
+    query,
+    top_k = 10,
+    similarity_threshold = 0.55,
+    categories = null,
+    include_concepts = true,
+    include_objects = true,
+    owner_user_id = null,
+    agent_session_id = null,
+    knowledgeApiPrefix = null,
+  } = {}) {
+    const prefix = knowledgeApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/knowledge/search`, {
+      json: {
+        query,
+        topK: top_k,
+        similarityThreshold: similarity_threshold,
+        categories,
+        includeConcepts: include_concepts,
+        includeObjects: include_objects,
+      },
+      owner_user_id,
+      agent_session_id,
+    }).then((r) => ({
+      ok: r.ok !== false,
+      query: r.query ?? query,
+      count: r.count ?? (r.results || []).length,
+      results: r.results || [],
+    }));
+  }
+
+  /**
+   * Ingest a chat utterance into the semantic graph (MemoryEvent + claims).
+   * Canonical `/api2.0/semantic/remember` with `/api` alias via prototypeApiPrefix.
+   * Pass `plan` when the agent already extracted entities/claims; otherwise the
+   * server runs its heuristic (or fixture) extractor.
+   */
+  semantic_remember({
+    text,
+    speaker = 'user',
+    source = 'conversation',
+    owner_user_id = null,
+    agent_session_id = null,
+    session_id = null,
+    is_private = true,
+    plan = null,
+    provenance = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/remember`, {
+      json: {
+        text,
+        speaker,
+        source,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        sessionId: session_id,
+        private: is_private,
+        plan,
+        provenance,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_recall({
+    query,
+    top_k = 8,
+    expand_depth = 1,
+    similarity_threshold = 0.15,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/recall`, {
+      json: {
+        query,
+        topK: top_k,
+        expandDepth: expand_depth,
+        similarityThreshold: similarity_threshold,
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_ask({
+    subject,
+    predicate,
+    object = undefined,
+    pattern = null,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/ask`, {
+      json: pattern || { subject, predicate, object, ownerUserId: owner_user_id },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  semantic_correct({
+    text,
+    speaker = 'user',
+    source = 'correction',
+    owner_user_id = null,
+    agent_session_id = null,
+    session_id = null,
+    is_private = true,
+    plan = null,
+    provenance = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/semantic/correct`, {
+      json: {
+        text,
+        speaker,
+        source,
+        ownerUserId: owner_user_id,
+        agentSessionId: agent_session_id,
+        sessionId: session_id,
+        private: is_private,
+        plan,
+        provenance,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
   }
 
   suggest_concept_object_prototypes({ label = '', properties = [], context = {}, category_prototype_uuids = null, top_k = 5 } = {}) {
@@ -867,9 +1701,14 @@ export class KnowShowGoClient {
   }
 
   // ===== Graph query (devExtended) =====
-  query_graph({ search, traverse } = {}) {
+  query_graph({ search, traverse, match_prototypes = false, prototype_revision_uuids = null } = {}) {
     return this._request('POST', '/api/query', {
-      json: { search, traverse }
+      json: {
+        search,
+        traverse,
+        matchPrototypes: match_prototypes || undefined,
+        prototypeRevisionUuids: prototype_revision_uuids || undefined
+      }
     });
   }
 
@@ -878,8 +1717,22 @@ export class KnowShowGoClient {
     return this._request('POST', '/api/seed/osl-agent', { json: body });
   }
 
+  seed_osl_oc_agent(body = {}) {
+    return this._request('POST', '/api/seed/osl-oc-agent', { json: body });
+  }
+
   seed_openclaw_agent(body = {}) {
     return this._request('POST', '/api/seed/openclaw-agent', { json: body });
+  }
+
+  seed_social_layer({ api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/social-layer`, { json: {} });
+  }
+
+  seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });
   }
 
   // ===== Experimental (dev preview) =====

@@ -86,10 +86,18 @@ resolved into current snapshots.
 | `get_snapshot` | `(entityId)` |
 | `get_evidence` | `(entityId, { predicate? })` |
 | `explain_entity` | `(entityId, { predicate? })` |
+| `get_entity_properties` | `(entityId, { predicate?, entityApiPrefix? })` → ranked `{ value, confidence, contested, claims[] }` map (`/api2.0`) |
+| `get_entity_types` | `(entityId, { top_k?, persist?, entityApiPrefix? })` → ranked prototype matches (fuzzy duck typing) |
+| `get_entity_snapshot` / `entity` | `(entityId, …)` → `EntityProxy` (`.middleName` → winner; `.getType()` → prototypes) |
 
 ```js
 await client.create_assertion({ subject: 'Ada', predicate: 'is_a', obj: 'Mathematician', source: 'app' });
 const snap = await client.get_snapshot('Ada');
+const entity = await client.get_entity_snapshot('Ada');
+entity.middleName;            // winner value
+entity.claims.middleName;     // ranked claim stack
+entity.prop('middle_name');   // full cell
+entity.getType();             // [{ name: 'Person', score: 0.91 }, …]
 ```
 
 ---
@@ -151,6 +159,9 @@ Schema-typed objects (instances) and their category prototypes.
 | `list_object_categories` | `()` |
 | `upsert_object` | `{ ... }` create/update instance with assertion-backed props |
 | `get_object` | `(uuid, { owner_user_id?, agent_session_id? })` |
+| `list_memory_roles` | `()` → role catalog (`/api2.0/memory/roles`) |
+| `instantiate_memory` | `{ role, title, … }` role-typed upsert + claims |
+| `get_memory_object` | `(uuid)` object + claims + prototype lineage |
 | `list_objects` | `{ category?, limit?, owner_user_id?, agent_session_id? }` |
 | `resolve_object` | `{ ... }` resolve by tag, title, or embedding |
 | `generalize_object` | `{ ... }` promote a concrete object to a prototype |
@@ -170,6 +181,25 @@ Smart tag/concept suggestion and search.
 | `search_concept_objects` | `{ query?, text?, context?, top_k? }` |
 | `suggest_concept_object_prototypes` | `{ label?, properties, context?, category_prototype_uuids?, top_k? }` |
 | `suggest_prototypes` | alias |
+
+---
+
+## Knowledge search (documents + graph)
+
+Unified search for ingested **Document** / Idea objects plus semantic concepts
+(including episodic document chunks). Canonical namespace `/api2.0` with `/api`
+alias. Pass `owner_user_id` (or set `defaultOwnerUserId`) so private docs are
+visible under read ACL.
+
+| Method | Signature (JS) |
+|---|---|
+| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix? }` |
+
+Returns `{ ok, query, count, results }` where each result has
+`kind` (`concept` \| `object` \| `episode`), `score`, `uuid`, `title`,
+`summary`, optional `category` / `topics` / `excerpt` / `sourceUrl`.
+
+Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None)`.
 
 ---
 
