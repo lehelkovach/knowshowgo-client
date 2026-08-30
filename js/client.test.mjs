@@ -1082,6 +1082,54 @@ test('evaluatePrototypeMatch posts exact revision UUIDs', async () => {
   });
 });
 
+test('evaluatePrototypeMatchList posts a list request, not WTA', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      policy: 'list',
+      wta: false,
+      matches: [{ decision: 'match' }, { decision: 'no_match' }]
+    });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.evaluatePrototypeMatchList({
+    objectRevisionUuid: 'obj-1',
+    prototypeRevisionUuids: ['p-a', 'p-b']
+  });
+  await client.evaluate_prototype_match_list({
+    object_revision_uuid: 'obj-1',
+    prototype_revision_uuids: ['p-a', 'p-b']
+  });
+  assert.equal(result.wta, false);
+  assert.equal(result.policy, 'list');
+  assert.equal(calls.length, 2);
+  assert.ok(calls.every((c) => c.url.endsWith('/api2.0/prototype-matches/list')));
+  assert.ok(calls.every((c) => !c.url.includes('/prototype-matches/evaluate')));
+});
+
+test('cast_object posts an explicit cast and keeps evaluate unchanged', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, wta: false, objectUuid: 'cast-1' });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const result = await client.cast_object({
+    objectRevisionUuid: 'obj-1',
+    prototypeRevisionUuid: 'proto-claim',
+    requireMatch: true
+  });
+  assert.equal(result.objectUuid, 'cast-1');
+  assert.equal(calls[0].url, 'https://example.test/api2.0/prototype-matches/cast');
+  const body = JSON.parse(calls[0].options.body);
+  assert.equal(body.requireMatch, true);
+  assert.equal(body.objectRevisionUuid, 'obj-1');
+});
+
 test('evaluateLogicInference posts premise and conclusion revision UUIDs', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

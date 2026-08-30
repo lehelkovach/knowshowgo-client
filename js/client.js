@@ -597,6 +597,72 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Additive list API. Does not replace evaluatePrototypeMatch and does not
+   * WTA-cast. Empty prototypeRevisionUuids → server lists matchable prototypes.
+   */
+  evaluatePrototypeMatchList({
+    objectRevisionUuid,
+    prototypeRevisionUuids = [],
+    contextRevisionUuid = null,
+    limit = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/list`, {
+      json: {
+        objectRevisionUuid,
+        prototypeRevisionUuids,
+        contextRevisionUuid,
+        ...(limit != null ? { limit } : {})
+      }
+    });
+  }
+
+  evaluate_prototype_match_list({
+    object_revision_uuid,
+    prototype_revision_uuids = [],
+    context_revision_uuid = null,
+    limit = null
+  } = {}) {
+    return this.evaluatePrototypeMatchList({
+      objectRevisionUuid: object_revision_uuid,
+      prototypeRevisionUuids: prototype_revision_uuids,
+      contextRevisionUuid: context_revision_uuid,
+      limit
+    });
+  }
+
+  /**
+   * Persist a new object under a chosen prototype. Source revision is unchanged.
+   * requireMatch defaults true (409 when the list/evaluate decision is not match).
+   */
+  cast_object({
+    objectRevisionUuid,
+    prototypeRevisionUuid,
+    contextRevisionUuid = null,
+    requireMatch = true,
+    title = null,
+    objectLineageKey = null,
+    owner_user_id = null,
+    agent_session_id = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototype-matches/cast`, {
+      json: {
+        objectRevisionUuid,
+        prototypeRevisionUuid,
+        contextRevisionUuid,
+        requireMatch,
+        title,
+        objectLineageKey
+      },
+      owner_user_id,
+      agent_session_id
+    });
+  }
+
+  castObject(args = {}) {
+    return this.cast_object(args);
+  }
+
   evaluateLogicInference({
     premiseRevisionUuids = [],
     conclusionRevisionUuid = null,
