@@ -23,7 +23,7 @@ This package is a remote REST client — it does **not** depend on the
 npm install @lehelkovach/knowshowgo-client
 
 # or pin a GitHub tag
-npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.8-client
+npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.9-client
 ```
 
 Python (single-file client, needs `requests`):
@@ -168,7 +168,7 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 
 | Branch | Client | Server |
 |--------|--------|--------|
-| `main` | `0.2.7` (`v0.2.7-client`) | KSG `v0.2.7` |
+| `main` | `0.2.9` (`v0.2.9-client`) | KSG `v0.2.9` |
 | `dev`  | `0.2.9-dev` | KSG `0.2.9-dev` / `v0.2.9-dev` |
 
 Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> Product / MVP cold-start: [`README.md`](README.md). Client tip: `dev` (`0.2.9-dev`).
+> Product / MVP cold-start: [`README.md`](README.md). Client tip: `main` (`v0.2.9-client`).
 
 ## Continuity
 
@@ -12,13 +12,13 @@
   to append a per-session resume log and resume a June 2026 handoff; **this file
   supersedes it.** No action logs, no run-once queues — work lives in PRs.
 
-**Start:** [`README.md`](README.md). Pair with knowshowgo **`dev`**:
-[CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/CLIENT-SYNC.md).
+**Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.9`**:
+[CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 KSG execute queue (unified `dev` ladder: CH / K / IR / OSLO): [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
 
 ## Engage now (client)
 
-1. **K0 Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch` (one
+1. **K0 Logic IR SDK (on `v0.2.9`)** — R0 `evaluatePrototypeMatch` (one
    pair, unchanged); `evaluatePrototypeMatchList` + `cast_object` (additive list
    + explicit cast, not WTA); R1 persist IR via `upsert_object` / `get_object`;
    R2 `evaluateLogicInference` + `get_object(..., { infer: true })`.
@@ -56,8 +56,8 @@ section below). Any doc telling you to always pass it is pre-0.2.9.
 
 | | |
 |---|---|
-| Client | **`0.2.9-dev`** / branch **`dev`** |
-| Server | knowshowgo **`0.2.9-dev`** / **`dev`** |
+| Client | **`0.2.9`** / tag **`v0.2.9-client`** / branch **`main`** |
+| Server | knowshowgo **`0.2.9`** / **`v0.2.9`** / **`main`** |
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
 | `connect()` default | **no pin** — discovers server; pass `expected_*` to assert |
 
@@ -70,7 +70,7 @@ Released pairing: see the server repo's
 | Thing | State |
 |---|---|
 | `prototype_filter` on `search_concepts` | Accepted by the server, **not enforced**. Type ∩ value is two calls. Do not paper over it in the SDK. |
-| Semantic + slots endpoints against prod | `main`/prod is `v0.2.8` and soft-404s `/api2.0/semantic/*` and `resolve_slots`. They need a server on the KSG `dev` tip. |
+| Semantic + slots endpoints against older prod | Pre-`v0.2.9` hosts may soft-404 `/api2.0/semantic/*`. Pair this client with KSG `v0.2.9`. |
 | `dataset.remember` against prod (agent path) | Times out after ~20s as of 2026-08-23; root cause unknown. It is a **server/host** problem, not an SDK one — do not add retries or a client-side workaround before it is diagnosed. |
 | CI | A run that fails in 2–3s with `steps=0` and `BlobNotFound` logs is a GitHub Actions **budget** block, not a test failure. Check Settings → Billing → Budgets. |
 
