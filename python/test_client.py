@@ -1124,6 +1124,43 @@ class TestKnowShowGoClient(unittest.TestCase):
         )
         self.assertNotIn("/prototypes/match", "https://example.test/api2.0/prototype-matches/evaluate")
 
+    def test_evaluate_prototype_match_list_posts_list_not_evaluate(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "policy": "list", "wta": False, "matches": []})
+        )
+        result = client.evaluate_prototype_match_list("obj-1", ["p-a", "p-b"])
+        self.assertEqual(result["wta"], False)
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/list",
+            json={
+                "objectRevisionUuid": "obj-1",
+                "prototypeRevisionUuids": ["p-a", "p-b"],
+                "contextRevisionUuid": None,
+            },
+        )
+
+    def test_cast_object_posts_explicit_cast(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "wta": False, "objectUuid": "cast-1"})
+        )
+        result = client.cast_object("obj-1", "proto-claim", require_match=True)
+        self.assertEqual(result["objectUuid"], "cast-1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/prototype-matches/cast",
+            json={
+                "objectRevisionUuid": "obj-1",
+                "prototypeRevisionUuid": "proto-claim",
+                "contextRevisionUuid": None,
+                "requireMatch": True,
+                "title": None,
+                "objectLineageKey": None,
+            },
+        )
+
     def test_evaluate_logic_inference_posts_revision_uuids(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(

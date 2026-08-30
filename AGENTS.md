@@ -18,10 +18,11 @@ KSG execute queue (unified `dev` ladder: CH / K / IR / OSLO): [DEVELOPMENT-PLAN]
 
 ## Engage now (client)
 
-1. **K0 Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch`; R1 persist IR
-   via `upsert_object` / `get_object`; R2 `evaluateLogicInference` +
-   `get_object(..., { infer: true })`. Matching Argument ≠ VALID inference.
-   Next client work follows the server PR into `dev` (IR3+ after CH0).
+1. **K0 Logic IR SDK (on `dev`, not prod)** — R0 `evaluatePrototypeMatch` (one
+   pair, unchanged); `evaluatePrototypeMatchList` + `cast_object` (additive list
+   + explicit cast, not WTA); R1 persist IR via `upsert_object` / `get_object`;
+   R2 `evaluateLogicInference` + `get_object(..., { infer: true })`.
+   Matching Argument ≠ VALID inference. No `/api3`.
 2. **Bearer API token support** — ✅ constructor `authToken` / `accessToken` /
    `apiToken` / `tokenProvider`; sends `Authorization: Bearer …` (soft
    `X-KSG-Owner` remains as fallback). Agent + Chrome should pass tokens.

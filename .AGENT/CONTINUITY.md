@@ -1,12 +1,13 @@
 # Continuity digest — knowshowgo-client
 
-**Updated:** 2026-08-29 · Agents: read this at session start; keep it short.
+**Updated:** 2026-08-30 · Agents: read this at session start; keep it short.
 
 ## Now
 
 - Policy is root [`AGENTS.md`](../AGENTS.md). Pair with KSG **`dev`** (`0.2.9-dev`).
-- Unified board: KSG [`docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md) v6.6. This repo is **K0** on that board.
-- Replaying **#2** (belief wrappers) onto current `dev` so it pairs with KSG belief APIs. CH0 soak continues in KSG.
+- Unified board: KSG [`docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md) v6.7. This repo is **K0** on that board.
+- Additive wrappers: `evaluatePrototypeMatchList` / `cast_object`. One-pair
+  `evaluatePrototypeMatch` stays. Not WTA. No `/api3`.
 - Gitflow: branch from **`dev`**, PR into **`dev`**.
 
 ## Holds

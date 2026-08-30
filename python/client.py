@@ -605,6 +605,50 @@ class KnowShowGoClient:
             }
         )
 
+    def evaluate_prototype_match_list(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuids=None,
+        context_revision_uuid: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List match decisions for one object vs many prototypes (not WTA)."""
+        payload = {
+            "objectRevisionUuid": object_revision_uuid,
+            "prototypeRevisionUuids": list(prototype_revision_uuids or []),
+            "contextRevisionUuid": context_revision_uuid,
+        }
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/list",
+            json=payload,
+        )
+
+    def cast_object(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None,
+        require_match: bool = True,
+        title: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist a new object under a chosen prototype. Source is unchanged."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/cast",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+                "requireMatch": require_match,
+                "title": title,
+                "objectLineageKey": object_lineage_key,
+            },
+        )
+
     def evaluate_logic_inference(
         self,
         premise_revision_uuids=None,
