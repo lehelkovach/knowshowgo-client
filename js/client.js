@@ -1735,6 +1735,11 @@ export class KnowShowGoClient {
     return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });
   }
 
+  seed_procedure_run_primitives({ api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/procedure-run-primitives`, { json: {} });
+  }
+
   // ===== Experimental (dev preview) =====
   create_vault({ owner_user_id, agent_session_id = null, title = 'Personal vault', tags, provenance = null } = {}) {
     return this._request('POST', '/api/vaults', {
