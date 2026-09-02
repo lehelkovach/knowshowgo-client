@@ -1136,6 +1136,13 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api2.0/seed/procedure-run-primitives",
             json={},
         )
+        client.session.request.reset_mock()
+        client.seed_procedure_run_primitives(api_prefix="/api")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/seed/procedure-run-primitives",
+            json={},
+        )
 
     def test_evaluate_prototype_match_list_posts_list_not_evaluate(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
