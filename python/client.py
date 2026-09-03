@@ -2122,6 +2122,10 @@ class KnowShowGoClient:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
 
+    def seed_procedure_run_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/procedure-run-primitives", json={})
+
     # ===== Experimental (dev preview) =====
 
     def create_vault(

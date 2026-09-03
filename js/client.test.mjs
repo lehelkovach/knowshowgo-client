@@ -1362,6 +1362,20 @@ test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by defa
   assert.equal(calls[0].url, 'https://example.test/api2.0/seed/logic-ir-primitives');
 });
 
+test('seed_procedure_run_primitives posts to /api2.0/seed/procedure-run-primitives by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, report: { categories: [] } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_procedure_run_primitives();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/procedure-run-primitives');
+  await client.seed_procedure_run_primitives({ api_prefix: '/api' });
+  assert.equal(calls[1].url, 'https://example.test/api/seed/procedure-run-primitives');
+});
+
 test('get_object can request lazy prototypeMatches', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
