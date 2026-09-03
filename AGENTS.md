@@ -1,6 +1,6 @@
 # AGENTS.md
 
-> Product / MVP cold-start: [`README.md`](README.md). Client tip: `main` (`v0.2.9-client`).
+> Product / MVP cold-start: [`README.md`](README.md). Client tip: `main` (`v0.2.10-client`).
 
 ## Continuity
 
@@ -12,7 +12,7 @@
   to append a per-session resume log and resume a June 2026 handoff; **this file
   supersedes it.** No action logs, no run-once queues — work lives in PRs.
 
-**Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.9`**:
+**Start:** [`README.md`](README.md). Pair with knowshowgo **`main` / `v0.2.10`**:
 [CLIENT-SYNC](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
 KSG execute queue (unified `dev` ladder: CH / K / IR / OSLO): [DEVELOPMENT-PLAN](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
 
@@ -56,8 +56,8 @@ section below). Any doc telling you to always pass it is pre-0.2.9.
 
 | | |
 |---|---|
-| Client | **`0.2.9`** / tag **`v0.2.9-client`** / branch **`main`** |
-| Server | knowshowgo **`0.2.9`** / **`v0.2.9`** / **`main`** |
+| Client | **`0.2.10`** / tag **`v0.2.10-client`** / branch **`main`** |
+| Server | knowshowgo **`0.2.10`** / **`v0.2.10`** / **`main`** |
 | Contract | `GET /api/release` → **`surfaces.clientContract`** |
 | `connect()` default | **no pin** — discovers server; pass `expected_*` to assert |
 

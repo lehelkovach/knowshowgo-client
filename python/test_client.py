@@ -1124,6 +1124,26 @@ class TestKnowShowGoClient(unittest.TestCase):
         )
         self.assertNotIn("/prototypes/match", "https://example.test/api2.0/prototype-matches/evaluate")
 
+    def test_seed_procedure_run_primitives_posts_to_api2(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "report": {"categories": []}})
+        )
+        result = client.seed_procedure_run_primitives()
+        self.assertTrue(result["ok"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/procedure-run-primitives",
+            json={},
+        )
+        client.session.request.reset_mock()
+        client.seed_procedure_run_primitives(api_prefix="/api")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/seed/procedure-run-primitives",
+            json={},
+        )
+
     def test_evaluate_prototype_match_list_posts_list_not_evaluate(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(
