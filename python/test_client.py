@@ -1203,6 +1203,76 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
 
+    def test_seed_logic_ir_primitives_posts_to_api2(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "report": {"categories": []}})
+        )
+        result = client.seed_logic_ir_primitives()
+        self.assertTrue(result["ok"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/logic-ir-primitives",
+            json={},
+        )
+        client.session.request.reset_mock()
+        client.seed_logic_ir_primitives(api_prefix="/api")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/seed/logic-ir-primitives",
+            json={},
+        )
+
+    def test_evaluate_logic_inference_accepts_argument_uuid_alone(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "invalid"})
+        )
+
+        result = client.evaluate_logic_inference(argument_revision_uuid="arg-1")
+
+        # A matching Argument object may still infer invalid.
+        self.assertEqual(result["decision"], "invalid")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": [],
+                "conclusionRevisionUuid": None,
+                "argumentRevisionUuid": "arg-1",
+            },
+        )
+
+    def test_camelcase_aliases_match_the_js_client(self):
+        # Each attribute access builds a fresh bound method, so compare the
+        # underlying functions rather than the bound wrappers.
+        for camel, snake in (
+            ("evaluatePrototypeMatch", "evaluate_prototype_match"),
+            ("evaluatePrototypeMatchList", "evaluate_prototype_match_list"),
+            ("castObject", "cast_object"),
+            ("evaluateLogicInference", "evaluate_logic_inference"),
+        ):
+            self.assertIs(
+                getattr(KnowShowGoClient, camel),
+                getattr(KnowShowGoClient, snake),
+                f"{camel} must alias {snake}",
+            )
+
+    def test_cast_object_forwards_soft_owner_headers(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True}))
+
+        client.cast_object(
+            object_revision_uuid="o1",
+            prototype_revision_uuid="p1",
+            owner_user_id="lehel",
+            agent_session_id="slack:U1",
+        )
+
+        headers = client.session.request.call_args.kwargs["headers"]
+        self.assertEqual(headers["X-KSG-Owner"], "lehel")
+        self.assertEqual(headers["X-KSG-Session"], "slack:U1")
+
     def test_connect_validates_release_manifest(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
