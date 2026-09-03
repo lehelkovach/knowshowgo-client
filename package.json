@@ -46,6 +46,7 @@
   "files": [
     "js",
     "python",
+    "!python/__pycache__",
     "scripts",
     "dist",
     "README.md",
