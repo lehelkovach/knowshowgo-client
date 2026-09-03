@@ -13,7 +13,7 @@
 
 ## Holds
 
-- This tag is `v0.2.10-client`. Next work lands on `dev` as `0.2.11-dev`.
+- Released tag is `v0.2.10-client`. This `dev` tip is `0.2.10-dev`; next release bumps to `0.2.11-dev`.
 - OSLO B1/C1 are not this repo.
 
 ## Anti-drift
