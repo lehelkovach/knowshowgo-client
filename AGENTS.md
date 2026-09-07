@@ -39,15 +39,24 @@ QA matrix (client surfaces of): sibling `osl-oc-agent/docs/QA-FLEET.md`.
 
 ```bash
 npm install                                        # plain — see peerDependencies policy
-node --test js/client.test.mjs                     # JS unit tests (NOT jest)
+node --test js/client.test.mjs js/ksg_object.test.mjs   # JS unit tests (NOT jest)
 python3 -m unittest discover -s python -p 'test_*.py'
 npm run build                                      # esbuild -> dist/index.cjs
+
+# against a real service — skips cleanly when none is reachable:
+KSG_LIVE_URL=http://127.0.0.1:3000 node --test js/ksg_object_live.test.mjs
 ```
 
-**Verified on the `dev` tip, 2026-08-24:** `npm install` clean, JS **84 pass / 0
-fail**, Python **76 pass / 0 fail**. Both suites mock the transport, so no server
-is needed. `npm test` (jest) reports "no tests found" — that is expected, the JS
-tests use the Node built-in runner.
+`node --test js/` does **not** pick up every file in that directory. It reported
+one passing test while looking like it ran the suite. Name the files.
+
+**Verified on the `dev` tip, 2026-09-07:** JS **114 pass / 0 fail**, Python
+**106 pass / 0 fail**. Those suites mock the transport, so no server is needed —
+and mocking the transport is exactly why they cannot catch an integration
+mismatch. The live suite above caught one (`upsert_object` takes `category_name`,
+not `categoryName`) that 114 green unit tests did not. Run it before claiming a
+client change works. `npm test` (jest) reports "no tests found"; that is
+expected, the JS tests use the Node built-in runner.
 
 `--legacy-peer-deps` is **not** required. Neither `main` nor `dev` of this client
 declares a `knowshowgo` peerDependency (removed since 0.2.9). Any doc telling you
@@ -92,6 +101,45 @@ This SDK is **transport-only**: `package.json` intentionally has **no
 Package version and advertised release can differ; `connect()` is unpinned and
 tracks `GET /api/release`. Check both before treating a mismatch as a bug.
 
+## Reading one entity: `hydrate()` → `KSGObject`
+
+`client.hydrate(uuid)` returns a duck-typed projection in **one** request:
+`person.middleName` is a synchronous member read, and `in`, `Object.keys`,
+spread and destructuring all work.
+
+One request is forced, not preferred. A `Proxy` get handler cannot await, so a
+member map that arrives separately from its values makes every read a promise
+and kills plain property access. Do not "optimise" this into lazy fetches.
+
+| Need | Call |
+|---|---|
+| Winner value | `person.city` / `person.value('city')` |
+| Strongest match | `person.type()` · all: `person.typesNow()` |
+| Who supplied a member, and rivals | `person.explain('city')` |
+| Read through a weaker match | `person.as('Employee').role` |
+| Member exists vs has a value | `hasMember()` vs `hasValue()` |
+| Value + confidence + claims | `person.cell('city')` |
+
+Three rules that are easy to break:
+
+- **The top match owns a name; it does not decide it.** Losers stay in
+  `alsoDefinedBy` and `byPrototype`. Centroids drift toward the shape of their
+  data — `cvv` outranks `number` for "Card number" — so never collapse the
+  ranking to a single answer.
+- **Hydration never writes.** `persist` is pinned false server-side and is not a
+  parameter. Stamping membership stays an explicit
+  `get_entity_types(id, { persist: true })`.
+- **It is a snapshot** (`hydratedAt`), because centroids move.
+
+Python mirrors it, with `as_` for the keyword. Full surface:
+[`docs/DUCK-TYPED-ORM.md`](docs/DUCK-TYPED-ORM.md). `get_entity_snapshot` is the
+older two-call `EntityProxy` and still works; `hydrate` supersedes it whenever
+member metadata is wanted.
+
+`EntityProxy.getType({ refresh })` returns an array without the flag and a
+Promise with it — prefer `typesNow()` or `resolveTypes()`, which each have one
+return type.
+
 ## Querying the graph data model (properties are concepts)
 
 KSG models an entity's **properties and each property value as their own
@@ -124,6 +172,9 @@ Each value is typed by a **`PropertyValue:<name>`** prototype whose embedding is
 the running centroid of values seen for that field, so `match_prototypes({ text:
 'billing city' })` resolves a real node and its `has_exemplar` edges lead to the
 stored values (edge weight `props.w` is typicality).
+
+`hydrate()` does not help here: it projects one entity you already have a uuid
+for, and this is a search.
 
 One limit to state plainly rather than work around: **type ∩ value is not one
 call.** `prototype_filter` on `search_concepts` is accepted by the server but not
