@@ -5,6 +5,7 @@ Provides a Python client for the KnowShowGo REST API.
 """
 
 import os
+import re
 import requests
 from typing import Dict, Any, List, Optional
 import json
@@ -51,6 +52,227 @@ def resolve_property_key(name: Optional[str], properties: Optional[Dict[str, Any
         if k == lower or k == snake_lower:
             return key
     return None
+
+
+def _member_name_aliases(name: str) -> set:
+    """
+    Every spelling a caller might reasonably use for one member name.
+
+    Built once per hydration so member access is a dict lookup rather than a
+    scan over every property on each attribute get.
+    """
+    raw = str(name)
+    snake = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", raw).replace("-", "_").lower()
+    parts = snake.split("_")
+    camel = parts[0] + "".join(p.title() for p in parts[1:])
+    return {
+        raw,
+        snake,
+        camel,
+        raw.lower(),
+        snake.lower(),
+        camel.lower(),
+        snake.replace("_", ""),
+    }
+
+
+class KSGObject:
+    """
+    A KSG entity projected as a duck-typed object, from one hydration call.
+
+    ``person.middle_name`` / ``person.middleName`` → winner value.
+    ``person.type()`` → strongest prototype match.
+    ``person.explain("city")`` → which prototype supplied the member, and rivals.
+    ``person.as_("Employee").role`` → read through a weaker match.
+
+    Members come from whatever prototypes matched, strongest first. A weaker
+    prototype that declares the same name is still reachable through ``as_``
+    and is listed by ``explain``, because the top match is a ranking rather than
+    a fact — the centroid machinery that ranks ``cvv`` above ``number`` for
+    "Card number" should not silently pick a member's meaning.
+
+    This mirrors the JS ``KSGObject`` deliberately. It is a snapshot;
+    ``hydrated_at`` records when, since centroids move as exemplars accumulate.
+    """
+
+    def __init__(self, payload: Optional[Dict[str, Any]] = None):
+        payload = payload or {}
+        self.ok = payload.get("ok", True) is not False
+        self.uuid = payload.get("uuid")
+        self.hydrated_at = payload.get("hydratedAt")
+        self.types = payload.get("types") or []
+        self.members = payload.get("members") or {}
+        self.properties = payload.get("properties") or {}
+        self.by_prototype = payload.get("byPrototype") or {}
+        self.policy = payload.get("policy")
+        self.raw = dict(payload)
+
+        index: Dict[str, str] = {}
+        for name in self.members:
+            for alias in _member_name_aliases(name):
+                index.setdefault(alias, name)
+        self._index = index
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached when normal attribute lookup fails, so real attributes
+        # always win and a member sharing their name stays available via value().
+        if name.startswith("_"):
+            raise AttributeError(name)
+        index = self.__dict__.get("_index") or {}
+        key = index.get(name) or index.get(name.lower())
+        if key is None:
+            raise AttributeError(name)
+        return (self.__dict__.get("properties") or {}).get(key, {}).get("value")
+
+    def __contains__(self, name: str) -> bool:
+        return self.member_name(name) is not None
+
+    def __iter__(self):
+        return iter(self.members)
+
+    def keys(self):
+        """Member names, so ``dict(**obj)``-style spreading works."""
+        return self.members.keys()
+
+    def __getitem__(self, name: str) -> Any:
+        key = self.member_name(name)
+        if key is None:
+            raise KeyError(name)
+        return self.properties.get(key, {}).get("value")
+
+    def member_name(self, name: str) -> Optional[str]:
+        """Canonical member name for any accepted spelling, else None."""
+        return self._index.get(name) or self._index.get(str(name).lower())
+
+    def has_member(self, name: str) -> bool:
+        """True when a prototype declares it or the entity holds a value."""
+        return self.member_name(name) is not None
+
+    def has_value(self, name: str) -> bool:
+        """
+        True when the member exists AND carries a value.
+
+        Worth distinguishing from ``has_member``: plain access yields None for a
+        typo, for a declared-but-empty field, and for an undeclared member, and
+        telling those apart is most of debugging a fuzzy projection.
+        """
+        key = self.member_name(name)
+        if key is None:
+            return False
+        return (self.properties.get(key) or {}).get("value") is not None
+
+    def value(self, name: str) -> Any:
+        """Winner value for a computed or shadowed name."""
+        key = self.member_name(name)
+        return None if key is None else (self.properties.get(key) or {}).get("value")
+
+    def cell(self, name: str) -> Optional[Dict[str, Any]]:
+        """Value plus confidence, contested flag, claims and provenance."""
+        key = self.member_name(name)
+        if key is None:
+            return None
+        member = self.members.get(key) or {}
+        prop = self.properties.get(key) or {}
+        return {
+            "name": key,
+            "value": prop.get("value"),
+            "confidence": prop.get("confidence"),
+            "contested": prop.get("contested") is True,
+            "claims": prop.get("claims") or [],
+            "valueType": member.get("valueType"),
+            "required": member.get("required") is True,
+            "definedBy": member.get("definedBy"),
+            "alsoDefinedBy": member.get("alsoDefinedBy") or [],
+            "hasValue": self.has_value(key),
+        }
+
+    def claims(self, name: str) -> List[Dict[str, Any]]:
+        """Ranked claim stack for a member, strongest first."""
+        cell = self.cell(name)
+        return [] if cell is None else cell["claims"]
+
+    def is_contested(self, name: str) -> bool:
+        """True when claims disagree, so a caller can surface the conflict."""
+        cell = self.cell(name)
+        return bool(cell and cell["contested"])
+
+    def explain(self, name: str) -> Optional[Dict[str, Any]]:
+        """Which prototype supplied a member, and what else could have."""
+        key = self.member_name(name)
+        if key is None:
+            return None
+        member = self.members.get(key) or {}
+        return {
+            "name": key,
+            "definedBy": member.get("definedBy"),
+            "alsoDefinedBy": member.get("alsoDefinedBy") or [],
+            "contested": self.is_contested(key),
+            "confidence": (self.properties.get(key) or {}).get("confidence"),
+        }
+
+    def type(self) -> Optional[Dict[str, Any]]:
+        """Strongest match, or None when nothing matched."""
+        return self.types[0] if self.types else None
+
+    def types_now(self) -> List[Dict[str, Any]]:
+        """Ranked matches. Always a list."""
+        return self.types
+
+    def as_(self, prototype: str) -> Optional["KSGObject"]:
+        """
+        The same entity seen through one matched prototype, by name or uuid.
+
+        Members that prototype does not declare disappear, which is how a caller
+        escapes a wrong top-ranked guess without another request. Named ``as_``
+        because ``as`` is a Python keyword.
+        """
+        wanted = str(prototype)
+        name = wanted
+        entry = self.by_prototype.get(wanted)
+        if entry is None:
+            for key, value in self.by_prototype.items():
+                if (value or {}).get("uuid") == wanted or key.lower() == wanted.lower():
+                    name, entry = key, value
+                    break
+        if entry is None:
+            return None
+
+        allowed = entry.get("members") or []
+        members: Dict[str, Any] = {}
+        properties: Dict[str, Any] = {}
+        for member_name in allowed:
+            if member_name in self.members:
+                members[member_name] = {
+                    **self.members[member_name],
+                    "definedBy": {
+                        "prototypeUuid": entry.get("uuid"),
+                        "prototypeName": name,
+                        "score": entry.get("score"),
+                    },
+                }
+            if member_name in self.properties:
+                properties[member_name] = self.properties[member_name]
+
+        return KSGObject({
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "hydratedAt": self.hydrated_at,
+            "types": [{"uuid": entry.get("uuid"), "name": name, "score": entry.get("score")}],
+            "members": members,
+            "properties": properties,
+            "byPrototype": {name: entry},
+            "policy": self.policy,
+        })
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "hydratedAt": self.hydrated_at,
+            "types": self.types,
+            "members": self.members,
+            "properties": self.properties,
+        }
 
 
 class EntityProxy:
@@ -973,6 +1195,30 @@ class KnowShowGoClient:
             f"{prefix}/entities/{entity_id}/types",
             params=params,
         )
+
+    def hydrate(
+        self,
+        entity_id: str,
+        top_k: int = 5,
+        threshold: float = 0,
+        entity_api_prefix: Optional[str] = None,
+    ) -> KSGObject:
+        """
+        Hydrate an entity as a duck-typed :class:`KSGObject` in one round trip.
+
+        Mirrors the JS ``client.hydrate``. Never persists prototype membership —
+        pass ``persist=True`` to :meth:`get_entity_types` when you mean to stamp
+        it.
+        """
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        body = self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/hydrate",
+            params={"topK": top_k, "threshold": threshold},
+        )
+        payload = dict(body or {})
+        payload.setdefault("uuid", entity_id)
+        return KSGObject(payload)
 
     def get_entity_snapshot(
         self,
