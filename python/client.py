@@ -634,6 +634,8 @@ class KnowShowGoClient:
         require_match: bool = True,
         title: Optional[str] = None,
         object_lineage_key: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Persist a new object under a chosen prototype. Source is unchanged."""
         return self._request(
@@ -647,6 +649,8 @@ class KnowShowGoClient:
                 "title": title,
                 "objectLineageKey": object_lineage_key,
             },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
         )
 
     def evaluate_logic_inference(
@@ -665,6 +669,13 @@ class KnowShowGoClient:
                 "argumentRevisionUuid": argument_revision_uuid,
             },
         )
+
+    # camelCase aliases: the JS client exposes both spellings, and agents port
+    # call sites between the two SDKs. Parity is cheaper than a translation table.
+    evaluatePrototypeMatch = evaluate_prototype_match
+    evaluatePrototypeMatchList = evaluate_prototype_match_list
+    castObject = cast_object
+    evaluateLogicInference = evaluate_logic_inference
 
     # ===== Node with Document Methods =====
 
