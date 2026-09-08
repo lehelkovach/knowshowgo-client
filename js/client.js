@@ -113,6 +113,13 @@ export class EntityProxy {
   /**
    * Ranked prototype matches (closest first). Optionally refresh from the API
    * when a client is attached via `_client` + `refresh`.
+   *
+   * Returns an array without `refresh` and a Promise with it. That polymorphism
+   * is a trap — `getType().length` breaks the moment a caller passes
+   * `refresh: true` — so prefer `typesNow()` when you want the loaded snapshot
+   * and `resolveTypes()` when you want to go to the network. Both have exactly
+   * one return type. This method keeps its old behaviour for callers that
+   * already depend on it.
    */
   getType({ refresh = false } = {}) {
     if (refresh && this._client && typeof this._client.get_entity_types === 'function') {
@@ -121,6 +128,21 @@ export class EntityProxy {
         return this.types;
       });
     }
+    return this.types;
+  }
+
+  /** Ranked matches already loaded. Always an array, never a Promise. */
+  typesNow() {
+    return Array.isArray(this.types) ? this.types : [];
+  }
+
+  /** Refresh ranked matches from the API. Always a Promise, never an array. */
+  async resolveTypes(opts = {}) {
+    if (!this._client || typeof this._client.get_entity_types !== 'function') {
+      return this.typesNow();
+    }
+    const body = await this._client.get_entity_types(this.uuid, opts);
+    this.types = body.types || body.matched || [];
     return this.types;
   }
 
@@ -135,6 +157,261 @@ export class EntityProxy {
   }
 }
 
+
+/**
+ * Every spelling a caller might reasonably use for one member name.
+ *
+ * Built once per hydration so member access is a map lookup rather than a scan.
+ * `resolvePropertyKey` walks `Object.keys` on every miss, which is fine for an
+ * occasional call and wrong for a hot property accessor.
+ */
+function memberNameAliases(name) {
+  const raw = String(name);
+  const snake = toSnakeCase(raw);
+  const camel = snake.replace(/_([a-z0-9])/g, (_m, c) => c.toUpperCase());
+  return new Set([
+    raw,
+    snake,
+    camel,
+    raw.toLowerCase(),
+    snake.toLowerCase(),
+    camel.toLowerCase(),
+    snake.replace(/_/g, ''),
+  ]);
+}
+
+/**
+ * A KSG entity projected as a duck-typed object.
+ *
+ * `person.middleName` is a synchronous map lookup, which is the whole reason
+ * hydration is one round trip: a JavaScript `Proxy` get handler cannot await, so
+ * a member map that arrives separately from its values cannot support plain
+ * property access, `in`, `Object.keys`, or destructuring.
+ *
+ * Members come from whatever prototypes matched. The strongest match owns a
+ * name; weaker prototypes that declare the same name are still reachable through
+ * `as()` and are listed in `explain()`. That matters because the top match is a
+ * ranking, not a fact — the same centroid machinery that ranks `cvv` above
+ * `number` for "Card number" should not get to pick a member's meaning silently.
+ *
+ * This is a snapshot. `hydratedAt` records when, because prototype centroids
+ * move as exemplars accumulate.
+ */
+export class KSGObject {
+  constructor(payload = {}) {
+    const {
+      uuid = null,
+      ok = true,
+      hydratedAt = null,
+      types = [],
+      members = {},
+      properties = {},
+      byPrototype = {},
+      policy = null,
+    } = payload || {};
+
+    this.uuid = uuid;
+    this.ok = ok !== false;
+    this.hydratedAt = hydratedAt;
+    this.types = Array.isArray(types) ? types : [];
+    this.members = members || {};
+    this.properties = properties || {};
+    this.byPrototype = byPrototype || {};
+    this.policy = policy;
+    this.raw = payload;
+
+    const index = new Map();
+    for (const name of Object.keys(this.members)) {
+      for (const alias of memberNameAliases(name)) {
+        // First writer wins, so a canonical name is never shadowed by another
+        // member's alias.
+        if (!index.has(alias)) index.set(alias, name);
+      }
+    }
+    this._index = index;
+
+    // eslint-disable-next-line no-constructor-return -- intentional Proxy wrapper
+    return new Proxy(this, {
+      get(target, prop, receiver) {
+        // Real fields and methods win over members. A member called `uuid` or
+        // `types` is still reachable through cell()/value().
+        if (typeof prop === 'symbol' || prop in target) {
+          return Reflect.get(target, prop, receiver);
+        }
+        const name = target._index.get(prop) ?? target._index.get(String(prop).toLowerCase());
+        if (!name) return undefined;
+        return target.properties[name]?.value;
+      },
+      has(target, prop) {
+        if (typeof prop !== 'symbol' && prop in target) return true;
+        if (typeof prop === 'symbol') return false;
+        return target._index.has(prop) || target._index.has(String(prop).toLowerCase());
+      },
+      ownKeys(target) {
+        return Array.from(new Set([...Reflect.ownKeys(target), ...Object.keys(target.members)]));
+      },
+      getOwnPropertyDescriptor(target, prop) {
+        const own = Reflect.getOwnPropertyDescriptor(target, prop);
+        if (own) return own;
+        if (typeof prop === 'symbol') return undefined;
+        const name = target._index.get(prop);
+        if (!name) return undefined;
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: false,
+          value: target.properties[name]?.value,
+        };
+      },
+    });
+  }
+
+  /** Canonical member name for any accepted spelling, or null. */
+  memberName(name) {
+    return this._index.get(name) ?? this._index.get(String(name).toLowerCase()) ?? null;
+  }
+
+  /** True when a prototype declares the member or the entity holds a value. */
+  hasMember(name) {
+    return this.memberName(name) !== null;
+  }
+
+  /**
+   * True when the member exists AND the entity has a value for it.
+   *
+   * Distinguishing this from `hasMember` is the point: plain access returns
+   * `undefined` for a typo, for a declared-but-empty field, and for a member no
+   * prototype declares, and telling those apart is most of debugging a fuzzy
+   * projection.
+   */
+  hasValue(name) {
+    const key = this.memberName(name);
+    return Boolean(key && this.properties[key] && this.properties[key].value !== undefined);
+  }
+
+  /** Winner value, same as plain access, for computed names. */
+  value(name) {
+    const key = this.memberName(name);
+    return key ? this.properties[key]?.value : undefined;
+  }
+
+  /**
+   * Full cell: value plus confidence, contested flag, ranked claims, and which
+   * prototype supplied the member.
+   */
+  cell(name) {
+    const key = this.memberName(name);
+    if (!key) return undefined;
+    const member = this.members[key] || {};
+    const property = this.properties[key] || {};
+    return {
+      name: key,
+      value: property.value,
+      confidence: property.confidence ?? null,
+      contested: property.contested === true,
+      claims: property.claims || [],
+      valueType: member.valueType ?? null,
+      required: member.required === true,
+      definedBy: member.definedBy ?? null,
+      alsoDefinedBy: member.alsoDefinedBy || [],
+      hasValue: this.hasValue(key),
+    };
+  }
+
+  /** Ranked claim stack for a member, strongest first. */
+  claims(name) {
+    return this.cell(name)?.claims ?? [];
+  }
+
+  /** True when claims disagree, so a caller can surface the conflict. */
+  isContested(name) {
+    return this.cell(name)?.contested === true;
+  }
+
+  /**
+   * Where a member came from and what else could have supplied it.
+   * Returns null for an unknown name.
+   */
+  explain(name) {
+    const key = this.memberName(name);
+    if (!key) return null;
+    const member = this.members[key] || {};
+    return {
+      name: key,
+      definedBy: member.definedBy ?? null,
+      alsoDefinedBy: member.alsoDefinedBy || [],
+      contested: this.isContested(key),
+      confidence: this.properties[key]?.confidence ?? null,
+    };
+  }
+
+  /** Strongest match, or null when nothing matched. */
+  type() {
+    return this.types[0] ?? null;
+  }
+
+  /** Ranked matches. Always an array. */
+  typesNow() {
+    return this.types;
+  }
+
+  /**
+   * The same entity seen through one specific matched prototype, by name or
+   * uuid. Members not declared by that prototype disappear, which is how a
+   * caller escapes a wrong top-ranked guess without a second request.
+   */
+  as(prototype) {
+    const wanted = String(prototype);
+    let entry = this.byPrototype[wanted];
+    let name = wanted;
+    if (!entry) {
+      const found = Object.entries(this.byPrototype).find(
+        ([key, value]) => value?.uuid === wanted || key.toLowerCase() === wanted.toLowerCase(),
+      );
+      if (!found) return null;
+      [name, entry] = found;
+    }
+
+    const allowed = new Set(entry.members || []);
+    const members = {};
+    const properties = {};
+    for (const memberName of allowed) {
+      if (this.members[memberName]) {
+        members[memberName] = {
+          ...this.members[memberName],
+          definedBy: {
+            prototypeUuid: entry.uuid,
+            prototypeName: name,
+            score: entry.score ?? null,
+          },
+        };
+      }
+      if (this.properties[memberName]) properties[memberName] = this.properties[memberName];
+    }
+
+    return new KSGObject({
+      uuid: this.uuid,
+      ok: this.ok,
+      hydratedAt: this.hydratedAt,
+      types: [{ uuid: entry.uuid, name, score: entry.score ?? null }],
+      members,
+      properties,
+      byPrototype: { [name]: entry },
+      policy: this.policy,
+    });
+  }
+
+  toJSON() {
+    return {
+      ok: this.ok,
+      uuid: this.uuid,
+      hydratedAt: this.hydratedAt,
+      types: this.types,
+      members: this.members,
+      properties: this.properties,
+    };
+  }
+}
 
 /**
  * Match a concrete request path against a release-contract template.
@@ -167,9 +444,13 @@ export class KnowShowGoClient {
     accessToken = null,
     apiToken = null,
     tokenProvider = null,
-    adminSecret = null
+    adminSecret = null,
+    timeoutMs = Number(globalThis?.process?.env?.KSG_TIMEOUT_MS ?? 30000)
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
+    // Bound every request. 30s is above a healthy p99 and well under the agent's
+    // stall timeout, so a degraded service reports rather than hangs.
+    this.timeoutMs = Number(timeoutMs) || 0;
     // Wrap the global fetch so it is always invoked with the correct context.
     // Calling a stored reference to the browser/Node global `fetch` as a method
     // (this.fetch(...)) throws "Illegal invocation"; a closure avoids that while
@@ -279,6 +560,51 @@ export class KnowShowGoClient {
     return this;
   }
 
+  /**
+   * Every request is bounded.
+   *
+   * An unbounded fetch turns a slow service into a hung caller. When Arango
+   * degraded to ~19s per query on 2026-09-07, no request failed — they all just
+   * waited, so an agent turn ran past its stall timeout and the product read as
+   * "memory is down" rather than "memory is slow". A server that cannot answer
+   * in time should surface as an error the caller can report, not as silence.
+   *
+   * `timeoutMs: 0` disables the bound, for callers deliberately awaiting a long
+   * operation.
+   */
+  async _fetchWithTimeout(url, init, label) {
+    const timeoutMs = Number(this.timeoutMs ?? 0);
+    if (!timeoutMs || timeoutMs <= 0 || typeof AbortController === 'undefined') {
+      return this.fetch(url, init);
+    }
+
+    const controller = new AbortController();
+    let timer;
+    // Race rather than rely on the signal. Aborting is a request, not a
+    // guarantee: a transport that ignores `signal` (any injected fetch, and some
+    // polyfills) would otherwise hang forever and the bound would be decorative.
+    // The signal is still passed so a transport that does honour it can stop
+    // work rather than merely being ignored.
+    const expiry = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        const timeout = new Error(
+          `KnowShowGo request timed out after ${timeoutMs}ms: ${label}. ` +
+          'The service is reachable but not answering in time — check GET /health for arango.ok.'
+        );
+        timeout.code = 'KSG_TIMEOUT';
+        timeout.timeoutMs = timeoutMs;
+        reject(timeout);
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([this.fetch(url, { ...init, signal: controller.signal }), expiry]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret, skip_ready = false } = {}) {
     // Don't deadlock: connect() → get_release_manifest → _request must not await ready().
     if (!skip_ready && endpoint !== "/api/release" && endpoint !== "/health") {
@@ -319,11 +645,11 @@ export class KnowShowGoClient {
       if (agentSessionId != null && bodyJson.agentSessionId == null) bodyJson.agentSessionId = agentSessionId;
     }
 
-    const res = await this.fetch(url.toString(), {
+    const res = await this._fetchWithTimeout(url.toString(), {
       method,
       headers,
       body: bodyJson ? JSON.stringify(bodyJson) : undefined
-    });
+    }, `${method} ${endpoint}`);
 
     const contentType = res.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await res.json() : await res.text();
@@ -886,6 +1212,30 @@ export class KnowShowGoClient {
     return this._request('GET', `${prefix}/entities/${encodeURIComponent(entity_id)}/properties`, {
       params: { predicate },
     });
+  }
+
+  /**
+   * Hydrate an entity as a duck-typed `KSGObject` in one round trip.
+   *
+   *   const person = await client.hydrate(uuid);
+   *   person.middleName          // synchronous, no await
+   *   'middleName' in person     // true
+   *   person.type()              // strongest prototype match
+   *   person.explain('city')     // which prototype supplied it, and rivals
+   *   person.as('Employee').role // read through a weaker match
+   *
+   * One call rather than two because member access cannot await: see KSGObject.
+   * This never persists prototype membership — use `get_entity_types(id, {
+   * persist: true })` when you actually mean to stamp it.
+   */
+  async hydrate(entity_id, { topK = 5, threshold = 0, entityApiPrefix = null } = {}) {
+    const prefix = entityApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    const body = await this._request(
+      'GET',
+      `${prefix}/entities/${encodeURIComponent(entity_id)}/hydrate`,
+      { params: { topK, threshold } },
+    );
+    return new KSGObject({ uuid: entity_id, ...body });
   }
 
   /**
