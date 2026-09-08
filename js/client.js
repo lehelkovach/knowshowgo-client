@@ -717,6 +717,7 @@ export class KnowShowGoClient {
     top_k = 10,
     similarity_threshold = 0.7,
     prototype_filter = null,
+    props = null,
     owner_user_id = null,
     agent_session_id = null
   } = {}) {
@@ -725,7 +726,8 @@ export class KnowShowGoClient {
         query,
         topK: top_k,
         similarityThreshold: similarity_threshold,
-        prototypeFilter: prototype_filter
+        prototypeFilter: prototype_filter,
+        props
       },
       owner_user_id,
       agent_session_id

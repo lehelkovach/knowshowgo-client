@@ -569,6 +569,7 @@ class KnowShowGoClient:
         top_k: int = 10,
         similarity_threshold: float = 0.7,
         prototype_filter: Optional[str] = None,
+        props: Optional[Dict[str, Any]] = None,
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
@@ -577,7 +578,8 @@ class KnowShowGoClient:
             "query": query,
             "topK": top_k,
             "similarityThreshold": similarity_threshold,
-            "prototypeFilter": prototype_filter
+            "prototypeFilter": prototype_filter,
+            "props": props,
         }
         result = self._request(
             "POST",
