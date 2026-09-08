@@ -167,9 +167,13 @@ export class KnowShowGoClient {
     accessToken = null,
     apiToken = null,
     tokenProvider = null,
-    adminSecret = null
+    adminSecret = null,
+    timeoutMs = Number(globalThis?.process?.env?.KSG_TIMEOUT_MS ?? 30000)
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
+    // Bound every request. 30s is above a healthy p99 and well under the agent's
+    // stall timeout, so a degraded service reports rather than hangs.
+    this.timeoutMs = Number(timeoutMs) || 0;
     // Wrap the global fetch so it is always invoked with the correct context.
     // Calling a stored reference to the browser/Node global `fetch` as a method
     // (this.fetch(...)) throws "Illegal invocation"; a closure avoids that while
@@ -279,6 +283,51 @@ export class KnowShowGoClient {
     return this;
   }
 
+  /**
+   * Every request is bounded.
+   *
+   * An unbounded fetch turns a slow service into a hung caller. When Arango
+   * degraded to ~19s per query on 2026-09-07, no request failed — they all just
+   * waited, so an agent turn ran past its stall timeout and the product read as
+   * "memory is down" rather than "memory is slow". A server that cannot answer
+   * in time should surface as an error the caller can report, not as silence.
+   *
+   * `timeoutMs: 0` disables the bound, for callers deliberately awaiting a long
+   * operation.
+   */
+  async _fetchWithTimeout(url, init, label) {
+    const timeoutMs = Number(this.timeoutMs ?? 0);
+    if (!timeoutMs || timeoutMs <= 0 || typeof AbortController === 'undefined') {
+      return this.fetch(url, init);
+    }
+
+    const controller = new AbortController();
+    let timer;
+    // Race rather than rely on the signal. Aborting is a request, not a
+    // guarantee: a transport that ignores `signal` (any injected fetch, and some
+    // polyfills) would otherwise hang forever and the bound would be decorative.
+    // The signal is still passed so a transport that does honour it can stop
+    // work rather than merely being ignored.
+    const expiry = new Promise((_resolve, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        const timeout = new Error(
+          `KnowShowGo request timed out after ${timeoutMs}ms: ${label}. ` +
+          'The service is reachable but not answering in time — check GET /health for arango.ok.'
+        );
+        timeout.code = 'KSG_TIMEOUT';
+        timeout.timeoutMs = timeoutMs;
+        reject(timeout);
+      }, timeoutMs);
+    });
+
+    try {
+      return await Promise.race([this.fetch(url, { ...init, signal: controller.signal }), expiry]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async _request(method, endpoint, { json, params, owner_user_id, agent_session_id, auth_token, admin_secret, skip_ready = false } = {}) {
     // Don't deadlock: connect() → get_release_manifest → _request must not await ready().
     if (!skip_ready && endpoint !== "/api/release" && endpoint !== "/health") {
@@ -319,11 +368,11 @@ export class KnowShowGoClient {
       if (agentSessionId != null && bodyJson.agentSessionId == null) bodyJson.agentSessionId = agentSessionId;
     }
 
-    const res = await this.fetch(url.toString(), {
+    const res = await this._fetchWithTimeout(url.toString(), {
       method,
       headers,
       body: bodyJson ? JSON.stringify(bodyJson) : undefined
-    });
+    }, `${method} ${endpoint}`);
 
     const contentType = res.headers.get('content-type') || '';
     const payload = contentType.includes('application/json') ? await res.json() : await res.text();
