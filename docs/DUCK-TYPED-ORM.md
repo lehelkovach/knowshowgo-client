@@ -142,10 +142,10 @@ person.cell('uuid')   // …with its provenance
 
 ## What this does not do
 
-- **No type ∩ value in one call.** `prototype_filter` on `search_concepts` is
-  accepted by the server and not enforced. Constrain the field with
-  `match_prototypes` and rank the value with `search_concepts`; hydration
-  projects one known entity and is not a search.
+- **No searching.** Hydration projects one entity you already have a uuid for.
+  Type ∩ value *is* available in one call — `prototype_filter` on
+  `search_concepts` is enforced, contrary to what this list used to claim — but
+  it is a search, and this is not.
 - **No writes.** Set values with `upsert_object`. There is no `person.city = …`,
   because a write is a new claim with provenance, not an assignment.
 - **No lazy members.** Deliberate: see above.
