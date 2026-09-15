@@ -713,9 +713,20 @@ export class KnowShowGoClient {
     return this._request('GET', `/api/concepts/${encodeURIComponent(uuid)}`);
   }
 
+  /**
+   * Search concepts by similarity.
+   *
+   * `similarity_threshold` defaults to **no floor**, matching the server. The
+   * previous default of 0.7 was harmless only for as long as the server
+   * accepted the parameter and dropped it. The server now applies it, and both
+   * backends score a text-path match a constant 0.5 — so the old default made
+   * this method return an empty array for any corpus answered by text, which
+   * verified as a silent nothing against a live service while all 114 mocked
+   * unit tests stayed green. Callers that want a floor pass one.
+   */
   search_concepts(query, {
     top_k = 10,
-    similarity_threshold = 0.7,
+    similarity_threshold = 0,
     prototype_filter = null,
     owner_user_id = null,
     agent_session_id = null

@@ -567,12 +567,18 @@ class KnowShowGoClient:
         self,
         query: str,
         top_k: int = 10,
-        similarity_threshold: float = 0.7,
+        similarity_threshold: float = 0.0,
         prototype_filter: Optional[str] = None,
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Search for concepts by semantic similarity"""
+        """Search for concepts by semantic similarity.
+
+        ``similarity_threshold`` defaults to no floor, matching the server and
+        the JS client. A 0.7 default was safe only while the server dropped the
+        parameter; now that it is applied, and because both backends score a
+        text-path match a constant 0.5, that default returned nothing at all.
+        """
         data = {
             "query": query,
             "topK": top_k,

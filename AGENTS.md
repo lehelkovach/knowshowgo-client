@@ -79,7 +79,8 @@ Released pairing numbers live only in the server
 
 | Thing | State |
 |---|---|
-| `prototype_filter` on `search_concepts` | Accepted by the server, **not enforced**. Type ∩ value is two calls. Do not paper over it in the SDK. |
+| `prototype_filter` on `search_concepts` | **Enforced** — verified live 2026-09-13 against a real service, not against a mock. Type ∩ value is **one** call. One caveat survives: for instances linked by an `instanceOf` **edge** the server applies the filter *after* ranking, so it thins an already-truncated top-K rather than narrowing the candidate set, and recall for a rare type in a large corpus suffers. Over-fetch `top_k` when that matters. |
+| `similarity_threshold` on `search_concepts` | Defaults to **no floor**, matching the server. It was 0.7, which was harmless only while the server dropped the parameter; once the server applied it the default filtered out every text-path hit (both backends score those a constant 0.5) and the method returned `[]` for concepts plainly in the graph. Do not reintroduce a nonzero default. Regression: `js/search_concepts_live.test.mjs`. |
 | Semantic + slots endpoints against older prod | Pre-`v0.2.9` hosts may soft-404 `/api2.0/semantic/*`. Pair this client with KSG `v0.2.9`. |
 | `dataset.remember` against prod (agent path) | Times out after ~20s as of 2026-08-23; root cause unknown. It is a **server/host** problem, not an SDK one — do not add retries or a client-side workaround before it is diagnosed. |
 | CI | A run that fails in 2–3s with `steps=0` and `BlobNotFound` logs is a GitHub Actions **budget** block, not a test failure. Check Settings → Billing → Budgets. |
@@ -176,10 +177,23 @@ stored values (edge weight `props.w` is typicality).
 `hydrate()` does not help here: it projects one entity you already have a uuid
 for, and this is a search.
 
-One limit to state plainly rather than work around: **type ∩ value is not one
-call.** `prototype_filter` on `search_concepts` is accepted by the server but not
-enforced, so constrain the field with `match_prototypes` and rank the value with
-`search_concepts` yourself.
+**Type ∩ value is one call**, and this section used to say the opposite.
+`prototype_filter` on `search_concepts` is enforced — the server resolves the
+prototype by name or uuid and applies it, honouring both membership spellings
+(`props.prototypeUuid` and an `instanceOf` edge):
+
+```js
+await client.search_concepts('washington', { top_k: 10, prototype_filter: 'BillingAddress' });
+```
+
+The limit that does survive is narrower, and worth knowing before trusting a
+single call for a rare type: when a prototype's instances are linked by edge the
+filter is applied *after* ranking, so it thins a top-K that was already
+truncated instead of narrowing the candidate set. Over-fetch `top_k`, or
+compose with `match_prototypes` when completeness matters more than one round
+trip. For anything that needs *every* member rather than the best few — a
+quantifier, an audit — search is the wrong primitive entirely; see the server's
+[`KNOWLEDGE-GRAPH-BUILD.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/KNOWLEDGE-GRAPH-BUILD.md).
 
 ## No domain-specific SDK surfaces
 
