@@ -3,7 +3,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from client import (
     matches_route,  # noqa: E402
     KnowShowGoClient,
