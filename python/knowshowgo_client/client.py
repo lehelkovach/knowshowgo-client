@@ -886,17 +886,84 @@ class KnowShowGoClient:
         premise_revision_uuids=None,
         conclusion_revision_uuid=None,
         argument_revision_uuid=None,
+        record: bool = False,
     ) -> Dict[str, Any]:
-        """Evaluate P1 + P2 ⊢ P3 with the tiny Logic IR inference core."""
+        """Evaluate P1 + P2 ⊢ P3 with the tiny Logic IR inference core.
+
+        Structural validity only; never reads the graph. ``record=True`` (KG2)
+        persists a valid result as a Derivation object and the response then
+        carries ``derivation``.
+        """
+        body: Dict[str, Any] = {
+            "premiseRevisionUuids": list(premise_revision_uuids or []),
+            "conclusionRevisionUuid": conclusion_revision_uuid,
+            "argumentRevisionUuid": argument_revision_uuid,
+        }
+        if record is True:
+            body["record"] = True
         return self._request(
             "POST",
             f"{self.prototype_api_prefix}/logic-ir/infer",
-            json={
-                "premiseRevisionUuids": list(premise_revision_uuids or []),
-                "conclusionRevisionUuid": conclusion_revision_uuid,
-                "argumentRevisionUuid": argument_revision_uuid,
-            },
+            json=body,
         )
+
+    def evaluate_logic_ir(
+        self,
+        ir: Optional[Dict[str, Any]] = None,
+        bindings: Optional[List[Dict[str, Any]]] = None,
+        proposition_revision_uuid: Optional[str] = None,
+        membership_predicate: Optional[str] = None,
+        record: bool = False,
+    ) -> Dict[str, Any]:
+        """Truth of a quantifier-free formula against stored claims (KG1).
+
+        Three-valued: ``truth`` is ``'true' | 'false' | 'unknown'``, with the
+        claim uuids consulted per atom. Absence is ``unknown``, never
+        ``false``; quantifiers are refused. Pass ``ir`` (+ ``bindings``) or a
+        ``proposition_revision_uuid``. ``record=True`` (KG2) persists a
+        true/false evaluation as a Derivation.
+        """
+        body: Dict[str, Any] = {}
+        if ir is not None:
+            body["ir"] = ir
+        if bindings is not None:
+            body["bindings"] = bindings
+        if proposition_revision_uuid:
+            body["propositionRevisionUuid"] = proposition_revision_uuid
+        if membership_predicate:
+            body["membershipPredicate"] = membership_predicate
+        if record is True:
+            body["record"] = True
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/evaluate",
+            json=body,
+        )
+
+    def explain_derivation(self, derivation_uuid: str) -> Dict[str, Any]:
+        """Walk a derivation back through the graph (KG2).
+
+        Returns ``derivation``, ``rule`` (uuid, name, engineRevision),
+        ``premises`` (uuid, kind, claimUuid, order) and ``conclusion`` (uuid,
+        hash). Edges only, so it answers the same after a restart.
+        """
+        if not derivation_uuid:
+            raise ValueError("derivation_uuid is required")
+        return self._request(
+            "GET",
+            f"{self.prototype_api_prefix}/logic-ir/derivations/{derivation_uuid}",
+        )
+
+    def list_derivations(self, conclusion_uuid: str) -> List[Dict[str, Any]]:
+        """Every derivation whose ``derives`` edge points at this conclusion (KG2)."""
+        if not conclusion_uuid:
+            raise ValueError("conclusion_uuid is required")
+        result = self._request(
+            "GET",
+            f"{self.prototype_api_prefix}/logic-ir/derivations",
+            params={"conclusion": conclusion_uuid},
+        )
+        return list(result.get("derivations") or [])
 
     # camelCase aliases: the JS client exposes both spellings, and agents port
     # call sites between the two SDKs. Parity is cheaper than a translation table.
@@ -904,6 +971,9 @@ class KnowShowGoClient:
     evaluatePrototypeMatchList = evaluate_prototype_match_list
     castObject = cast_object
     evaluateLogicInference = evaluate_logic_inference
+    evaluateLogicIr = evaluate_logic_ir
+    explainDerivation = explain_derivation
+    listDerivations = list_derivations
 
     # ===== Node with Document Methods =====
 
