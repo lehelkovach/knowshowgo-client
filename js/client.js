@@ -1000,26 +1000,109 @@ export class KnowShowGoClient {
     return this.cast_object(args);
   }
 
+  /**
+   * Structural validity of an argument (R2): does the conclusion follow from
+   * the premises under the four inference rules. Never reads the graph.
+   * `record: true` (KG2) persists a valid result as a Derivation object; the
+   * response then carries `derivation: { ok, created, derivationUuid, rule }`.
+   */
   evaluateLogicInference({
     premiseRevisionUuids = [],
     conclusionRevisionUuid = null,
-    argumentRevisionUuid = null
+    argumentRevisionUuid = null,
+    record = false
   } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/infer`, {
-      json: { premiseRevisionUuids, conclusionRevisionUuid, argumentRevisionUuid }
+      json: {
+        premiseRevisionUuids,
+        conclusionRevisionUuid,
+        argumentRevisionUuid,
+        ...(record === true ? { record: true } : {})
+      }
     });
   }
 
   evaluate_logic_inference({
     premise_revision_uuids = [],
     conclusion_revision_uuid = null,
-    argument_revision_uuid = null
+    argument_revision_uuid = null,
+    record = false
   } = {}) {
     return this.evaluateLogicInference({
       premiseRevisionUuids: premise_revision_uuids,
       conclusionRevisionUuid: conclusion_revision_uuid,
-      argumentRevisionUuid: argument_revision_uuid
+      argumentRevisionUuid: argument_revision_uuid,
+      record
     });
+  }
+
+  /**
+   * Truth of a quantifier-free formula against stored claims (KG1): three
+   * valued, `truth: 'true' | 'false' | 'unknown'`, with the claim uuids
+   * consulted per atom. Absence is `unknown`, never `false`; quantifiers are
+   * refused. Pass `ir` (+ `bindings`) or a `propositionRevisionUuid`.
+   * `record: true` (KG2) persists a true/false evaluation as a Derivation.
+   */
+  evaluateLogicIr({
+    ir = null,
+    bindings = null,
+    propositionRevisionUuid = null,
+    membershipPredicate = null,
+    record = false
+  } = {}) {
+    const json = {};
+    if (ir !== null && ir !== undefined) json.ir = ir;
+    if (bindings !== null && bindings !== undefined) json.bindings = bindings;
+    if (propositionRevisionUuid) json.propositionRevisionUuid = propositionRevisionUuid;
+    if (membershipPredicate) json.membershipPredicate = membershipPredicate;
+    if (record === true) json.record = true;
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/evaluate`, { json });
+  }
+
+  evaluate_logic_ir({
+    ir = null,
+    bindings = null,
+    proposition_revision_uuid = null,
+    membership_predicate = null,
+    record = false
+  } = {}) {
+    return this.evaluateLogicIr({
+      ir,
+      bindings,
+      propositionRevisionUuid: proposition_revision_uuid,
+      membershipPredicate: membership_predicate,
+      record
+    });
+  }
+
+  /**
+   * Walk a derivation back (KG2): `{ derivation, rule: { uuid, name,
+   * engineRevision }, premises: [{ uuid, kind, claimUuid, order }],
+   * conclusion: { uuid, hash } }`. Edges only, so it answers the same after a
+   * restart. 404 when the uuid is not a derivation.
+   */
+  explainDerivation(derivationUuid) {
+    if (!derivationUuid) throw new Error('derivationUuid is required');
+    return this._request(
+      'GET',
+      `${this.prototypeApiPrefix}/logic-ir/derivations/${encodeURIComponent(derivationUuid)}`
+    );
+  }
+
+  explain_derivation(derivation_uuid) {
+    return this.explainDerivation(derivation_uuid);
+  }
+
+  /** Every derivation whose `derives` edge points at this conclusion (KG2). */
+  listDerivations({ conclusionUuid } = {}) {
+    if (!conclusionUuid) throw new Error('conclusionUuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/derivations`, {
+      params: { conclusion: conclusionUuid }
+    }).then((r) => r.derivations || []);
+  }
+
+  list_derivations({ conclusion_uuid } = {}) {
+    return this.listDerivations({ conclusionUuid: conclusion_uuid });
   }
 
   // ===== Nodes with Documents =====
