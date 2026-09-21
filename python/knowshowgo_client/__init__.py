@@ -17,4 +17,4 @@ from .client import (  # explicit re-exports for tooling
     resolve_base_url,
 )
 
-__version__ = "0.2.21.dev0"
+__version__ = "0.2.21"
