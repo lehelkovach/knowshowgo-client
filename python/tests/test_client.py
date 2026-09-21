@@ -3,7 +3,7 @@ import sys
 import unittest
 from unittest.mock import MagicMock
 
-sys.path.insert(0, os.path.dirname(__file__))
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from client import (
     matches_route,  # noqa: E402
     KnowShowGoClient,
@@ -1202,6 +1202,55 @@ class TestKnowShowGoClient(unittest.TestCase):
                 "argumentRevisionUuid": None,
             },
         )
+
+    def test_evaluate_logic_inference_sends_record_only_when_asked(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"decision": "valid", "derivation": {"ok": True, "derivationUuid": "d-1"}})
+        )
+        result = client.evaluate_logic_inference(
+            premise_revision_uuids=["p1", "p2"],
+            conclusion_revision_uuid="p3",
+            record=True,
+        )
+        self.assertEqual(result["derivation"]["derivationUuid"], "d-1")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/logic-ir/infer",
+            json={
+                "premiseRevisionUuids": ["p1", "p2"],
+                "conclusionRevisionUuid": "p3",
+                "argumentRevisionUuid": None,
+                "record": True,
+            },
+        )
+
+    def test_evaluate_logic_ir_and_derivation_walks(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            side_effect=[
+                FakeResponse({"ok": True, "truth": "true", "derivation": {"ok": True, "derivationUuid": "d-1"}}),
+                FakeResponse({"ok": True, "derivation": {"uuid": "d-1"}, "rule": {"name": "ground_evaluation"}, "premises": [], "conclusion": {"uuid": None}}),
+                FakeResponse({"ok": True, "derivations": [{"derivation": {"uuid": "d-1"}}]}),
+            ]
+        )
+        evaluated = client.evaluate_logic_ir(ir={"kind": "Predicate"}, bindings=[], record=True)
+        self.assertEqual(evaluated["truth"], "true")
+        explained = client.explainDerivation("d-1")
+        self.assertEqual(explained["rule"]["name"], "ground_evaluation")
+        listed = client.list_derivations("p3")
+        self.assertEqual(len(listed), 1)
+
+        calls = client.session.request.call_args_list
+        self.assertEqual(calls[0].args, ("POST", "https://example.test/api2.0/logic-ir/evaluate"))
+        self.assertEqual(calls[0].kwargs["json"], {"ir": {"kind": "Predicate"}, "bindings": [], "record": True})
+        self.assertEqual(calls[1].args, ("GET", "https://example.test/api2.0/logic-ir/derivations/d-1"))
+        self.assertEqual(calls[2].args, ("GET", "https://example.test/api2.0/logic-ir/derivations"))
+        self.assertEqual(calls[2].kwargs["params"], {"conclusion": "p3"})
+        with self.assertRaises(ValueError):
+            client.explain_derivation("")
+        with self.assertRaises(ValueError):
+            client.list_derivations("")
 
     def test_seed_logic_ir_primitives_posts_to_api2(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret

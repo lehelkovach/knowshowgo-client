@@ -1156,6 +1156,61 @@ test('evaluateLogicInference posts premise and conclusion revision UUIDs', async
   assert.equal(JSON.parse(calls[1].options.body).argumentRevisionUuid, 'arg-1');
 });
 
+test('evaluateLogicInference sends record only when asked, and derivation endpoints walk it back', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    if (url.includes('/logic-ir/derivations?')) {
+      return makeJsonResponse({ ok: true, derivations: [{ derivation: { uuid: 'd-1' } }] });
+    }
+    if (url.includes('/logic-ir/derivations/')) {
+      return makeJsonResponse({ ok: true, derivation: { uuid: 'd-1' }, rule: { name: 'modus_ponens' }, premises: [], conclusion: { uuid: 'p3' } });
+    }
+    if (url.endsWith('/logic-ir/evaluate')) {
+      return makeJsonResponse({ ok: true, truth: 'true', derivation: { ok: true, derivationUuid: 'd-1' } });
+    }
+    return makeJsonResponse({ decision: 'valid', derivation: { ok: true, created: true, derivationUuid: 'd-1' } });
+  };
+  const ClientClass = await loadClientClass();
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const recorded = await client.evaluateLogicInference({
+    premiseRevisionUuids: ['p1', 'p2'],
+    conclusionRevisionUuid: 'p3',
+    record: true
+  });
+  assert.equal(recorded.derivation.derivationUuid, 'd-1');
+  assert.equal(JSON.parse(calls[0].options.body).record, true);
+
+  await client.evaluate_logic_inference({ premise_revision_uuids: ['p1'], conclusion_revision_uuid: 'p1' });
+  assert.equal('record' in JSON.parse(calls[1].options.body), false, 'record is omitted unless true');
+
+  const evaluated = await client.evaluateLogicIr({
+    ir: { kind: 'Predicate' },
+    bindings: [],
+    record: true
+  });
+  assert.equal(evaluated.truth, 'true');
+  assert.equal(calls[2].url, 'https://example.test/api2.0/logic-ir/evaluate');
+  assert.deepEqual(JSON.parse(calls[2].options.body), { ir: { kind: 'Predicate' }, bindings: [], record: true });
+
+  await client.evaluate_logic_ir({ proposition_revision_uuid: 'prop-1' });
+  assert.deepEqual(JSON.parse(calls[3].options.body), { propositionRevisionUuid: 'prop-1' });
+
+  const explained = await client.explainDerivation('d-1');
+  assert.equal(explained.rule.name, 'modus_ponens');
+  assert.equal(calls[4].url, 'https://example.test/api2.0/logic-ir/derivations/d-1');
+  assert.equal(calls[4].options.method, 'GET');
+
+  const listed = await client.list_derivations({ conclusion_uuid: 'p3' });
+  assert.equal(listed.length, 1);
+  assert.ok(calls[5].url.startsWith('https://example.test/api2.0/logic-ir/derivations?'));
+  assert.ok(calls[5].url.includes('conclusion=p3'));
+
+  assert.throws(() => client.explainDerivation(''), /derivationUuid is required/);
+  assert.throws(() => client.listDerivations({}), /conclusionUuid is required/);
+});
+
 test('connect validates release manifest channel', async () => {
   const fetchMock = async (url) => {
     if (url.endsWith('/api/release')) {

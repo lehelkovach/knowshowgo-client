@@ -1,7 +1,8 @@
 name: Publish to NPM
 
-# JS SDK only: npm publish must never depend on python3. `npm test` runs the
-# js/*.test.mjs suites; python/ is not in the tarball (see package.json files).
+# JS SDK only. The Python SDK publishes from publish-pypi.yml on the same tag.
+# npm publish must never depend on python3: `npm test` runs the js/*.test.mjs
+# suites, and python/ is not in the tarball (see package.json files).
 on:
   push:
     tags:
@@ -25,6 +26,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      # --access public is required for the @lehelkovach scope (client #65).
       - run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

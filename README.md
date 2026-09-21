@@ -23,14 +23,15 @@ This package is a remote REST client — it does **not** depend on the
 npm install @lehelkovach/knowshowgo-client
 
 # or pin a GitHub tag
-npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.10-client
+npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.20-client
 ```
 
-Python (single-file client, needs `requests`):
+Python (package `knowshowgo_client`, depends on `requests`):
 
 ```bash
-pip install requests
-# then copy python/client.py into your project, or add this repo as a submodule
+pip install knowshowgo-client
+# or from a tag:
+# pip install "git+https://github.com/lehelkovach/knowshowgo-client.git@v0.2.20-client#subdirectory=python"
 ```
 
 Requirements: **Node >= 18** (built-in `fetch`) or Python 3.8+ with `requests`.
@@ -68,7 +69,7 @@ console.log(hits);
 ## Quick start (Python)
 
 ```python
-from client import KnowShowGoClient
+from knowshowgo_client import KnowShowGoClient
 
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
 client.connect(expected_channel="release", expected_release="v0.2.7")

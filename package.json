@@ -1,7 +1,7 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
-  "version": "0.2.20",
-  "description": "JavaScript and Python client SDKs for KnowShowGo semantic memory engine",
+  "version": "0.2.21-dev",
+  "description": "JavaScript client SDK for the KnowShowGo semantic memory engine (Python SDK ships separately from python/)",
   "type": "module",
   "main": "js/index.js",
   "exports": {
@@ -35,13 +35,14 @@
   },
   "scripts": {
     "test": "node --test js/*.test.mjs",
-    "test:python": "python3 -m unittest discover -s python -p 'test_*.py'",
+    "test:python": "python3 -m unittest discover -s python/tests -p 'test_*.py'",
     "test:all": "npm test && npm run test:python",
     "test:integration": "node --test scripts/live-contract-smoke.js",
     "test:integration:live": "node scripts/live-contract-smoke.js",
     "build": "esbuild js/index.js --bundle --platform=node --format=esm --outfile=dist/index.js",
     "prepack": "npm run build",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "version:bump": "node scripts/bump-version.mjs"
   },
   "files": [
     "js",

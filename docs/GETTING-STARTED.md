@@ -27,7 +27,9 @@ The `` flag is required because the peer package `knowshowgo`
 
 ```bash
 # Python
-pip install requests
+pip install knowshowgo-client
+# or from a tag:
+# pip install "git+https://github.com/lehelkovach/knowshowgo-client.git@v0.2.20-client#subdirectory=python"
 # then vendor python/client.py, or add this repo as a git submodule
 ```
 
@@ -42,7 +44,7 @@ const client = KnowShowGoClient.publicApi({
 ```
 
 ```python
-from client import KnowShowGoClient
+from knowshowgo_client import KnowShowGoClient
 
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
 ```

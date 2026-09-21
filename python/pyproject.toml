@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "knowshowgo-client"
+version = "0.2.21.dev0"
+description = "Python client SDK for the KnowShowGo semantic memory engine"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Lehel Kovach" }]
+requires-python = ">=3.10"
+dependencies = ["requests>=2.28"]
+keywords = ["semantic-memory", "knowledge-graph", "ai-agents", "knowshowgo"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/lehelkovach/knowshowgo-client"
+Issues = "https://github.com/lehelkovach/knowshowgo-client/issues"
+
+[tool.setuptools]
+packages = ["knowshowgo_client"]

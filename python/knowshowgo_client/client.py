@@ -1,0 +1,2652 @@
+"""
+KnowShowGo Python REST API Client
+
+Provides a Python client for the KnowShowGo REST API.
+"""
+
+import os
+import re
+import requests
+from typing import Dict, Any, List, Optional
+import json
+
+#: Canonical hosted KnowShowGo API (see server ``docs/PUBLIC-API.md``).
+PUBLIC_API_BASE_URL = "https://api.knowshowgo.com"
+#: Local default used when nothing else is configured.
+LOCAL_API_BASE_URL = "http://localhost:3000"  # pragma: allowlist secret
+
+
+def resolve_base_url(explicit: Optional[str] = None) -> str:
+    """Explicit arg → ``KSG_API_URL`` → ``KSG_PUBLIC_API_URL`` → local default."""
+    if explicit:
+        return explicit
+    return (
+        os.environ.get("KSG_API_URL")
+        or os.environ.get("KSG_PUBLIC_API_URL")
+        or LOCAL_API_BASE_URL
+    )
+
+
+def _to_snake_case(name: str) -> str:
+    out = []
+    for i, ch in enumerate(name or ""):
+        if ch.isupper() and i > 0 and (name[i - 1].islower() or name[i - 1].isdigit()):
+            out.append("_")
+        out.append(ch.lower() if ch != "-" else "_")
+    return "".join(out)
+
+
+def resolve_property_key(name: Optional[str], properties: Optional[Dict[str, Any]] = None) -> Optional[str]:
+    """Resolve a JS-friendly attribute name against a properties map."""
+    if not name or not properties:
+        return None
+    if name in properties:
+        return name
+    snake = _to_snake_case(name)
+    if snake in properties:
+        return snake
+    lower = name.lower()
+    snake_lower = snake.lower()
+    for key in properties:
+        k = key.lower()
+        if k == lower or k == snake_lower:
+            return key
+    return None
+
+
+def _member_name_aliases(name: str) -> set:
+    """
+    Every spelling a caller might reasonably use for one member name.
+
+    Built once per hydration so member access is a dict lookup rather than a
+    scan over every property on each attribute get.
+    """
+    raw = str(name)
+    snake = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", raw).replace("-", "_").lower()
+    parts = snake.split("_")
+    camel = parts[0] + "".join(p.title() for p in parts[1:])
+    return {
+        raw,
+        snake,
+        camel,
+        raw.lower(),
+        snake.lower(),
+        camel.lower(),
+        snake.replace("_", ""),
+    }
+
+
+class KSGObject:
+    """
+    A KSG entity projected as a duck-typed object, from one hydration call.
+
+    ``person.middle_name`` / ``person.middleName`` → winner value.
+    ``person.type()`` → strongest prototype match.
+    ``person.explain("city")`` → which prototype supplied the member, and rivals.
+    ``person.as_("Employee").role`` → read through a weaker match.
+
+    Members come from whatever prototypes matched, strongest first. A weaker
+    prototype that declares the same name is still reachable through ``as_``
+    and is listed by ``explain``, because the top match is a ranking rather than
+    a fact — the centroid machinery that ranks ``cvv`` above ``number`` for
+    "Card number" should not silently pick a member's meaning.
+
+    This mirrors the JS ``KSGObject`` deliberately. It is a snapshot;
+    ``hydrated_at`` records when, since centroids move as exemplars accumulate.
+    """
+
+    def __init__(self, payload: Optional[Dict[str, Any]] = None):
+        payload = payload or {}
+        self.ok = payload.get("ok", True) is not False
+        self.uuid = payload.get("uuid")
+        self.hydrated_at = payload.get("hydratedAt")
+        self.types = payload.get("types") or []
+        self.members = payload.get("members") or {}
+        self.properties = payload.get("properties") or {}
+        self.by_prototype = payload.get("byPrototype") or {}
+        self.policy = payload.get("policy")
+        self.raw = dict(payload)
+
+        index: Dict[str, str] = {}
+        for name in self.members:
+            for alias in _member_name_aliases(name):
+                index.setdefault(alias, name)
+        self._index = index
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached when normal attribute lookup fails, so real attributes
+        # always win and a member sharing their name stays available via value().
+        if name.startswith("_"):
+            raise AttributeError(name)
+        index = self.__dict__.get("_index") or {}
+        key = index.get(name) or index.get(name.lower())
+        if key is None:
+            raise AttributeError(name)
+        return (self.__dict__.get("properties") or {}).get(key, {}).get("value")
+
+    def __contains__(self, name: str) -> bool:
+        return self.member_name(name) is not None
+
+    def __iter__(self):
+        return iter(self.members)
+
+    def keys(self):
+        """Member names, so ``dict(**obj)``-style spreading works."""
+        return self.members.keys()
+
+    def __getitem__(self, name: str) -> Any:
+        key = self.member_name(name)
+        if key is None:
+            raise KeyError(name)
+        return self.properties.get(key, {}).get("value")
+
+    def member_name(self, name: str) -> Optional[str]:
+        """Canonical member name for any accepted spelling, else None."""
+        return self._index.get(name) or self._index.get(str(name).lower())
+
+    def has_member(self, name: str) -> bool:
+        """True when a prototype declares it or the entity holds a value."""
+        return self.member_name(name) is not None
+
+    def has_value(self, name: str) -> bool:
+        """
+        True when the member exists AND carries a value.
+
+        Worth distinguishing from ``has_member``: plain access yields None for a
+        typo, for a declared-but-empty field, and for an undeclared member, and
+        telling those apart is most of debugging a fuzzy projection.
+        """
+        key = self.member_name(name)
+        if key is None:
+            return False
+        return (self.properties.get(key) or {}).get("value") is not None
+
+    def value(self, name: str) -> Any:
+        """Winner value for a computed or shadowed name."""
+        key = self.member_name(name)
+        return None if key is None else (self.properties.get(key) or {}).get("value")
+
+    def cell(self, name: str) -> Optional[Dict[str, Any]]:
+        """Value plus confidence, contested flag, claims and provenance."""
+        key = self.member_name(name)
+        if key is None:
+            return None
+        member = self.members.get(key) or {}
+        prop = self.properties.get(key) or {}
+        return {
+            "name": key,
+            "value": prop.get("value"),
+            "confidence": prop.get("confidence"),
+            "contested": prop.get("contested") is True,
+            "claims": prop.get("claims") or [],
+            "valueType": member.get("valueType"),
+            "required": member.get("required") is True,
+            "definedBy": member.get("definedBy"),
+            "alsoDefinedBy": member.get("alsoDefinedBy") or [],
+            "hasValue": self.has_value(key),
+        }
+
+    def claims(self, name: str) -> List[Dict[str, Any]]:
+        """Ranked claim stack for a member, strongest first."""
+        cell = self.cell(name)
+        return [] if cell is None else cell["claims"]
+
+    def is_contested(self, name: str) -> bool:
+        """True when claims disagree, so a caller can surface the conflict."""
+        cell = self.cell(name)
+        return bool(cell and cell["contested"])
+
+    def explain(self, name: str) -> Optional[Dict[str, Any]]:
+        """Which prototype supplied a member, and what else could have."""
+        key = self.member_name(name)
+        if key is None:
+            return None
+        member = self.members.get(key) or {}
+        return {
+            "name": key,
+            "definedBy": member.get("definedBy"),
+            "alsoDefinedBy": member.get("alsoDefinedBy") or [],
+            "contested": self.is_contested(key),
+            "confidence": (self.properties.get(key) or {}).get("confidence"),
+        }
+
+    def type(self) -> Optional[Dict[str, Any]]:
+        """Strongest match, or None when nothing matched."""
+        return self.types[0] if self.types else None
+
+    def types_now(self) -> List[Dict[str, Any]]:
+        """Ranked matches. Always a list."""
+        return self.types
+
+    def as_(self, prototype: str) -> Optional["KSGObject"]:
+        """
+        The same entity seen through one matched prototype, by name or uuid.
+
+        Members that prototype does not declare disappear, which is how a caller
+        escapes a wrong top-ranked guess without another request. Named ``as_``
+        because ``as`` is a Python keyword.
+        """
+        wanted = str(prototype)
+        name = wanted
+        entry = self.by_prototype.get(wanted)
+        if entry is None:
+            for key, value in self.by_prototype.items():
+                if (value or {}).get("uuid") == wanted or key.lower() == wanted.lower():
+                    name, entry = key, value
+                    break
+        if entry is None:
+            return None
+
+        allowed = entry.get("members") or []
+        members: Dict[str, Any] = {}
+        properties: Dict[str, Any] = {}
+        for member_name in allowed:
+            if member_name in self.members:
+                members[member_name] = {
+                    **self.members[member_name],
+                    "definedBy": {
+                        "prototypeUuid": entry.get("uuid"),
+                        "prototypeName": name,
+                        "score": entry.get("score"),
+                    },
+                }
+            if member_name in self.properties:
+                properties[member_name] = self.properties[member_name]
+
+        return KSGObject({
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "hydratedAt": self.hydrated_at,
+            "types": [{"uuid": entry.get("uuid"), "name": name, "score": entry.get("score")}],
+            "members": members,
+            "properties": properties,
+            "byPrototype": {name: entry},
+            "policy": self.policy,
+        })
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "hydratedAt": self.hydrated_at,
+            "types": self.types,
+            "members": self.members,
+            "properties": self.properties,
+        }
+
+
+class EntityProxy:
+    """
+    ORM-style entity view over ``/api2.0/entities/:id/properties``.
+
+    ``entity.middle_name`` / ``entity.middleName`` → winner value.
+    ``entity.claims["middle_name"]`` → ranked claim stack.
+    ``entity.prop("middle_name")`` → full cell ``{value, confidence, contested, claims}``.
+    ``entity.get_type()`` → ranked prototype matches (fuzzy duck typing).
+    """
+
+    def __init__(self, payload: Optional[Dict[str, Any]] = None, client: Optional["KnowShowGoClient"] = None):
+        payload = payload or {}
+        self.ok = payload.get("ok", True) is not False
+        self.uuid = payload.get("uuid") or payload.get("entityId")
+        self.properties = payload.get("properties") or {}
+        self.policy = payload.get("policy")
+        self.types = payload.get("types") or payload.get("matched") or []
+        self.raw = dict(payload)
+        self._client = client
+        self.claims = {
+            key: (cell or {}).get("claims")
+            for key, cell in self.properties.items()
+        }
+
+    def prop(self, name: str) -> Optional[Dict[str, Any]]:
+        key = resolve_property_key(name, self.properties)
+        return self.properties.get(key) if key else None
+
+    def get_type(self, refresh: bool = False) -> List[Dict[str, Any]]:
+        """Ranked prototype matches (closest first)."""
+        if refresh and self._client is not None and self.uuid:
+            body = self._client.get_entity_types(self.uuid)
+            self.types = body.get("types") or body.get("matched") or []
+        return list(self.types or [])
+
+    # camelCase alias for JS parity
+    getType = get_type
+
+    def __getattr__(self, name: str):
+        if name.startswith("_"):
+            raise AttributeError(name)
+        key = resolve_property_key(name, self.properties)
+        if key is None:
+            raise AttributeError(name)
+        return self.properties[key].get("value")
+
+    def __contains__(self, name: str) -> bool:
+        return resolve_property_key(name, self.properties) is not None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "uuid": self.uuid,
+            "properties": self.properties,
+            "policy": self.policy,
+            "types": self.types,
+        }
+
+
+def matches_route(template: str, actual: str) -> bool:
+    """Segment-wise match of `/api/objects/:uuid` templates to concrete paths."""
+    expected = str(template or "").split("/")
+    received = str(actual or "").split("/")
+    if len(expected) != len(received):
+        return False
+    for seg, got in zip(expected, received):
+        if not seg.startswith(":") and seg != got:
+            return False
+    return True
+
+
+class KnowShowGoClient:
+    """Python client for KnowShowGo REST API"""
+
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        prototype_api_prefix: str = "/api2.0",
+        topic_api_prefix: str = "/api2.0",
+        enforce_contract: bool = False,
+        default_owner_user_id: Optional[str] = None,
+        default_agent_session_id: Optional[str] = None,
+        auth_token: Optional[str] = None,
+        access_token: Optional[str] = None,
+        api_token: Optional[str] = None,
+        token_provider=None,
+        admin_secret: Optional[str] = None,
+        auto_connect: bool = False,
+    ):
+        self.base_url = resolve_base_url(base_url).rstrip('/')
+        self.session = requests.Session()
+        # New features live under the /api2.0 namespace by default; set this to
+        # "/api" to fall back to the retained backward-compatible alias.
+        self.prototype_api_prefix = prototype_api_prefix
+        self.topic_api_prefix = topic_api_prefix
+        self.default_owner_user_id = default_owner_user_id
+        self.default_agent_session_id = default_agent_session_id
+        # Hard identity. A signed token cannot be spoofed the way the soft owner
+        # headers can, and the server prefers it over them when both are present.
+        self.auth_token = auth_token or access_token or api_token
+        self.token_provider = token_provider if callable(token_provider) else None
+        # Minting a token for someone else needs the server's admin secret, sent
+        # as X-KSG-Admin. Without it a caller can only mint for the owner they
+        # already hold a token for, which leaves no way to issue the first one.
+        self.admin_secret = admin_secret
+        self._contract = None
+        self._enforce_contract = enforce_contract
+        self._connected = False
+        if auto_connect:
+            try:
+                self.connect()
+            except Exception:
+                # Mirror JS: failed auto_connect must not crash construction;
+                # callers that care should call ready()/connect() explicitly.
+                pass
+
+    @staticmethod
+    def _merge_aliases(body: Dict[str, Any], aliases: Dict[str, str]) -> Dict[str, Any]:
+        out = dict(body)
+        for alias, source in aliases.items():
+            if alias not in out and source in out:
+                out[alias] = out[source]
+        return out
+
+    def _assert_contract_path(self, method: str, path: str) -> None:
+        if not self._enforce_contract or not self._contract:
+            return
+        allowed = any(
+            entry.get('method') == method and matches_route(entry.get('path', ''), path)
+            for entry in self._contract
+        )
+        if not allowed:
+            raise ValueError(f'endpoint not in client contract: {method} {path}')
+
+    def ready(self) -> "KnowShowGoClient":
+        """No-op sync counterpart to the JS ready(); connect() is synchronous here."""
+        return self
+
+    def _resolve_auth_token(self, explicit=None):
+        if explicit is not None:
+            return explicit
+        if self.token_provider is not None:
+            provided = self.token_provider()
+            if provided:
+                self.auth_token = provided
+                return provided
+        return self.auth_token
+
+    def _request(self, method: str, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make HTTP request to API"""
+        self._assert_contract_path(method, endpoint)
+        url = f"{self.base_url}{endpoint}"
+        owner_user_id = kwargs.pop("owner_user_id", None)
+        agent_session_id = kwargs.pop("agent_session_id", None)
+        if owner_user_id is None:
+            owner_user_id = self.default_owner_user_id
+        if agent_session_id is None:
+            agent_session_id = self.default_agent_session_id
+
+        auth_token = self._resolve_auth_token(kwargs.pop("auth_token", None))
+        admin_secret = kwargs.pop("admin_secret", None)
+        if admin_secret is None:
+            admin_secret = self.admin_secret
+
+        headers = dict(kwargs.pop("headers", None) or {})
+        if owner_user_id:
+            headers["X-KSG-Owner"] = str(owner_user_id)
+        if agent_session_id:
+            headers["X-KSG-Session"] = str(agent_session_id)
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        if admin_secret:
+            headers["X-KSG-Admin"] = str(admin_secret)
+        if headers:
+            kwargs["headers"] = headers
+
+        params = dict(kwargs.get("params") or {})
+        # Prefer Authorization over identity-in-query (logs/caches).
+        if not auth_token:
+            if owner_user_id and "ownerUserId" not in params:
+                params["ownerUserId"] = owner_user_id
+            if agent_session_id and "agentSessionId" not in params:
+                params["agentSessionId"] = agent_session_id
+        if params:
+            kwargs["params"] = params
+
+        json_body = kwargs.get("json")
+        if isinstance(json_body, dict):
+            body = dict(json_body)
+            if owner_user_id is not None and "ownerUserId" not in body:
+                body["ownerUserId"] = owner_user_id
+            if agent_session_id is not None and "agentSessionId" not in body:
+                body["agentSessionId"] = agent_session_id
+            kwargs["json"] = body
+
+        response = self.session.request(method, url, **kwargs)
+        response.raise_for_status()
+        return response.json()
+
+    def get_release_manifest(self) -> Dict[str, Any]:
+        """Fetch server release manifest and supported endpoint contract"""
+        return self._request('GET', '/api/release')
+
+    @classmethod
+    def public_api(cls, **kwargs) -> "KnowShowGoClient":
+        """Client for the canonical hosted API without hardcoding the URL."""
+        kwargs.setdefault("base_url", PUBLIC_API_BASE_URL)
+        return cls(**kwargs)
+
+    def connect(
+        self,
+        expected_channel: Optional[str] = None,
+        expected_release: Optional[str] = None,
+        enforce_contract: bool = False,
+        adopt_advertised_base_url: bool = False,
+    ) -> Dict[str, Any]:
+        """Discover the server contract. Channel/release pins are opt-in.
+
+        A bare ``connect()`` accepts whatever the server advertises (public
+        release or dev). Pass ``expected_channel`` / ``expected_release`` to
+        fail fast against an unexpected host.
+
+        ``adopt_advertised_base_url`` re-points this client at ``api.publicBaseUrl``
+        from the manifest.
+        """
+        manifest = self.get_release_manifest()
+        if expected_channel and manifest.get('channel') != expected_channel:
+            raise ValueError(f"expected channel {expected_channel}, got {manifest.get('channel')}")
+        if expected_release and manifest.get('release') != expected_release:
+            raise ValueError(f"expected release {expected_release}, got {manifest.get('release')}")
+        self._contract = (manifest.get('surfaces') or {}).get('clientContract')
+        self._enforce_contract = enforce_contract
+        api = manifest.get('api') or {}
+        self.api_prefixes = api.get('prefixes')
+        if adopt_advertised_base_url and api.get('publicBaseUrl'):
+            self.base_url = str(api['publicBaseUrl']).rstrip('/')
+        return manifest
+
+    # ===== Prototype Methods =====
+
+    def create_prototype(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        context: Optional[str] = None,
+        labels: Optional[List[str]] = None,
+        embedding: Optional[List[float]] = None,
+        parent_prototype_uuids: Optional[List[str]] = None
+    ) -> str:
+        """Create a new prototype"""
+        data = {
+            "name": name,
+            "description": description,
+            "context": context,
+            "labels": labels or [],
+            "embedding": embedding,
+            "parentPrototypeUuids": parent_prototype_uuids
+        }
+        result = self._request("POST", "/api/prototypes", json=data)
+        return result["uuid"]
+
+    def get_prototype(self, uuid: str) -> Dict[str, Any]:
+        """Get a prototype by UUID"""
+        return self._request("GET", f"/api/prototypes/{uuid}")
+
+    # ===== Concept Methods =====
+
+    def create_concept(
+        self,
+        prototype_uuid: str,
+        json_obj: Dict[str, Any],
+        embedding: Optional[List[float]] = None,
+        previous_version_uuid: Optional[str] = None
+    ) -> str:
+        """Create a new concept"""
+        data = {
+            "prototypeUuid": prototype_uuid,
+            "jsonObj": json_obj,
+            "embedding": embedding,
+            "previousVersionUuid": previous_version_uuid
+        }
+        result = self._request("POST", "/api/concepts", json=data)
+        return result["uuid"]
+
+    def get_concept(self, uuid: str) -> Dict[str, Any]:
+        """Get a concept by UUID"""
+        return self._request("GET", f"/api/concepts/{uuid}")
+
+    def search_concepts(
+        self,
+        query: str,
+        top_k: int = 10,
+        similarity_threshold: float = 0.0,
+        prototype_filter: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Search for concepts by semantic similarity.
+
+        ``similarity_threshold`` defaults to no floor, matching the server and
+        the JS client. A 0.7 default was safe only while the server dropped the
+        parameter; now that it is applied, and because both backends score a
+        text-path match a constant 0.5, that default returned nothing at all.
+        """
+        data = {
+            "query": query,
+            "topK": top_k,
+            "similarityThreshold": similarity_threshold,
+            "prototypeFilter": prototype_filter
+        }
+        result = self._request(
+            "POST",
+            "/api/concepts/search",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return result["results"]
+
+    # ===== Association Methods =====
+
+    def add_association(
+        self,
+        from_concept_uuid: str,
+        to_concept_uuid: str,
+        relation_type: str,
+        strength: float = 1.0
+    ) -> None:
+        """Create an association between concepts"""
+        data = {
+            "fromConceptUuid": from_concept_uuid,
+            "toConceptUuid": to_concept_uuid,
+            "relationType": relation_type,
+            "strength": strength
+        }
+        self._request("POST", "/api/associations", json=data)
+
+    def get_associations(
+        self,
+        uuid: str,
+        direction: str = "both"
+    ) -> List[Dict[str, Any]]:
+        """Get associations for a concept"""
+        result = self._request(
+            "GET",
+            f"/api/associations/{uuid}",
+            params={"direction": direction}
+        )
+        return result["associations"]
+
+    # ===== API tokens (hard identity) =====
+    # The soft X-KSG-Owner header is client-supplied and therefore trusted only
+    # as far as the caller is; these mint signed tokens the server can actually
+    # verify. Token endpoints share the prototype prefix (/api2.0 with /api kept
+    # as the backward-compatible alias).
+
+    def set_auth_token(self, token: Optional[str]) -> "KnowShowGoClient":
+        """Swap the bearer token on a live client (e.g. after minting one)."""
+        self.auth_token = token or None
+        return self
+
+    def create_api_token(
+        self,
+        owner_user_id: Optional[str] = None,
+        label: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        ttl_days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Mint a token for an owner.
+
+        The raw token comes back exactly once — the server stores only a record
+        of it — so a caller that drops it must mint another.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens",
+            json={
+                "ownerUserId": owner_user_id,
+                "label": label,
+                "agentSessionId": agent_session_id,
+                "ttlDays": ttl_days,
+            },
+        )
+
+    def list_api_tokens(self, owner_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List an owner's token records (never the raw tokens)."""
+        params = {"ownerUserId": owner_user_id} if owner_user_id else None
+        result = self._request(
+            "GET", f"{self.prototype_api_prefix}/auth/tokens", params=params
+        )
+        return result.get("tokens", [])
+
+    def revoke_api_token(self, jti: str, owner_user_id: Optional[str] = None) -> Dict[str, Any]:
+        """Revoke one token by its ``jti``."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/auth/tokens/{jti}/revoke",
+            json={"ownerUserId": owner_user_id},
+        )
+
+    def get_admin_usage(self, admin_token: Optional[str] = None) -> Dict[str, Any]:
+        """Per-principal request/read/write counts for cost and quota tracking.
+
+        Admin-only, and it authenticates differently from the token endpoints:
+        the admin secret goes in as the bearer here, not the X-KSG-Admin header.
+        """
+        return self._request(
+            "GET",
+            "/api/admin/usage",
+            auth_token=admin_token or self.admin_secret or self.auth_token,
+        )
+
+    # ===== Prototype / centroid (prototype-theory) mechanics =====
+    def generalize_from_exemplar(
+        self,
+        concept_uuid: str = None,
+        text: str = None,
+        json_obj: Dict[str, Any] = None,
+        prototype_uuid: str = None,
+        label: str = None,
+        threshold: float = 0.85,
+        create_if_no_match: bool = True
+    ) -> Dict[str, Any]:
+        """Fold an exemplar into the nearest prototype by centroid similarity,
+        creating a new prototype when nothing is similar enough."""
+        data = {
+            "conceptUuid": concept_uuid,
+            "text": text,
+            "jsonObj": json_obj,
+            "prototypeUuid": prototype_uuid,
+            "label": label,
+            "threshold": threshold,
+            "createIfNoMatch": create_if_no_match
+        }
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/generalize", json=data)
+
+    def match_prototypes(
+        self,
+        text: str = None,
+        embedding: List[float] = None,
+        top_k: int = 5,
+        threshold: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """Rank existing prototypes by how typical the item is of each.
+
+        Nearest-centroid over the values each prototype absorbed, so this answers
+        value-shaped questions ("which category is this?"). To ask which FIELD a
+        label names, use :meth:`search_property_definitions`: a value centroid
+        drifts toward the shape of the data, so "Card number" would rank closer
+        to ``cvv`` than to ``number``.
+        """
+        data = {
+            "text": text,
+            "embedding": embedding,
+            "topK": top_k,
+            "threshold": threshold,
+        }
+        result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
+        return result["matches"]
+
+    def resolve_slots(
+        self,
+        labels: List[str],
+        candidates: List[str] = None,
+        floor: float = 0.5,
+        top_k: int = 40,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> Dict[str, Any]:
+        """Resolve observed labels onto stored fields.
+
+        Works for a web form's inputs, a CSV header row, or an API payload — the
+        server ranks and assigns so callers do not each reimplement it.
+        ``candidates`` closes the set to fields you actually hold, and assignment
+        is one-to-one: a field fills at most one label.
+
+        Returns ``{"slots": [{"label", "property", "score"}], "unresolved": [...]}``.
+        """
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/slots/resolve",
+            json={"labels": labels, "candidates": candidates, "floor": floor, "topK": top_k},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def search_property_definitions(
+        self,
+        query: str,
+        top_k: int = 20,
+        owner_user_id: str = None,
+        agent_session_id: str = None
+    ) -> List[Dict[str, Any]]:
+        """Which stored field does this label name?
+
+        Ranks property-definition concepts over the same vector index every other
+        search uses, filtered by node role. Returns one entry per property, best
+        first: ``[{"property", "valueType", "score", "uuid"}]``.
+        """
+        results = self.search_concepts(
+            query,
+            top_k=top_k,
+            similarity_threshold=0.0,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        out = []
+        seen = set()
+        for r in results or []:
+            props = r.get("props") or {}
+            if props.get("isObjectPropertyDefinition") is not True:
+                continue
+            prop = props.get("propertyName")
+            if not prop or prop in seen:
+                continue
+            seen.add(prop)
+            out.append({
+                "property": prop,
+                "valueType": props.get("valueType"),
+                "score": r.get("similarity") or 0,
+                "uuid": r.get("uuid"),
+            })
+        return out
+
+    def search_prototypes(self, query: str = "", top_k: int = 10) -> List[Dict[str, Any]]:
+        """Label/tag autocomplete over prototypes (e.g. to pick an object "type")."""
+        result = self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototypes/search",
+            json={"query": query, "topK": top_k}
+        )
+        return result["prototypes"]
+
+    def attach_exemplar(self, prototype_uuid: str, concept_uuid: str) -> Dict[str, Any]:
+        """Attach an existing concept as an exemplar of a known prototype."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototypes/{prototype_uuid}/exemplars",
+            json={"conceptUuid": concept_uuid}
+        )
+
+    def evaluate_prototype_match(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Evaluate and cache an exact object/prototype revision pair."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/evaluate",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+            }
+        )
+
+    def evaluate_prototype_match_list(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuids=None,
+        context_revision_uuid: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """List match decisions for one object vs many prototypes (not WTA)."""
+        payload = {
+            "objectRevisionUuid": object_revision_uuid,
+            "prototypeRevisionUuids": list(prototype_revision_uuids or []),
+            "contextRevisionUuid": context_revision_uuid,
+        }
+        if limit is not None:
+            payload["limit"] = limit
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/list",
+            json=payload,
+        )
+
+    def cast_object(
+        self,
+        object_revision_uuid: str,
+        prototype_revision_uuid: str,
+        context_revision_uuid: Optional[str] = None,
+        require_match: bool = True,
+        title: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Persist a new object under a chosen prototype. Source is unchanged."""
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/prototype-matches/cast",
+            json={
+                "objectRevisionUuid": object_revision_uuid,
+                "prototypeRevisionUuid": prototype_revision_uuid,
+                "contextRevisionUuid": context_revision_uuid,
+                "requireMatch": require_match,
+                "title": title,
+                "objectLineageKey": object_lineage_key,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def evaluate_logic_inference(
+        self,
+        premise_revision_uuids=None,
+        conclusion_revision_uuid=None,
+        argument_revision_uuid=None,
+        record: bool = False,
+    ) -> Dict[str, Any]:
+        """Evaluate P1 + P2 ⊢ P3 with the tiny Logic IR inference core.
+
+        Structural validity only; never reads the graph. ``record=True`` (KG2)
+        persists a valid result as a Derivation object and the response then
+        carries ``derivation``.
+        """
+        body: Dict[str, Any] = {
+            "premiseRevisionUuids": list(premise_revision_uuids or []),
+            "conclusionRevisionUuid": conclusion_revision_uuid,
+            "argumentRevisionUuid": argument_revision_uuid,
+        }
+        if record is True:
+            body["record"] = True
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/infer",
+            json=body,
+        )
+
+    def evaluate_logic_ir(
+        self,
+        ir: Optional[Dict[str, Any]] = None,
+        bindings: Optional[List[Dict[str, Any]]] = None,
+        proposition_revision_uuid: Optional[str] = None,
+        membership_predicate: Optional[str] = None,
+        record: bool = False,
+    ) -> Dict[str, Any]:
+        """Truth of a quantifier-free formula against stored claims (KG1).
+
+        Three-valued: ``truth`` is ``'true' | 'false' | 'unknown'``, with the
+        claim uuids consulted per atom. Absence is ``unknown``, never
+        ``false``; quantifiers are refused. Pass ``ir`` (+ ``bindings``) or a
+        ``proposition_revision_uuid``. ``record=True`` (KG2) persists a
+        true/false evaluation as a Derivation.
+        """
+        body: Dict[str, Any] = {}
+        if ir is not None:
+            body["ir"] = ir
+        if bindings is not None:
+            body["bindings"] = bindings
+        if proposition_revision_uuid:
+            body["propositionRevisionUuid"] = proposition_revision_uuid
+        if membership_predicate:
+            body["membershipPredicate"] = membership_predicate
+        if record is True:
+            body["record"] = True
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/evaluate",
+            json=body,
+        )
+
+    def explain_derivation(self, derivation_uuid: str) -> Dict[str, Any]:
+        """Walk a derivation back through the graph (KG2).
+
+        Returns ``derivation``, ``rule`` (uuid, name, engineRevision),
+        ``premises`` (uuid, kind, claimUuid, order) and ``conclusion`` (uuid,
+        hash). Edges only, so it answers the same after a restart.
+        """
+        if not derivation_uuid:
+            raise ValueError("derivation_uuid is required")
+        return self._request(
+            "GET",
+            f"{self.prototype_api_prefix}/logic-ir/derivations/{derivation_uuid}",
+        )
+
+    def list_derivations(self, conclusion_uuid: str) -> List[Dict[str, Any]]:
+        """Every derivation whose ``derives`` edge points at this conclusion (KG2)."""
+        if not conclusion_uuid:
+            raise ValueError("conclusion_uuid is required")
+        result = self._request(
+            "GET",
+            f"{self.prototype_api_prefix}/logic-ir/derivations",
+            params={"conclusion": conclusion_uuid},
+        )
+        return list(result.get("derivations") or [])
+
+    # camelCase aliases: the JS client exposes both spellings, and agents port
+    # call sites between the two SDKs. Parity is cheaper than a translation table.
+    evaluatePrototypeMatch = evaluate_prototype_match
+    evaluatePrototypeMatchList = evaluate_prototype_match_list
+    castObject = cast_object
+    evaluateLogicInference = evaluate_logic_inference
+    evaluateLogicIr = evaluate_logic_ir
+    explainDerivation = explain_derivation
+    listDerivations = list_derivations
+
+    # ===== Node with Document Methods =====
+
+    def create_node_with_document(
+        self,
+        label: str,
+        summary: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        associations: Optional[List[Dict[str, Any]]] = None,
+        prototype_uuid: Optional[str] = None,
+        private: bool = False,
+        security_class: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> str:
+        """Create a node with document metadata and tags.
+
+        `private` exists because this wrapper previously had no way to express
+        privacy, so everything written through it landed in the anonymously
+        readable commons. Pass private=True for owner-scoped data; the owner
+        comes from default_owner_user_id (X-KSG-Owner) unless overridden here.
+        The server refuses a private write it cannot attribute.
+        """
+        data = {
+            "label": label,
+            "summary": summary,
+            "tags": tags or [],
+            "metadata": metadata or {},
+            "associations": associations or [],
+            "prototypeUuid": prototype_uuid
+        }
+        if private or security_class == "private":
+            data["private"] = True
+        if security_class:
+            data["securityClass"] = security_class
+        if owner_user_id:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id:
+            data["agentSessionId"] = agent_session_id
+        result = self._request("POST", "/api/nodes", json=data)
+        return result["uuid"]
+
+    def update_node_embedding(self, uuid: str) -> None:
+        """Update/recompute node embedding"""
+        self._request("POST", f"/api/nodes/{uuid}/embedding")
+
+    # ===== ORM Methods =====
+
+    def register_prototype(
+        self,
+        prototype_name: str,
+        options: Optional[Dict[str, Any]] = None
+    ) -> None:
+        """Register a prototype for ORM use"""
+        data = {
+            "prototypeName": prototype_name,
+            "options": options or {}
+        }
+        self._request("POST", "/api/orm/register", json=data)
+
+    def create_instance(
+        self,
+        prototype_name: str,
+        properties: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Create a concept instance via ORM"""
+        data = {"properties": properties}
+        return self._request(
+            "POST",
+            f"/api/orm/{prototype_name}/create",
+            json=data
+        )
+
+    def get_instance(
+        self,
+        prototype_name: str,
+        uuid: str
+    ) -> Dict[str, Any]:
+        """Get a concept instance via ORM"""
+        return self._request(
+            "GET",
+            f"/api/orm/{prototype_name}/{uuid}"
+        )
+
+    # ===== Health Check =====
+
+    def health_check(self) -> Dict[str, Any]:
+        """Check API health"""
+        return self._request("GET", "/health")
+
+    # ===== Assertions (v0.2.0) =====
+
+    def create_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        truth: float = 1.0,
+        source: str = "user"
+    ) -> Dict[str, Any]:
+        """Create an assertion"""
+        data = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "truth": truth,
+            "source": source
+        }
+        return self._request("POST", "/api/assertions", json=data)
+
+    def get_assertions(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        obj: Optional[Any] = None
+    ) -> List[Dict[str, Any]]:
+        """Get assertions with optional filters"""
+        params = {}
+        if subject:
+            params["subject"] = subject
+        if predicate:
+            params["predicate"] = predicate
+        if obj is not None:
+            params["object"] = obj
+        result = self._request("GET", "/api/assertions", params=params)
+        return result["assertions"]
+
+    def vote_assertion(
+        self,
+        assertion_id: str,
+        delta: float = 1.0
+    ) -> Dict[str, Any]:
+        """Adjust vote score for an assertion (v0.2.1)"""
+        result = self._request(
+            "POST",
+            f"/api/assertions/{assertion_id}/vote",
+            json={"delta": delta}
+        )
+        return result["assertion"]
+
+    def reinforce_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        delta: Optional[float] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Same claim from another speaker → strengthen belief."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if delta is not None:
+            data["delta"] = delta
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("POST", "/api/assertions/reinforce", json=data)
+
+    def contradict_assertion(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        speaker: Optional[str] = None,
+        truth: Optional[float] = None,
+        source: str = "user",
+        provenance: Optional[Dict[str, Any]] = None,
+        against_assertion_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Competing claim for same subject/predicate."""
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "source": source,
+        }
+        if speaker is not None:
+            data["speaker"] = speaker
+        if truth is not None:
+            data["truth"] = truth
+        if provenance is not None:
+            data["provenance"] = provenance
+        if against_assertion_id is not None:
+            data["againstAssertionId"] = against_assertion_id
+        return self._request("POST", "/api/assertions/contradict", json=data)
+
+    def retract_assertion(
+        self,
+        assertion_id: str,
+        speaker: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Soft-delete an assertion from belief resolution."""
+        return self._request(
+            "POST",
+            f"/api/assertions/{assertion_id}/retract",
+            json={"speaker": speaker, "reason": reason},
+        )
+
+    def get_beliefs(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Live belief snapshot (resolved values + alternatives + speakers)."""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request("GET", f"/api/entities/{entity_id}/beliefs", params=params)
+
+    def get_snapshot(self, entity_id: str) -> Dict[str, Any]:
+        """Get resolved values for an entity"""
+        result = self._request("GET", f"/api/entities/{entity_id}/snapshot")
+        return result["snapshot"]
+
+    def get_evidence(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all competing assertions for an entity"""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        result = self._request(
+            "GET",
+            f"/api/entities/{entity_id}/evidence",
+            params=params
+        )
+        return result["evidence"]
+
+    def explain_entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Explain assertion resolution for an entity (v0.2.1)"""
+        params = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"/api/entities/{entity_id}/explain",
+            params=params
+        )
+
+    def get_entity_properties(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Ranked property map (winner + contested claim stack).
+        Canonical path ``/api2.0/entities/:id/properties`` with ``/api`` alias.
+        """
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if predicate:
+            params["predicate"] = predicate
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/properties",
+            params=params,
+        )
+
+    def get_entity_types(
+        self,
+        entity_id: str,
+        top_k: int = 5,
+        threshold: float = 0,
+        persist: bool = False,
+        persist_top_k: int = 1,
+        entity_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ranked prototype/type matches (fuzzy duck typing)."""
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {"topK": top_k, "threshold": threshold}
+        if persist:
+            params["persist"] = "true"
+            params["persistTopK"] = persist_top_k
+        return self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/types",
+            params=params,
+        )
+
+    def hydrate(
+        self,
+        entity_id: str,
+        top_k: int = 5,
+        threshold: float = 0,
+        entity_api_prefix: Optional[str] = None,
+    ) -> KSGObject:
+        """
+        Hydrate an entity as a duck-typed :class:`KSGObject` in one round trip.
+
+        Mirrors the JS ``client.hydrate``. Never persists prototype membership —
+        pass ``persist=True`` to :meth:`get_entity_types` when you mean to stamp
+        it.
+        """
+        prefix = entity_api_prefix or self.prototype_api_prefix or "/api2.0"
+        body = self._request(
+            "GET",
+            f"{prefix}/entities/{entity_id}/hydrate",
+            params={"topK": top_k, "threshold": threshold},
+        )
+        payload = dict(body or {})
+        payload.setdefault("uuid", entity_id)
+        return KSGObject(payload)
+
+    def get_entity_snapshot(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+        top_k: int = 5,
+    ) -> EntityProxy:
+        """EntityProxy over get_entity_properties (``.middleName`` → winner)."""
+        body = self.get_entity_properties(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
+        )
+        types: List[Dict[str, Any]] = []
+        try:
+            typed = self.get_entity_types(
+                entity_id,
+                top_k=top_k,
+                entity_api_prefix=entity_api_prefix,
+            )
+            types = typed.get("types") or typed.get("matched") or []
+        except Exception:
+            pass
+        body = dict(body)
+        body["types"] = types
+        return EntityProxy(body, client=self)
+
+    def entity(
+        self,
+        entity_id: str,
+        predicate: Optional[str] = None,
+        entity_api_prefix: Optional[str] = None,
+    ) -> EntityProxy:
+        """Alias for get_entity_snapshot."""
+        return self.get_entity_snapshot(
+            entity_id,
+            predicate=predicate,
+            entity_api_prefix=entity_api_prefix,
+        )
+
+    # ===== Verification / Hallucination Detection =====
+
+    def store_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        status: str = "verified",
+        confidence: float = 1.0,
+        source: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        Store a verified fact for hallucination detection.
+        
+        Args:
+            subject: Subject entity (e.g., "Bell")
+            predicate: Relation (e.g., "invented")
+            obj: Object entity (e.g., "telephone")
+            status: verified|refuted|unverified
+            confidence: Confidence [0,1]
+            source: Provenance source info
+        
+        Returns:
+            Stored fact with UUID
+        """
+        data = {
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "status": status,
+            "confidence": confidence,
+            "source": source
+        }
+        return self._request("POST", "/api/facts", json=data)
+
+    def store_facts_bulk(
+        self,
+        facts: List[tuple]
+    ) -> Dict[str, Any]:
+        """
+        Store multiple facts at once.
+        
+        Args:
+            facts: List of (subject, predicate, object) tuples
+        
+        Returns:
+            Result with stored count
+        """
+        fact_dicts = [
+            {"subject": f[0], "predicate": f[1], "object": f[2]}
+            for f in facts
+        ]
+        return self._request("POST", "/api/facts/bulk", json={"facts": fact_dicts})
+
+    def verify(
+        self,
+        claim: str,
+        threshold: float = 0.7
+    ) -> Dict[str, Any]:
+        """
+        Verify a claim against stored facts.
+        
+        Args:
+            claim: Natural language claim to verify
+            threshold: Similarity threshold [0,1]
+        
+        Returns:
+            Verification result with status, confidence, reason
+        """
+        data = {
+            "claim": claim,
+            "threshold": threshold
+        }
+        result = self._request("POST", "/api/verify", json=data)
+        result["verified"] = result.get("status") == "verified"
+        return result
+
+    def get_fact_stats(self) -> Dict[str, Any]:
+        """Get statistics about stored facts"""
+        stats = self._request("GET", "/api/facts/stats")
+        stats["totalFacts"] = stats.get("total", stats.get("totalFacts", 0))
+        return stats
+
+    # Alias for scp_alg_test compatibility
+    def add_verified_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        sources: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        """
+        Alias for store_fact (scp_alg_test compatible).
+        
+        Args:
+            subject: Subject entity
+            predicate: Relation
+            obj: Object entity
+            sources: List of source dicts with url, trust_score
+        """
+        source = sources[0] if sources else None
+        confidence = source.get("trust_score", 1.0) if source else 1.0
+        return self.store_fact(
+            subject=subject,
+            predicate=predicate,
+            obj=obj,
+            status="verified",
+            confidence=confidence,
+            source=source
+        )
+
+    def check(self, claim: str) -> Dict[str, Any]:
+        """
+        Alias for verify (scp_alg_test compatible).
+        
+        Args:
+            claim: Natural language claim
+        
+        Returns:
+            Verification result
+        """
+        return self.verify(claim)
+
+    # ===== Topics (v0.2.2) =====
+
+    def create_topic(
+        self,
+        label: Optional[str] = None,
+        phrase: Optional[str] = None,
+        summary: str = "",
+        aliases: Optional[List[str]] = None,
+        kind: str = "topic",
+        language: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create (or resolve) a semantic topic"""
+        data = {
+            "label": label,
+            "phrase": phrase,
+            "summary": summary,
+            "aliases": aliases or [],
+            "kind": kind,
+            "provenance": provenance
+        }
+        if language is not None:
+            data["language"] = language
+        body = self._request("POST", f"{self.topic_api_prefix}/topics", json=data)
+        topic = body.get("topic") or {}
+        return {**body, **topic}
+
+    def get_topic(self, uuid: str) -> Dict[str, Any]:
+        """Get a topic by UUID (unwraps the topic payload)"""
+        result = self._request("GET", f"{self.topic_api_prefix}/topics/{uuid}")
+        return result["topic"]
+
+    def resolve_topic_tag(
+        self,
+        tag: Optional[str] = None,
+        phrase: Optional[str] = None,
+        language: Optional[str] = None,
+        top_k: int = 10,
+        create_if_missing: bool = False
+    ) -> Dict[str, Any]:
+        """Resolve a phrase/tag to candidate topics"""
+        data = {
+            "tag": tag,
+            "phrase": phrase,
+            "topK": top_k,
+            "createIfMissing": create_if_missing
+        }
+        if language is not None:
+            data["language"] = language
+        return self._request("POST", f"{self.topic_api_prefix}/topics/resolve-tag", json=data)
+
+    # ===== Object Categories (v0.2.2) =====
+
+    def create_object_category(
+        self,
+        name: str,
+        description: str = "",
+        context: str = "object-category",
+        parent_prototype_uuid: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        source: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create or resolve an object category prototype"""
+        data = {
+            "name": name,
+            "description": description,
+            "context": context,
+            "parentPrototypeUuid": parent_prototype_uuid,
+            "parentCategoryName": parent_category_name,
+            "properties": properties or [],
+            "source": source
+        }
+        return self._request("POST", "/api/object-categories", json=data)
+
+    def upsert_object_category(
+        self,
+        name: str,
+        description: str = "",
+        context: str = "object-category",
+        parent_prototype_uuid: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        source: Optional[str] = None,
+        category_lineage_key: Optional[str] = None,
+        hard_constraints: Optional[List[Any]] = None,
+        soft_constraints: Optional[List[Any]] = None,
+        min_score: Optional[float] = None,
+        decision_policy: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Create a new versioned object category"""
+        data = {
+            "name": name,
+            "description": description,
+            "context": context,
+            "parentPrototypeUuid": parent_prototype_uuid,
+            "parentCategoryName": parent_category_name,
+            "properties": properties or [],
+            "source": source,
+            "categoryLineageKey": category_lineage_key,
+            "hardConstraints": hard_constraints,
+            "softConstraints": soft_constraints,
+            "minScore": min_score,
+            "decisionPolicy": decision_policy,
+        }
+        return self._request("POST", "/api/object-categories/upsert", json=data)
+
+    def get_object_category(self, uuid: str) -> Dict[str, Any]:
+        """Get an object category by UUID"""
+        body = self._request("GET", f"/api/object-categories/{uuid}")
+        category = body.get("category") or {}
+        body["categoryPrototypeUuid"] = body.get("categoryPrototypeUuid") or category.get("uuid") or uuid
+        return body
+
+    def list_object_categories(self) -> List[Dict[str, Any]]:
+        """List object categories with their object counts."""
+        result = self._request("GET", "/api/object-categories")
+        return result.get("categories", [])
+
+    # ===== Objects (v0.2.2) =====
+
+    def upsert_object(
+        self,
+        title: str,
+        category_prototype_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        previous_object_uuid: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        knowledge_kind: str = "personal",
+        sensitivity: str = "normal",
+        privacy_override: Optional[Any] = None,
+        private: Optional[bool] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Upsert a schema-backed object entity (new version)"""
+        data = {
+            "title": title,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "previousObjectUuid": previous_object_uuid,
+            "objectLineageKey": object_lineage_key,
+            "provenance": provenance,
+            "knowledgeKind": knowledge_kind,
+            "sensitivity": sensitivity,
+            "privacyOverride": privacy_override,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id
+        }
+        if private is not None:
+            data["private"] = private
+        return self._request("POST", "/api/objects/upsert", json=data)
+
+    def get_object(
+        self,
+        uuid: str,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuid: Optional[str] = None,
+        prototype_revision_uuids: Optional[Any] = None,
+        infer: bool = False
+    ) -> Dict[str, Any]:
+        """Get an object entity by UUID. match_prototypes lazily evaluates match contracts."""
+        params = {}
+        if owner_user_id:
+            params["ownerUserId"] = owner_user_id
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        if match_prototypes:
+            params["matchPrototypes"] = True
+        if prototype_revision_uuid:
+            params["prototypeRevisionUuid"] = prototype_revision_uuid
+        if prototype_revision_uuids:
+            if isinstance(prototype_revision_uuids, (list, tuple)):
+                params["prototypeRevisionUuids"] = ",".join(str(item) for item in prototype_revision_uuids)
+            else:
+                params["prototypeRevisionUuids"] = str(prototype_revision_uuids)
+        if infer:
+            params["infer"] = True
+        return self._request("GET", f"/api/objects/{uuid}", params=params)
+
+    def list_memory_roles(
+        self, memory_api_prefix: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Role catalog for typed memory (mandate / schedule / rule / procedureDag)."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        result = self._request("GET", f"{prefix}/memory/roles")
+        return result.get("roles", [])
+
+    def instantiate_memory(
+        self,
+        role: str,
+        title: str,
+        category_prototype_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: Optional[str] = None,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        previous_object_uuid: Optional[str] = None,
+        object_lineage_key: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        knowledge_kind: str = "personal",
+        sensitivity: str = "normal",
+        privacy_override: Optional[Any] = None,
+        private: Optional[bool] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Role-typed create — same write path as upsert_object, plus claims."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        data: Dict[str, Any] = {
+            "role": role,
+            "title": title,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "previousObjectUuid": previous_object_uuid,
+            "objectLineageKey": object_lineage_key,
+            "provenance": provenance,
+            "knowledgeKind": knowledge_kind,
+            "sensitivity": sensitivity,
+            "privacyOverride": privacy_override,
+        }
+        if private is not None:
+            data["private"] = private
+        if owner_user_id is not None:
+            data["ownerUserId"] = owner_user_id
+        if agent_session_id is not None:
+            data["agentSessionId"] = agent_session_id
+        return self._request(
+            "POST",
+            f"{prefix}/memory/instantiate",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def get_memory_object(
+        self,
+        uuid: str,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        memory_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Object snapshot + assertion claims + prototype lineage."""
+        prefix = memory_api_prefix or self.prototype_api_prefix or "/api2.0"
+        params: Dict[str, Any] = {}
+        if owner_user_id or self.default_owner_user_id:
+            params["ownerUserId"] = owner_user_id or self.default_owner_user_id
+        if agent_session_id or self.default_agent_session_id:
+            params["agentSessionId"] = agent_session_id or self.default_agent_session_id
+        return self._request(
+            "GET",
+            f"{prefix}/memory/{uuid}",
+            params=params or None,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def list_objects(
+        self,
+        category: Optional[str] = None,
+        limit: int = 200,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List object entities, optionally filtered to one category.
+
+        The server returns public objects plus the caller's own private ones,
+        so identity matters here even for a read.
+        """
+        params: Dict[str, Any] = {"limit": limit}
+        if category:
+            params["category"] = category
+        result = self._request(
+            "GET",
+            "/api/objects",
+            params=params,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return result.get("objects", [])
+
+    def resolve_object(
+        self,
+        object_lineage_key: Optional[str] = None,
+        category_prototype_uuid: Optional[str] = None,
+        title: Optional[str] = None,
+        private: bool = False,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Resolve the latest object version by lineage key or title"""
+        data = {
+            "objectLineageKey": object_lineage_key,
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "private": private,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id
+        }
+        result = self._request("POST", "/api/objects/resolve", json=data)
+        result["objectUuid"] = result.get("objectUuid") or result.get("selectedObjectUuid")
+        return result
+
+    def generalize_object(
+        self,
+        source_object_uuid: Optional[str] = None,
+        source_object_lineage_key: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        target_category_prototype_uuid: Optional[str] = None,
+        target_category_name: Optional[str] = None,
+        target_parent_category_name: Optional[str] = None,
+        target_title: Optional[str] = None,
+        target_tags: Optional[List[str]] = None,
+        include_properties: Optional[List[str]] = None,
+        exclude_properties: Optional[List[str]] = None,
+        mode: str = "safe",
+        object_lineage_key: Optional[str] = None,
+        publish_assertion: bool = False,
+        assertion_predicate: str = "generalized_fact",
+        assertion_truth: float = 0.9,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Generalize a concrete object into a reusable variant"""
+        data = {
+            "sourceObjectUuid": source_object_uuid,
+            "sourceObjectLineageKey": source_object_lineage_key,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "targetCategoryPrototypeUuid": target_category_prototype_uuid,
+            "targetCategoryName": target_category_name,
+            "targetParentCategoryName": target_parent_category_name,
+            "targetTitle": target_title,
+            "targetTags": target_tags or [],
+            "includeProperties": include_properties,
+            "excludeProperties": exclude_properties,
+            "mode": mode,
+            "objectLineageKey": object_lineage_key,
+            "publishAssertion": publish_assertion,
+            "assertionPredicate": assertion_predicate,
+            "assertionTruth": assertion_truth,
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/objects/generalize", json=data)
+
+    # ===== Procedures (v0.2.2) =====
+
+    def create_procedure(
+        self,
+        title: str,
+        description: str = "",
+        steps: Optional[List[Dict[str, Any]]] = None,
+        dependencies: Optional[List[List[int]]] = None,
+        guards: Optional[Dict[str, Any]] = None,
+        extra_props: Optional[Dict[str, Any]] = None,
+        dag_json: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Create a Procedure DAG with steps and dependencies (stores canonical dagJson)."""
+        data = {
+            "title": title,
+            "description": description,
+            "steps": steps or [],
+            "dependencies": dependencies or []
+        }
+        if guards is not None:
+            data["guards"] = guards
+        if extra_props is not None:
+            data["extraProps"] = extra_props
+        if dag_json is not None:
+            data["dagJson"] = dag_json
+        return self._request("POST", "/api/procedures", json=data)
+
+    def get_procedure(
+        self,
+        uuid: str,
+        source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Get a Procedure DAG by UUID.
+
+        source A/B load path: 'dagJson' | 'graph' | 'both' (default both; primary prefers dagJson).
+        """
+        if source is not None:
+            return self._request("GET", f"/api/procedures/{uuid}", params={"source": source})
+        return self._request("GET", f"/api/procedures/{uuid}")
+
+    def put_procedure_dag(
+        self,
+        uuid: str,
+        dag_json: Dict[str, Any],
+        rematerialize: bool = True,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Update canonical dagJson (source of truth); optionally rematerialize next→ edges."""
+        data: Dict[str, Any] = {
+            "dagJson": dag_json,
+            "rematerialize": rematerialize,
+        }
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request("PUT", f"/api/procedures/{uuid}/dag", json=data)
+
+    def add_procedure_step(
+        self,
+        procedure_uuid: str,
+        title: str,
+        payload: Optional[Dict[str, Any]] = None,
+        tool: Optional[str] = None,
+        guard_text: Optional[str] = None,
+        guard: Optional[Any] = None,
+        on_fail: Optional[Any] = None,
+        after_step_uuid: Optional[str] = None,
+        before_step_uuid: Optional[str] = None,
+        order: Optional[int] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Insert a new step into an existing Procedure DAG"""
+        data: Dict[str, Any] = {"title": title}
+        if payload is not None:
+            data["payload"] = payload
+        if tool is not None:
+            data["tool"] = tool
+        if guard_text is not None:
+            data["guard_text"] = guard_text
+        if guard is not None:
+            data["guard"] = guard
+        if on_fail is not None:
+            data["on_fail"] = on_fail
+        if after_step_uuid is not None:
+            data["afterStepUuid"] = after_step_uuid
+        if before_step_uuid is not None:
+            data["beforeStepUuid"] = before_step_uuid
+        if order is not None:
+            data["order"] = order
+        if provenance is not None:
+            data["provenance"] = provenance
+        return self._request(
+            "POST",
+            f"/api/procedures/{procedure_uuid}/steps",
+            json=data
+        )
+
+    def generalize_procedure(
+        self,
+        procedure_uuid: str,
+        title: str,
+        description: str = "",
+        mode: str = "schema_only",
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a generalized reusable variant of a Procedure DAG"""
+        data = {
+            "title": title,
+            "description": description,
+            "mode": mode,
+            "provenance": provenance
+        }
+        return self._request(
+            "POST",
+            f"/api/procedures/{procedure_uuid}/generalize",
+            json=data
+        )
+
+    def repair_procedure_selector(
+        self,
+        procedure_uuid: str,
+        step_uuid: str,
+        form_element_uuid: str,
+        repaired_selector: str,
+        failed_selector: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Record a selector failure and repaired selector for a step"""
+        data = {
+            "stepUuid": step_uuid,
+            "formElementUuid": form_element_uuid,
+            "failedSelector": failed_selector,
+            "repairedSelector": repaired_selector,
+            "provenance": provenance
+        }
+        return self._request(
+            "POST",
+            f"/api/procedures/{procedure_uuid}/repair-selector",
+            json=data
+        )
+
+    def search_procedures(
+        self,
+        query: str,
+        top_k: int = 5
+    ) -> List[Dict[str, Any]]:
+        """Search for Procedure DAGs by semantic similarity"""
+        result = self._request(
+            "POST",
+            "/api/procedures/search",
+            json={"query": query, "topK": top_k}
+        )
+        return result["results"]
+
+    def import_procedure_json(
+        self,
+        procedure: Dict[str, Any],
+        form_element_category_prototype_uuid: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Import a naive JSON procedure definition into a linked DAG"""
+        data = {
+            "procedure": procedure,
+            "formElementCategoryPrototypeUuid": form_element_category_prototype_uuid,
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/procedures/import-json", json=data)
+
+    # ===== Concept Objects (v0.2.2) =====
+
+    def suggest_concept_objects(
+        self,
+        text: Optional[str] = None,
+        query: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10,
+        create_tag_if_missing: bool = False
+    ) -> Dict[str, Any]:
+        """Suggest existing concept objects for a phrase/context"""
+        text_input = text or query
+        if not text_input or not str(text_input).strip():
+            raise ValueError("text or query is required for suggest_concept_objects")
+        data = {
+            "text": text_input,
+            "query": text_input,
+            "context": context or {},
+            "topK": top_k,
+            "createTagIfMissing": create_tag_if_missing
+        }
+        body = self._request("POST", "/api/concept-objects/suggest", json=data)
+        body["suggestions"] = body.get("suggestions") or body.get("candidates") or []
+        return body
+
+    def search_concept_objects(
+        self,
+        query: Optional[str] = None,
+        text: Optional[str] = None,
+        context: Optional[Dict[str, Any]] = None,
+        top_k: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Search concept objects by semantic similarity"""
+        data = {
+            "query": query,
+            "text": text,
+            "context": context or {},
+            "topK": top_k
+        }
+        result = self._request("POST", "/api/concept-objects/search", json=data)
+        return result["results"]
+
+    def search_knowledge(
+        self,
+        query: str,
+        top_k: int = 10,
+        similarity_threshold: float = 0.55,
+        categories: Optional[List[str]] = None,
+        include_concepts: bool = True,
+        include_objects: bool = True,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        knowledge_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Unified search over concepts (incl. episodic) + Document/typed objects."""
+        prefix = knowledge_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "query": query,
+            "topK": top_k,
+            "similarityThreshold": similarity_threshold,
+            "categories": categories,
+            "includeConcepts": include_concepts,
+            "includeObjects": include_objects,
+        }
+        result = self._request(
+            "POST",
+            f"{prefix}/knowledge/search",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        return {
+            "ok": result.get("ok", True),
+            "query": result.get("query", query),
+            "count": result.get("count", len(result.get("results") or [])),
+            "results": result.get("results") or [],
+        }
+
+    def semantic_remember(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "conversation",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ingest a chat utterance into MemoryEvent + claims + associations."""
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        data = {
+            "text": text,
+            "speaker": speaker,
+            "source": source,
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "sessionId": session_id,
+            "private": is_private,
+            "plan": plan,
+            "provenance": provenance,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/remember",
+            json=data,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_recall(
+        self,
+        query: str,
+        top_k: int = 8,
+        expand_depth: int = 1,
+        similarity_threshold: float = 0.15,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/recall",
+            json={
+                "query": query,
+                "topK": top_k,
+                "expandDepth": expand_depth,
+                "similarityThreshold": similarity_threshold,
+                "ownerUserId": owner_user_id,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_ask(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        object: Optional[Any] = None,
+        pattern: Optional[Dict[str, Any]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body = pattern or {
+            "subject": subject,
+            "predicate": predicate,
+            "object": object,
+            "ownerUserId": owner_user_id,
+        }
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/ask",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def semantic_correct(
+        self,
+        text: str,
+        speaker: str = "user",
+        source: str = "correction",
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        is_private: bool = True,
+        plan: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/semantic/correct",
+            json={
+                "text": text,
+                "speaker": speaker,
+                "source": source,
+                "ownerUserId": owner_user_id,
+                "agentSessionId": agent_session_id,
+                "sessionId": session_id,
+                "private": is_private,
+                "plan": plan,
+                "provenance": provenance,
+            },
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def suggest_concept_object_prototypes(
+        self,
+        label: str = "",
+        properties: Optional[List[Dict[str, Any]]] = None,
+        context: Optional[Dict[str, Any]] = None,
+        category_prototype_uuids: Optional[List[str]] = None,
+        top_k: int = 5
+    ) -> Dict[str, Any]:
+        """Suggest category prototypes for a labelled property set"""
+        props = properties or []
+        if not props:
+            raise ValueError("properties are required for suggest_concept_object_prototypes")
+        data = {
+            "label": label,
+            "properties": props,
+            "context": context or {},
+            "categoryPrototypeUuids": category_prototype_uuids,
+            "topK": top_k
+        }
+        body = self._request("POST", "/api/concept-objects/suggest-prototypes", json=data)
+        body["suggestions"] = body.get("suggestions") or body.get("candidates") or []
+        return body
+
+    # ===== Composites (v0.2.2) =====
+
+    def create_composite(
+        self,
+        category_prototype_uuid: str,
+        title: str,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        components: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a composite object with components"""
+        data = {
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "components": components or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/composites", json=data)
+
+    def get_composite(self, uuid: str) -> Dict[str, Any]:
+        """Get a composite object by UUID"""
+        return self._request("GET", f"/api/composites/{uuid}")
+
+    def update_composite_component(
+        self,
+        composite_uuid: str,
+        component_uuid: str,
+        title: Optional[str] = None,
+        summary: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a new version of a composite component"""
+        data = {
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request(
+            "POST",
+            f"/api/composites/{composite_uuid}/components/{component_uuid}/update",
+            json=data
+        )
+
+    # ===== Logic / Syllogisms (v0.2.2) =====
+
+    def create_syllogism(
+        self,
+        title: str,
+        description: str = "",
+        premises: Optional[List[Dict[str, Any]]] = None,
+        conclusion: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a syllogism DAG with premises and a conclusion"""
+        data = {
+            "title": title,
+            "description": description,
+            "premises": premises or [],
+            "conclusion": conclusion,
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/logic/syllogisms", json=data)
+
+    def get_syllogism(self, uuid: str) -> Dict[str, Any]:
+        """Get a compiled syllogism DAG by UUID"""
+        return self._request("GET", f"/api/logic/syllogisms/{uuid}")
+
+    # ===== Market Matching (v0.2.2) =====
+
+    def register_market_match(
+        self,
+        kind: str,
+        actor_id: str,
+        object_uuid: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Register an offer/want market intent"""
+        data = {
+            "kind": kind,
+            "actorId": actor_id,
+            "objectUuid": object_uuid,
+            "tags": tags or [],
+            "properties": properties or []
+        }
+        result = self._request("POST", "/api/market/matches/register", json=data)
+        result["matchUuid"] = result.get("matchUuid") or result.get("intent_uuid")
+        result["intent_uuid"] = result.get("intent_uuid") or result.get("matchUuid")
+        return result
+
+    def search_market_matches(
+        self,
+        kind: str,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Search for counterparty market intents"""
+        data = {
+            "kind": kind,
+            "tags": tags or [],
+            "properties": properties or []
+        }
+        result = self._request("POST", "/api/market/matches/search", json=data)
+        return result["matches"]
+
+    # ===== Channels (v0.2.2) =====
+
+    def subscribe_channel(
+        self,
+        channel_tag: str,
+        actor_id: str
+    ) -> Dict[str, Any]:
+        """Subscribe an actor to a concept-tag channel"""
+        data = {"channelTag": channel_tag, "actorId": actor_id}
+        return self._request("POST", "/api/channels/subscribe", json=data)
+
+    def post_channel_message(
+        self,
+        channel_tag: str,
+        actor_id: str,
+        message: str,
+        tags: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """Post a message to a concept-tag channel"""
+        data = {
+            "channelTag": channel_tag,
+            "actorId": actor_id,
+            "message": message,
+            "tags": tags or []
+        }
+        return self._request("POST", "/api/channels/messages", json=data)
+
+    def get_channel_feed(self, actor_id: str) -> List[Dict[str, Any]]:
+        """Get the channel feed for an actor's subscriptions"""
+        result = self._request(
+            "GET",
+            "/api/channels/feed",
+            params={"actorId": actor_id}
+        )
+        return result["items"]
+
+    # ===== Repeating Events (v0.2.2) =====
+
+    def create_repeating_event(
+        self,
+        category_prototype_uuid: str,
+        title: str,
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Create a public repeating event object"""
+        data = {
+            "categoryPrototypeUuid": category_prototype_uuid,
+            "title": title,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/events/repeating", json=data)
+
+    # ===== Ratings (v0.2.2) =====
+
+    def rate_entity(
+        self,
+        uuid: str,
+        actor_id: str,
+        value: float,
+        metric: str = "overall",
+        scale: float = 5,
+        comment: str = ""
+    ) -> Dict[str, Any]:
+        """Record a rating assertion for an entity"""
+        data = {
+            "actorId": actor_id,
+            "metric": metric,
+            "value": value,
+            "scale": scale,
+            "comment": comment
+        }
+        return self._request("POST", f"/api/ratings/{uuid}", json=data)
+
+    def get_ratings(self, uuid: str) -> Dict[str, Any]:
+        """Get aggregated ratings for an entity"""
+        return self._request("GET", f"/api/ratings/{uuid}")
+
+    # ===== Legacy knode =====
+
+    def create_knode(
+        self,
+        label: str,
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Create a legacy knode document node"""
+        data = {
+            "label": label,
+            "summary": summary,
+            "tags": tags or [],
+            "metadata": metadata or {}
+        }
+        result = self._request("POST", "/api/knodes", json=data)
+        return result["uuid"]
+
+    # ===== Graph query (devExtended) =====
+
+    def query_graph(
+        self,
+        search: Optional[Dict[str, Any]] = None,
+        traverse: Optional[Dict[str, Any]] = None,
+        match_prototypes: bool = False,
+        prototype_revision_uuids: Optional[Any] = None
+    ) -> Dict[str, Any]:
+        """Run ad-hoc graph search + traversal query"""
+        payload = {"search": search, "traverse": traverse}
+        if match_prototypes:
+            payload["matchPrototypes"] = True
+        if prototype_revision_uuids:
+            payload["prototypeRevisionUuids"] = prototype_revision_uuids
+        return self._request("POST", "/api/query", json=payload)
+
+    # ===== Seeds =====
+
+    def seed_osl_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/osl-agent", json=body or {})
+
+    def seed_osl_oc_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/osl-oc-agent", json=body or {})
+
+    def seed_openclaw_agent(self, body: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        return self._request("POST", "/api/seed/openclaw-agent", json=body or {})
+
+    def seed_social_layer(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/social-layer", json={})
+
+    def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
+
+    def seed_procedure_run_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request("POST", f"{prefix}/seed/procedure-run-primitives", json={})
+
+    # ===== Experimental (dev preview) =====
+
+    def create_vault(
+        self,
+        owner_user_id: str,
+        agent_session_id: Optional[str] = None,
+        title: str = "Personal vault",
+        tags: Optional[List[str]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "title": title,
+            "tags": tags,
+            "provenance": provenance
+        }
+        body = self._request("POST", "/api/vaults", json=data)
+        body["vaultUuid"] = body.get("vaultUuid") or body.get("vault_uuid")
+        return body
+
+    def personal_remember(
+        self,
+        owner_user_id: str,
+        title: str,
+        agent_session_id: Optional[str] = None,
+        vault_uuid: Optional[str] = None,
+        category_name: Optional[str] = None,
+        parent_category_name: str = "PersonalMemory",
+        summary: str = "",
+        tags: Optional[List[str]] = None,
+        properties: Optional[List[Dict[str, Any]]] = None,
+        provenance: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "vaultUuid": vault_uuid,
+            "categoryName": category_name,
+            "parentCategoryName": parent_category_name,
+            "title": title,
+            "summary": summary,
+            "tags": tags or [],
+            "properties": properties or [],
+            "provenance": provenance
+        }
+        return self._request("POST", "/api/personal/remember", json=data)
+
+    def personal_recall(
+        self,
+        owner_user_id: str,
+        query: str,
+        vault_uuid: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params = {"ownerUserId": owner_user_id, "query": query}
+        if vault_uuid:
+            params["vaultUuid"] = vault_uuid
+        return self._request("GET", "/api/personal/recall", params=params)
+
+    def ingest_private_payment(
+        self,
+        owner_user_id: str,
+        agent_session_id: str,
+        label: str,
+        text: str
+    ) -> Dict[str, Any]:
+        data = {
+            "ownerUserId": owner_user_id,
+            "agentSessionId": agent_session_id,
+            "label": label,
+            "text": text
+        }
+        return self._request("POST", "/api/private/payment/ingest", json=data)
+
+    def list_private_payments(
+        self,
+        owner_user_id: str,
+        agent_session_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        params = {"ownerUserId": owner_user_id}
+        if agent_session_id:
+            params["agentSessionId"] = agent_session_id
+        return self._request("GET", "/api/private/payments", params=params)
+
+    def get_private_payment(self, uuid: str, owner_user_id: str) -> Dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/private/payment/{uuid}",
+            params={"ownerUserId": owner_user_id}
+        )
+
+    def lookup_private_payment(
+        self,
+        owner_user_id: str,
+        agent_session_id: str
+    ) -> Dict[str, Any]:
+        data = {"ownerUserId": owner_user_id, "agentSessionId": agent_session_id}
+        return self._request("POST", "/api/private/payment/lookup", json=data)
+
+    # ===== Compatibility aliases =====
+
+    def resolve_tag(self, **kwargs) -> Dict[str, Any]:
+        return self.resolve_topic_tag(**kwargs)
+
+    def repair_selector(self, procedure_uuid: str, **kwargs) -> Dict[str, Any]:
+        return self.repair_procedure_selector(
+            procedure_uuid,
+            step_uuid=kwargs.get("step_uuid") or kwargs.get("stepUuid"),
+            form_element_uuid=kwargs.get("form_element_uuid") or kwargs.get("formElementUuid"),
+            failed_selector=kwargs.get("failed_selector") or kwargs.get("failedSelector"),
+            repaired_selector=kwargs.get("repaired_selector") or kwargs.get("repairedSelector"),
+            provenance=kwargs.get("provenance")
+        )
+
+    def suggest_prototypes(self, **kwargs) -> Dict[str, Any]:
+        return self.suggest_concept_object_prototypes(
+            label=kwargs.get("label", ""),
+            properties=kwargs.get("properties"),
+            context=kwargs.get("context"),
+            category_prototype_uuids=kwargs.get("category_prototype_uuids")
+            or kwargs.get("categoryPrototypeUuids"),
+            top_k=kwargs.get("top_k", kwargs.get("topK", 5))
+        )
+
+
+# Alias for scp_alg_test compatibility
+class KSGGroundTruth:
+    """
+    KnowShowGo ground truth adapter for scp_alg_test.
+    
+    Usage:
+        gt = KSGGroundTruth()
+        gt.add_verified_fact("Bell", "invented", "telephone")
+        result = gt.check("Edison invented the telephone")
+    """
+    
+    def __init__(self, url: str = "http://localhost:3000"):
+        self.client = KnowShowGoClient(url)
+    
+    def add_verified_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: str,
+        sources: Optional[List[Dict]] = None
+    ) -> Dict[str, Any]:
+        return self.client.add_verified_fact(subject, predicate, obj, sources)
+    
+    def add_facts_bulk(self, facts: List[tuple]) -> Dict[str, Any]:
+        return self.client.store_facts_bulk(facts)
+    
+    def check(self, claim: str) -> Dict[str, Any]:
+        return self.client.check(claim)
+    
+    def stats(self) -> Dict[str, Any]:
+        return self.client.get_fact_stats()
+    
+    def health_check(self) -> bool:
+        try:
+            result = self.client.health_check()
+            return result.get("status") == "ok"
+        except Exception:
+            return False
+
+
+# Example usage
+if __name__ == "__main__":
+    client = KnowShowGoClient()
+
+    # Health check
+    print("Health:", client.health_check())
+
+    # Create prototype
+    proto_uuid = client.create_prototype(
+        name="Person",
+        description="A human individual",
+        labels=["person", "human"]
+    )
+    print(f"Created prototype: {proto_uuid}")
+
+    # Create concept
+    concept_uuid = client.create_concept(
+        prototype_uuid=proto_uuid,
+        json_obj={"name": "John Doe", "email": "john@example.com"}
+    )
+    print(f"Created concept: {concept_uuid}")
+
+    # Search
+    results = client.search_concepts("person named John", top_k=5)
+    print(f"Search results: {len(results)} found")
+
