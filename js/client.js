@@ -426,6 +426,16 @@ export function matchesRoute(template, actual) {
   );
 }
 
+/** Lineage-key prefix every seeded Logic IR primitive category carries. */
+const LOGIC_IR_LINEAGE_PREFIX = 'category:logic-ir:';
+
+/** `category:logic-ir:proposition` -> `Proposition`, for rows with no name. */
+function logicIrNameFromLineage(lineage) {
+  const slug = lineage.slice(LOGIC_IR_LINEAGE_PREFIX.length);
+  if (!slug) return null;
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -2177,6 +2187,45 @@ export class KnowShowGoClient {
   seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {
     const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
     return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });
+  }
+
+  /**
+   * The seeded Logic IR prototypes as `{ name: uuid }`, **without seeding**.
+   *
+   * Seeding is the only way to learn these uuids today, and seeding is a
+   * write. On a deployment that sets `KSG_REQUIRE_WRITE_TOKEN=1` — which
+   * `docs/PUBLIC-API.md` says is on for the public API — that write is
+   * refused without write credentials, so a read-only caller cannot obtain
+   * the uuids at all. This reads them off `GET /api/object-categories`
+   * instead, which the write gate does not cover.
+   *
+   * (Re-seeding is otherwise cheap: it is idempotent, and an unchanged spec
+   * does not bump a category's version. The cost this avoids is the write
+   * itself and the ten upserts behind it, not version churn.)
+   *
+   * Rows are selected by their `category:logic-ir:` lineage key rather than by
+   * name, so a caller's own category also called `Concept` is never mistaken
+   * for the primitive. The listing collapses to the head version per lineage,
+   * so these are the current revisions.
+   *
+   * @returns {Promise<Record<string, string>>} `{ Concept: uuid, … }`; empty
+   *   when nothing has been seeded yet — seed once, then call this.
+   */
+  async logic_ir_prototypes() {
+    const categories = await this.list_object_categories();
+    const prototypes = {};
+    for (const row of categories || []) {
+      const lineage = String(row?.categoryLineageKey || '');
+      if (!lineage.startsWith(LOGIC_IR_LINEAGE_PREFIX) || !row?.uuid) continue;
+      const name = row?.name || logicIrNameFromLineage(lineage);
+      if (name) prototypes[name] = row.uuid;
+    }
+    return prototypes;
+  }
+
+  /** camelCase alias of {@link logic_ir_prototypes}. */
+  logicIrPrototypes() {
+    return this.logic_ir_prototypes();
   }
 
   seed_procedure_run_primitives({ api_prefix = '/api2.0' } = {}) {
