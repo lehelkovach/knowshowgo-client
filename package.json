@@ -1,6 +1,6 @@
 {
   "name": "@lehelkovach/knowshowgo-client",
-  "version": "0.2.21",
+  "version": "0.2.22-dev",
   "description": "JavaScript client SDK for the KnowShowGo semantic memory engine (Python SDK ships separately from python/)",
   "type": "module",
   "main": "js/index.js",
