@@ -346,6 +346,18 @@ def matches_route(template: str, actual: str) -> bool:
     return True
 
 
+LOGIC_IR_LINEAGE_PREFIX = "category:logic-ir:"
+"""Lineage-key prefix every seeded Logic IR primitive category carries."""
+
+
+def _logic_ir_name_from_lineage(lineage: str) -> Optional[str]:
+    """``category:logic-ir:proposition`` -> ``Proposition``, for unnamed rows."""
+    slug = lineage[len(LOGIC_IR_LINEAGE_PREFIX):]
+    if not slug:
+        return None
+    return slug[0].upper() + slug[1:]
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -2454,6 +2466,37 @@ class KnowShowGoClient:
     def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
+
+    def logic_ir_prototypes(self) -> Dict[str, str]:
+        """The seeded Logic IR prototypes as ``{name: uuid}``, without seeding.
+
+        Seeding is the only way to learn these uuids today, and seeding is a
+        write. On a deployment that sets ``KSG_REQUIRE_WRITE_TOKEN=1`` — which
+        ``docs/PUBLIC-API.md`` says is on for the public API — that write is
+        refused without write credentials, so a read-only caller cannot obtain
+        the uuids at all. This reads them off ``GET /api/object-categories``
+        instead, which the write gate does not cover.
+
+        Re-seeding is otherwise cheap: it is idempotent, and an unchanged spec
+        does not bump a category's version. The cost this avoids is the write
+        itself, not version churn.
+
+        Rows are selected by their ``category:logic-ir:`` lineage key rather
+        than by name, so a caller's own category also called ``Concept`` is
+        never mistaken for the primitive. The listing collapses to the head
+        version per lineage, so these are the current revisions. Empty when
+        nothing has been seeded yet.
+        """
+        prototypes: Dict[str, str] = {}
+        for row in self.list_object_categories() or []:
+            lineage = str((row or {}).get("categoryLineageKey") or "")
+            uuid = (row or {}).get("uuid")
+            if not lineage.startswith(LOGIC_IR_LINEAGE_PREFIX) or not uuid:
+                continue
+            name = (row or {}).get("name") or _logic_ir_name_from_lineage(lineage)
+            if name:
+                prototypes[name] = uuid
+        return prototypes
 
     def seed_procedure_run_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
