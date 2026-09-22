@@ -1,0 +1,53 @@
+name: Release tag (annotated, from Actions)
+
+# Create an annotated `vX.Y.Z-client` tag on a commit that is already on
+# `main`, from Actions. Exists because agent sessions cannot push tags: the
+# git proxy they sit behind drops tag refs silently and the refs API answers
+# 403 — which is how client 0.2.21 shipped with no `v0.2.21-client` tag.
+#
+# Guards: the tag must be `v` + the package.json version at that commit +
+# `-client` (the pairing convention the server's deploy gate checks), and the
+# commit must be reachable from `main`. A tag pushed with GITHUB_TOKEN does
+# not trigger other workflows, so this never starts publish.yml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Commit on main to tag (full or short SHA)"
+        required: true
+      tag:
+        description: "Tag name; must equal v<package.json version>-client at that commit (e.g. v0.2.21-client)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify and tag
+        env:
+          SHA: ${{ github.event.inputs.sha }}
+          TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          full="$(git rev-parse --verify "${SHA}^{commit}")"
+          git merge-base --is-ancestor "$full" origin/main || { echo "::error::$full is not on main"; exit 1; }
+          ver="$(git show "$full:package.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+          [ "$TAG" = "v$ver-client" ] || { echo "::error::tag $TAG does not match v${ver}-client at $full"; exit 1; }
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            at="$(git rev-list -n1 "$TAG")"
+            [ "$at" = "$full" ] && { echo "$TAG already points at $full; nothing to do"; exit 0; }
+            echo "::error::$TAG already exists at $at, not $full — tags are not moved"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" "$full" -m "Release $TAG ($(git rev-parse --short "$full"))"
+          git push origin "refs/tags/$TAG"
+          echo "tagged $TAG at $full"

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "knowshowgo-client"
-version = "0.2.21.dev0"
+version = "0.2.21"
 description = "Python client SDK for the KnowShowGo semantic memory engine"
 readme = "README.md"
 license = { text = "MIT" }
