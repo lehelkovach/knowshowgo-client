@@ -5,6 +5,7 @@
 ## Continuity
 
 - **Digest:** [`.AGENT/CONTINUITY.md`](.AGENT/CONTINUITY.md)
+- **Session loop:** [`.AGENT/RUNBOOK.md`](.AGENT/RUNBOOK.md)
 - **Portfolio master:** sibling [`knowshowgo/docs/STACK-MASTER.md`](../knowshowgo/docs/STACK-MASTER.md)
 - Gitflow: branch from **`dev`**, PR into **`dev`**.
 - The v1 agent contract (`.AGENT/README.md` + `resume-log.md` + `handoffs/latest.md`)
@@ -274,7 +275,9 @@ returns 503 rather than issuing an unverifiable token.
 
 ## Prompting
 
-No separate prompt/handoff docs. Rules here or server CLIENT-SYNC.
+No separate prompt docs. Rules here or server CLIENT-SYNC. If work must cross sessions
+before a PR exists, copy `.AGENT/handoffs/HANDOFF-TEMPLATE.md` to a task-named file on the
+task branch and delete it once the PR carries the state.
 
 ## Considerations (filed)
 
