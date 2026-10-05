@@ -133,8 +133,8 @@ so, with what result.
 **A personal assistant that actually remembers.** Everything you tell it,
 every form it filled, every preference, stored under your identity and
 recalled by meaning. Switch devices, switch models, switch assistants: the
-memory is yours and it persists. This is how the OSLO agent (the flagship
-KnowShowGo client) works.
+memory is yours and it persists. This is how the assistant built on
+KnowShowGo by its authors works.
 
 **A hallucination check for any AI feature.** Before your app shows a claim
 the model produced, ask KnowShowGo whether it is supported by stored facts.
@@ -215,8 +215,13 @@ yourself with an API token. The hosted service requires a token for writes.
 
 ## Where next
 
-- **Try it in ten minutes:** [Getting started](GETTING-STARTED.md), JavaScript
+- **Install:** [Installation](INSTALL.md).
+- **Try it in fifteen minutes:** [Getting started](GETTING-STARTED.md), JavaScript
   and Python side by side.
+- **The primitives, one by one:** [Concepts](CONCEPTS.md).
+- **What people build:** [Use cases](USE-CASES.md).
+- **The fuzzy part:** [Prototypes and casting](PROTOTYPES-AND-CASTING.md).
+- **DAGs and formal logic:** [Procedures and logic](PROCEDURES-AND-LOGIC.md).
 - **Every method:** [API reference](API.md).
 - **Reading objects like plain JavaScript objects:** [The duck-typed ORM](DUCK-TYPED-ORM.md).
 - **The full design, for engineers:** the server's

@@ -408,6 +408,10 @@ embedding model, follow the server's
 
 ## Where next
 
+- [Concepts](CONCEPTS.md): every primitive and the calls that touch it.
+- [Use cases](USE-CASES.md): what people build, mapped to calls.
+- [Prototypes and casting](PROTOTYPES-AND-CASTING.md): resemblance, contracts, `hydrate`, `as()`, `cast_object`.
+- [Procedures and logic](PROCEDURES-AND-LOGIC.md): step graphs, Logic IR, derivations.
 - [API reference](API.md): every method, grouped by domain, JS and Python.
 - [The duck-typed ORM](DUCK-TYPED-ORM.md): contested values, `as()`, `explain()`.
 - Logic: `evaluate_logic_ir` checks a formal proposition against stored claims

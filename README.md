@@ -1,182 +1,124 @@
-# @lehelkovach/knowshowgo-client
+# KnowShowGo client
 
-Official **JavaScript** and **Python** client SDKs for the
-[KnowShowGo](https://github.com/lehelkovach/knowshowgo) semantic-memory API.
+**JavaScript and Python SDKs for [KnowShowGo](https://knowshowgo.com): a
+semantic knowledge graph where concepts have stable identities, categories
+are fuzzy prototypes, every fact carries its source and history, procedures
+are data, and claims can be checked as logic.**
 
-KnowShowGo (KSG) is a durable memory service: typed objects, assertions,
-embeddings, topics/tags, prototypes, and procedure graphs behind a REST API.
-This package gives you typed wrappers over that API so you never hand-roll HTTP,
-prefixes, or identity headers.
+Store what you know, who said it, and how to do things. Read it back by
+meaning, as typed objects, or as evidence. Let an AI model write to it and
+read from it without letting the model *be* the memory.
 
-- **New here?** Start with [What is KnowShowGo?](docs/WHAT-IS-KNOWSHOWGO.md) —
-  what it is for, how it differs from a database or a vector store, and what
-  people build with it. No code.
-- **Hosted API:** `https://api.knowshowgo.com` · tokens from <https://knowshowgo.com/developers>
-- **Docs:** [Getting started](docs/GETTING-STARTED.md) (hands-on, JS + Python) · [API reference](docs/API.md) · [The duck-typed ORM](docs/DUCK-TYPED-ORM.md)
-- **Server:** [`knowshowgo`](https://github.com/lehelkovach/knowshowgo) · runbook [`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md)
+```js
+import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
+
+const client = KnowShowGoClient.publicApi({
+  defaultOwnerUserId: 'my-app',
+  authToken: process.env.KSG_API_TOKEN,   // https://knowshowgo.com/developers
+});
+await client.connect();
+
+await client.create_assertion({ subject: 'Ada Lovelace', predicate: 'is_a', obj: 'Mathematician', source: 'my-app' });
+await client.get_snapshot('Ada Lovelace');            // { is_a: 'Mathematician' }
+
+const saved = await client.upsert_object({
+  title: 'Dr. Lee', category_name: 'Dentist', parent_category_name: 'Person',
+  properties: [{ name: 'phone', type: 'string', value: '+1 555 0100' }],
+});
+const dentist = await client.hydrate(saved.objectUuid);
+dentist.phone;                                        // '+1 555 0100' — a plain object, no await
+dentist.type();                                       // strongest category match, with a score
+dentist.explain('phone');                             // which category defined it, and who else could have
+```
+
+```python
+from knowshowgo_client import KnowShowGoClient
+client = KnowShowGoClient.public_api(default_owner_user_id="my-app", auth_token=os.environ["KSG_API_TOKEN"])
+client.connect()
+```
+
+---
+
+## Documentation
+
+| Start here | |
+|---|---|
+| [**What is KnowShowGo?**](docs/WHAT-IS-KNOWSHOWGO.md) | The problem, the idea, the use cases. Plain language, no code. |
+| [**Installation**](docs/INSTALL.md) | npm, pip, choosing a server, configuration, troubleshooting. |
+| [**Getting started**](docs/GETTING-STARTED.md) | A fifteen-minute hands-on tour, JavaScript and Python side by side. |
+
+| Understand the model | |
+|---|---|
+| [**Concepts**](docs/CONCEPTS.md) | The primitives: concepts, categories, objects, properties, assertions and beliefs, episodes, procedures, Logic IR. Which calls touch each. |
+| [**Use cases**](docs/USE-CASES.md) | Eleven things people build, each mapped to the calls it uses. |
+| [**Prototypes and casting**](docs/PROTOTYPES-AND-CASTING.md) | Fuzzy categories, resemblance vs contract matching, duck-typed objects, `as()`, explicit cast. |
+| [**Procedures and logic**](docs/PROCEDURES-AND-LOGIC.md) | Step graphs (DAGs), Logic IR, truth vs shape, recorded derivations. |
+| [**The duck-typed ORM**](docs/DUCK-TYPED-ORM.md) | The full `KSGObject` surface and why hydration is one request. |
+
+| Reference | |
+|---|---|
+| [**API reference**](docs/API.md) | Every method, grouped by domain, JS and Python. |
+| Live API | `https://api.knowshowgo.com` · manifest at `GET /api/release` · tokens at <https://knowshowgo.com/developers> |
+| Demos | <https://knowshowgo.com/demo/> |
 
 ---
 
 ## Install
 
-This package is a remote REST client — it does **not** depend on the
-`knowshowgo` server package.
-
 ```bash
-npm install @lehelkovach/knowshowgo-client
-
-# or pin a release tag from https://github.com/lehelkovach/knowshowgo-client/tags
-npm install git+https://github.com/lehelkovach/knowshowgo-client.git#<tag>
+npm install @lehelkovach/knowshowgo-client      # Node 18+
+pip install knowshowgo-client                   # Python 3.8+, depends on requests
 ```
 
-Python (package `knowshowgo_client`, depends on `requests`):
+Registry publication is in progress; until the first version appears, install
+from GitHub (`git+https://github.com/lehelkovach/knowshowgo-client.git#dev`, or
+a tag from the [tags page](https://github.com/lehelkovach/knowshowgo-client/tags)).
+Details and a local-server option: [Installation](docs/INSTALL.md).
 
-```bash
-pip install knowshowgo-client
-# or from a release tag:
-# pip install "git+https://github.com/lehelkovach/knowshowgo-client.git@<tag>#subdirectory=python"
-```
+## What you get
 
-Requirements: **Node >= 18** (built-in `fetch`) or Python 3.8+ with `requests`.
+- **One identity per concept.** Spellings and synonyms resolve to one node;
+  everything carries a permanent UUID, versions, and provenance.
+- **Fuzzy categories.** Things match prototypes with a score, several at once;
+  typicality and membership are kept apart.
+- **Facts with sources, beliefs as views.** Competing claims live side by side;
+  the current best value comes back with its alternatives and speakers.
+- **Objects you can read like objects.** `hydrate()` returns a duck-typed
+  object with synchronous members, `type()`, `explain()`, and `as()`.
+- **Search by meaning** across concepts, objects and episodes.
+- **Procedures as graphs**, searchable, versioned, repairable.
+- **Logic you can audit.** Propositions bound to concept UUIDs, three-valued
+  evaluation over stored claims, recorded derivations.
+- **Private and public.** Owner-scoped data behind bearer tokens; a shared
+  public commons of concepts.
 
----
+## What this package is, and is not
 
-## Quick start (JavaScript)
+- **Is:** typed REST wrappers for both languages, base-URL and identity
+  handling, a release-manifest handshake, and the duck-typed object layer.
+- **Is not:** a database you embed, an LLM, or a chat agent. It always talks
+  to a KnowShowGo service, hosted or your own.
 
-```js
-import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
+## Versions
 
-// Talk to the hosted API; scope reads/writes to your namespace.
-const client = KnowShowGoClient.publicApi({
-  defaultOwnerUserId: 'my-app',
-  authToken: process.env.KSG_API_TOKEN, // or accessToken / tokenProvider
-});
-
-// Optional: verify you match the server you expect.
-// Optional pin — bare connect() accepts whatever the server advertises:
-await client.connect();
-// await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
-
-// Store a fact, then read back what is currently believed about its subject.
-await client.create_assertion({
-  subject: 'Ada Lovelace',
-  predicate: 'is_a',
-  obj: 'Mathematician',
-  source: 'my-app',
-});
-
-console.log(await client.get_snapshot('Ada Lovelace')); // { is_a: 'Mathematician' }
-```
-
-## Quick start (Python)
-
-```python
-from knowshowgo_client import KnowShowGoClient
-
-client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
-client.connect()  # pin with expected_release="vX.Y.Z" if you want to assert the server
-
-client.create_assertion(
-    subject="Ada Lovelace", predicate="is_a", obj="Mathematician", source="my-app"
-)
-print(client.get_snapshot("Ada Lovelace"))  # {'is_a': 'Mathematician'}
-```
-
----
-
-## Choosing an endpoint
-
-Base URL resolution order (both languages):
-
-1. explicit `baseUrl` / `base_url` argument
-2. `KSG_API_URL` environment variable
-3. `KSG_PUBLIC_API_URL` environment variable
-4. `http://localhost:3000` (local default)
-
-```js
-import { KnowShowGoClient, PUBLIC_API_BASE_URL } from '@lehelkovach/knowshowgo-client';
-
-new KnowShowGoClient({ baseUrl: PUBLIC_API_BASE_URL });   // explicit hosted
-KnowShowGoClient.publicApi();                              // same, via helper
-new KnowShowGoClient();                                    // env or localhost
-```
-
-To follow whatever host the service advertises in its release manifest:
-
-```js
-await client.connect({ adopt_advertised_base_url: true });
-// client.baseUrl is now manifest.api.publicBaseUrl
-```
-
----
-
-## Identity (soft owner ACL)
-
-KSG separates a **public commons** from **private owner data**. Private nodes are
-only readable by a caller whose identity matches the owner. Set an identity once
-and every list/search/get is scoped to it:
-
-```js
-const client = KnowShowGoClient.publicApi({
-  defaultOwnerUserId: 'user-123',
-  defaultAgentSessionId: 'session-abc', // optional
-});
-```
-
-This sends `X-KSG-Owner` / `X-KSG-Session` and fills `ownerUserId` on query/body.
-It is **soft** identity (a follow-up adds signed bearer tokens); see the server
-[`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md)
-for the token story.
-
----
-
-## API versioning
-
-New feature endpoints live under the canonical `/api2.0` namespace; `/api`
-stays as a backward-compatible alias. The client defaults to `/api2.0` and lets
-you override per instance:
-
-```js
-new KnowShowGoClient({ prototypeApiPrefix: '/api', topicApiPrefix: '/api' });
-```
-
-Python: `prototype_api_prefix` / `topic_api_prefix`.
-
----
-
-## What this package is (and isn't)
-
-- **Is:** typed REST wrappers, base-URL resolution, soft-identity headers,
-  release-contract `connect()`, JS + Python parity.
-- **Isn't:** the chat agent, browser automation, or any UI — those live in
-  [`osl-oc-agent`](https://github.com/lehelkovach/osl-oc-agent). Not an embedded
-  database; it always talks to a KSG service.
-
----
+The client version is `package.json` on this branch (`python/pyproject.toml`
+carries the same number). Clients pair with servers by version: `main` with
+`main`, `dev` with `dev`, and a tag `vX.Y.Z-client` with server `vX.Y.Z`. The
+live server reports what it runs at `GET /api/release`. New methods land under
+`/api2.0`; `/api` stays as a compatible alias.
 
 ## Development
 
 ```bash
 npm install
-node --test js/client.test.mjs                       # JS unit tests (Node runner)
-python3 -m unittest discover -s python -p 'test_*.py' # Python unit tests
-npm run build                                         # esbuild bundle -> dist/
+node --test js/client.test.mjs js/ksg_object.test.mjs js/client.timeout.test.mjs
+python3 -m unittest discover -s python/tests -p 'test_*.py'
+npm run build                                   # esbuild bundle -> dist/
+KSG_LIVE_URL=http://127.0.0.1:3000 node --test js/ksg_object_live.test.mjs   # against a real server
 ```
 
-Note: `npm test` maps to the Node built-in test runner, not jest.
-
----
-
-## Versions
-
-The client version is `package.json` on this branch (`python/pyproject.toml`
-carries the same number). Client and server pair by version: `main` ↔ server
-`main`, `dev` ↔ server `dev`, and a release tag `vX.Y.Z-client` pairs with
-server `vX.Y.Z`. The live server reports what it runs at `GET /api/release`.
-The pairing law is the server's
-[`VERSION-MATRIX.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/VERSION-MATRIX.md);
-numbers are deliberately not restated here, because a table like that went
-nine releases stale.
+Branch from `dev`, open pull requests into `dev`. Contributor notes are in
+[`AGENTS.md`](AGENTS.md).
 
 ## License
 
