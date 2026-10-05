@@ -8,8 +8,11 @@ embeddings, topics/tags, prototypes, and procedure graphs behind a REST API.
 This package gives you typed wrappers over that API so you never hand-roll HTTP,
 prefixes, or identity headers.
 
-- **Hosted API:** `https://api.knowshowgo.com`
-- **Docs:** [Getting started](docs/GETTING-STARTED.md) · [API reference](docs/API.md)
+- **New here?** Start with [What is KnowShowGo?](docs/WHAT-IS-KNOWSHOWGO.md) —
+  what it is for, how it differs from a database or a vector store, and what
+  people build with it. No code.
+- **Hosted API:** `https://api.knowshowgo.com` · tokens from <https://knowshowgo.com/developers>
+- **Docs:** [Getting started](docs/GETTING-STARTED.md) (hands-on, JS + Python) · [API reference](docs/API.md) · [The duck-typed ORM](docs/DUCK-TYPED-ORM.md)
 - **Server:** [`knowshowgo`](https://github.com/lehelkovach/knowshowgo) · runbook [`PUBLIC-API.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/PUBLIC-API.md)
 
 ---
@@ -22,16 +25,16 @@ This package is a remote REST client — it does **not** depend on the
 ```bash
 npm install @lehelkovach/knowshowgo-client
 
-# or pin a GitHub tag
-npm install git+https://github.com/lehelkovach/knowshowgo-client.git#v0.2.20-client
+# or pin a release tag from https://github.com/lehelkovach/knowshowgo-client/tags
+npm install git+https://github.com/lehelkovach/knowshowgo-client.git#<tag>
 ```
 
 Python (package `knowshowgo_client`, depends on `requests`):
 
 ```bash
 pip install knowshowgo-client
-# or from a tag:
-# pip install "git+https://github.com/lehelkovach/knowshowgo-client.git@v0.2.20-client#subdirectory=python"
+# or from a release tag:
+# pip install "git+https://github.com/lehelkovach/knowshowgo-client.git@<tag>#subdirectory=python"
 ```
 
 Requirements: **Node >= 18** (built-in `fetch`) or Python 3.8+ with `requests`.
@@ -54,7 +57,7 @@ const client = KnowShowGoClient.publicApi({
 await client.connect();
 // await client.connect({ expected_channel: 'release', expected_release: 'v0.2.8' });
 
-// Store a fact, then search it back.
+// Store a fact, then read back what is currently believed about its subject.
 await client.create_assertion({
   subject: 'Ada Lovelace',
   predicate: 'is_a',
@@ -62,8 +65,7 @@ await client.create_assertion({
   source: 'my-app',
 });
 
-const hits = await client.search_concepts('mathematician', { top_k: 5 });
-console.log(hits);
+console.log(await client.get_snapshot('Ada Lovelace')); // { is_a: 'Mathematician' }
 ```
 
 ## Quick start (Python)
@@ -72,12 +74,12 @@ console.log(hits);
 from knowshowgo_client import KnowShowGoClient
 
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app")
-client.connect(expected_channel="release", expected_release="v0.2.7")
+client.connect()  # pin with expected_release="vX.Y.Z" if you want to assert the server
 
 client.create_assertion(
     subject="Ada Lovelace", predicate="is_a", obj="Mathematician", source="my-app"
 )
-print(client.search_concepts("mathematician", top_k=5))
+print(client.get_snapshot("Ada Lovelace"))  # {'is_a': 'Mathematician'}
 ```
 
 ---
@@ -167,12 +169,14 @@ Note: `npm test` maps to the Node built-in test runner, not jest.
 
 ## Versions
 
-| Branch | Client | Server |
-|--------|--------|--------|
-| `main` | `0.2.10` (`v0.2.10-client`) | KSG `v0.2.10` |
-| `dev`  | `0.2.10-dev` | KSG `0.2.10-dev` / `v0.2.10-dev` |
-
-Pairing rules: [`CLIENT-SYNC.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/CLIENT-SYNC.md).
+The client version is `package.json` on this branch (`python/pyproject.toml`
+carries the same number). Client and server pair by version: `main` ↔ server
+`main`, `dev` ↔ server `dev`, and a release tag `vX.Y.Z-client` pairs with
+server `vX.Y.Z`. The live server reports what it runs at `GET /api/release`.
+The pairing law is the server's
+[`VERSION-MATRIX.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/VERSION-MATRIX.md);
+numbers are deliberately not restated here, because a table like that went
+nine releases stale.
 
 ## License
 

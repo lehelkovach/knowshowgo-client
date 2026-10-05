@@ -20,6 +20,15 @@ export function resolveBaseUrl(explicit) {
   return env.KSG_API_URL || env.KSG_PUBLIC_API_URL || LOCAL_API_BASE_URL;
 }
 
+/** A shallow copy without the keys whose value is null or undefined. */
+function withoutNulls(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (v !== null && v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 /** camelCase / PascalCase → snake_case */
 function toSnakeCase(name) {
   return String(name)
@@ -1234,8 +1243,12 @@ export class KnowShowGoClient {
     source = 'user',
     provenance = null
   } = {}) {
+    // Optional fields are omitted, not sent as null: the server validates
+    // `truth` as a number in [0, 1] and a literal null fails that check, which
+    // turned every reinforce/contradict call that left `truth` out into a 500.
+    // The Python client already omits them; this matches it.
     return this._request('POST', '/api/assertions/reinforce', {
-      json: {
+      json: withoutNulls({
         subject,
         predicate,
         object: obj,
@@ -1244,7 +1257,7 @@ export class KnowShowGoClient {
         truth,
         source,
         provenance
-      }
+      })
     });
   }
 
@@ -1260,7 +1273,7 @@ export class KnowShowGoClient {
     against_assertion_id = null
   } = {}) {
     return this._request('POST', '/api/assertions/contradict', {
-      json: {
+      json: withoutNulls({
         subject,
         predicate,
         object: obj,
@@ -1269,7 +1282,7 @@ export class KnowShowGoClient {
         source,
         provenance,
         againstAssertionId: against_assertion_id
-      }
+      })
     });
   }
 

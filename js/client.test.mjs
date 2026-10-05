@@ -140,6 +140,34 @@ test('contradict_assertion and retract_assertion post correctly', async () => {
   assert.match(calls[1].url, /\/api\/assertions\/a9\/retract$/);
 });
 
+test('contradict_assertion and reinforce_assertion omit optional fields they were not given', async () => {
+  // The server validates `truth` as a number in [0, 1]. Sending `truth: null`
+  // for a caller that simply did not pass one made every such call a 500
+  // ("truth must be a number between 0 and 1") against a live server, while
+  // the mocked tests stayed green because they always passed a truth.
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', speaker: 'forum' });
+  const contradict = JSON.parse(calls[0].options.body);
+  assert.deepEqual(contradict, { subject: 'Ada', predicate: 'born_in', object: '1816', speaker: 'forum', source: 'user' });
+  assert.equal('truth' in contradict, false);
+  assert.equal('againstAssertionId' in contradict, false);
+
+  await client.reinforce_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1815' });
+  const reinforce = JSON.parse(calls[1].options.body);
+  assert.deepEqual(reinforce, { subject: 'Ada', predicate: 'born_in', object: '1815', source: 'user' });
+
+  // A truth that IS given still goes through, including 0.
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', truth: 0 });
+  assert.equal(JSON.parse(calls[2].options.body).truth, 0);
+});
+
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
