@@ -45,8 +45,11 @@ locally ([Installation](INSTALL.md)).
 Every call runs as an **owner** (`defaultOwnerUserId`), which is the
 namespace private data belongs to, and on the hosted service writes need a
 **bearer token** for that owner (`authToken`, from
-<https://knowshowgo.com/developers>). Public concepts are shared by everyone;
-private things are readable only by their owner. If you are an agent acting
+<https://knowshowgo.com/developers>). The graph has two layers: the
+**commons**, public concepts, categories and topics that anyone can read and
+every application resolves its words against, and **private data**, readable
+only by its owner and pointing into the commons for its vocabulary. Reads of
+the commons need no token. If you are an agent acting
 for several people, use one client per person. If several agents share one
 owner, pass your agent's name as `speaker` on writes so claims stay
 attributable.
@@ -294,6 +297,8 @@ implementation, so you are not surprised.
 
 | Designed | Today | What to do |
 |---|---|---|
+| One root, `ConceptObject`, that every node descends from | The node type is one, but the root is named three ways: the runtime roots every category at a prototype called `Concept`; the seed ontology has `BasePrototype → ConceptObject → Concept`; one seed uses `DataObject`. The server treats `Concept` as canonical until they are reconciled | Read "ConceptObject" as the node type and `Concept` as the category root; do not depend on the other two names |
+| Two objects with the same title in one category are two objects | The identity of an object on write is its (owner, category, title) lineage key, so a same-owner, same-title upsert is a **new version**, not a second object; different owners never collide. The identity gate that individuates on evidence is in progress on the server | Give distinct things distinct titles, or pass your own `object_lineage_key` |
 | A claim's subject, predicate and object point at concept UUIDs | Stored as **label strings**; the concept is resolved from the label when read (`resolvedVia: 'label'` in the evaluator) | Use consistent labels; make the predicate a concept with `create_topic` before evaluating logic |
 | Quantified formulas (`ForAll`, `Exists`) are evaluated over exhaustively enumerated domains | **Refused** with a diagnostic (`G001`); only ground formulas evaluate | Expand the quantifier yourself over `list_objects` and evaluate the ground cases |
 | Rules as graph objects with an enabled flag; recursive evaluation to a fixpoint | Derivations are recorded one step deep; the four inference rules are fixed | Chain evaluations in your code |

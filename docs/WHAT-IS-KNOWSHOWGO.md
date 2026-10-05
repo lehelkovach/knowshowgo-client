@@ -111,6 +111,26 @@ fluency never gets a chance to invent an answer.
 
 ---
 
+## Objects without classes
+
+Most of what you store will be **objects**: this dentist, this invoice, this
+dog. In KnowShowGo an object is created from a prototype but is not fenced in
+by it. You can give it properties the prototype never declared. Each property
+value is its own first-class node with a UUID and a history, so changing a
+phone number does not erase the old one. Updating the object writes a new
+version chained to the last; nothing is edited in place. And the object is
+never "of type Dog" in the rigid sense: it records the category it was
+created in, and it can be matched against every prototype in the graph and
+come back resembling several, each with a score.
+
+Programmers would call that duck typing: a thing is what it has and what it
+resembles, not what it was declared to be. The twist is that the typing is
+fuzzy and scored. In code, the same object reads like a plain object, with
+the uncertainty kept rather than hidden: the strongest matching prototype
+supplies each member name, the runners-up are kept beside it, and you can
+re-read the same object through any of them. Underneath, all of this is nodes
+and typed links; you never see the wiring unless you ask for it.
+
 ## Three kinds of memory
 
 KnowShowGo keeps three kinds of memory in one graph, because an agent needs
@@ -186,12 +206,32 @@ structured questions afterwards.
 
 ---
 
-## Public and private
+## The commons, and what sits on top of it
 
-KnowShowGo separates a **public commons**, concepts anyone can read such as
-"Dog" or "Mathematician", from **private data** owned by a person or an app.
-Private facts are only readable by the identity that owns them. You identify
-yourself with an API token. The hosted service requires a token for writes.
+KnowShowGo is two things in one graph.
+
+The **commons** is a shared, public layer of concepts, categories, topics and
+their relationships: "Dog", "Mathematician", "billing city", the fact that a
+border collie is a dog. It is open to read over the API by anyone, it is not
+siloed per customer, and it is meant to be the common vocabulary every
+application and agent resolves its words against. Think of it as a Wikipedia
+for machines, except that every entry has a permanent identity, every claim
+has a source, categories are fuzzy, and the whole thing is addressable by a
+program rather than readable by a person. It can be seeded from open
+vocabularies and grows as users add concepts. Today anyone can read it;
+writing to it needs a token. The layer that will make it a true commons,
+publishers with their own senses of a term, forking and endorsement of
+editions, is designed and not yet built.
+
+**Private data** is everything owned by a person or an app: their contacts,
+their cards, their conversations, their procedures. It lives in the same
+graph, points into the commons for its vocabulary, and is readable only by
+its owner, identified by an API token. A private dentist card is a private
+object whose category, `Dentist`, is a public concept.
+
+That split is the point. Each person's memory is theirs; the words it is
+written in are shared. An agent working for Alice and an agent working for
+Bob never see each other's data, and both resolve "dentist" to the same node.
 
 ---
 
