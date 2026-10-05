@@ -218,7 +218,7 @@ yourself with an API token. The hosted service requires a token for writes.
 - **Install:** [Installation](INSTALL.md).
 - **Try it in fifteen minutes:** [Getting started](GETTING-STARTED.md), JavaScript
   and Python side by side.
-- **The primitives, one by one:** [Concepts](CONCEPTS.md).
+- **The primitives, one by one:** [Concepts](CONCEPTS.md); the same stack in code: [The bare bones](BASICS.md).
 - **What people build:** [Use cases](USE-CASES.md).
 - **The fuzzy part:** [Prototypes and casting](PROTOTYPES-AND-CASTING.md).
 - **DAGs and formal logic:** [Procedures and logic](PROCEDURES-AND-LOGIC.md).
