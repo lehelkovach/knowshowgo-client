@@ -1,6 +1,6 @@
 # Continuity digest — knowshowgo-client
 
-**Updated:** 2026-09-15 · Agents: read this at session start; keep it short.
+**Updated:** 2026-10-05 · Agents: read this at session start; keep it short.
 
 ## Now
 
@@ -20,7 +20,7 @@
 
 1. Wrap KG2 in both SDKs: `record` on `evaluateLogicInference`, an `evaluate_logic_ir` wrapper for `POST /logic-ir/evaluate`, `explain_derivation(uuid)`, `list_derivations(conclusion)`; parity tests.
 2. The MCP server over this SDK (track S) once npm has a published version.
-3. Docs sweep: README / GETTING-STARTED / API.md still carry old version examples and omit `hydrate`, tokens, `timeoutMs`; fix when touching them, not as a project.
+3. Docs sweep — **done 2026-10-05 for README + GETTING-STARTED** (new newcomer intro `docs/WHAT-IS-KNOWSHOWGO.md`; GETTING-STARTED rewritten as a hands-on tour covering tokens, beliefs/contradiction, `verify`, objects + `hydrate`, `search_knowledge`, semantic memory, `timeoutMs`; README no longer hardcodes a version table or tag pins). `API.md` still carries old examples; fix when touching it.
 
 ## Anti-drift
 

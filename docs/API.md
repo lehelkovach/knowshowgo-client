@@ -6,7 +6,10 @@ keyword arguments, and method names are identical. Where JS takes `obj` for an
 assertion object value, Python takes `obj` too (mapped to `object` on the wire).
 
 - JS import: `import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';`
-- Python import: `from client import KnowShowGoClient`
+- Python import: `from knowshowgo_client import KnowShowGoClient`
+
+New to the model? Read [Concepts](CONCEPTS.md) first; this page lists methods,
+it does not explain them.
 
 All methods return the parsed JSON response (JS: a `Promise`). Errors throw with
 the HTTP status and server message.
@@ -23,6 +26,9 @@ the HTTP status and server message.
 - [Concept objects](#concept-objects)
 - [Composites](#composites)
 - [Prototypes (centroid theory)](#prototypes-centroid-theory)
+- [Revision-pinned matching and casting](#revision-pinned-matching-and-casting)
+- [Logic IR](#logic-ir)
+- [Semantic memory](#semantic-memory)
 - [Procedures](#procedures)
 - [Logic, market, channels, events, ratings](#logic-market-channels-events-ratings)
 - [Private vault & payments](#private-vault--payments)
@@ -41,8 +47,12 @@ the HTTP status and server message.
 | `prototypeApiPrefix` / `prototype_api_prefix` | `/api2.0` | Prefix for prototype endpoints |
 | `topicApiPrefix` / `topic_api_prefix` | `/api2.0` | Prefix for topic endpoints |
 | `auto_connect` | `false` | Call `connect()` on construction (JS) |
-| `defaultOwnerUserId` / `default_owner_user_id` | `null` | Soft identity → `X-KSG-Owner` |
-| `defaultAgentSessionId` / `default_agent_session_id` | `null` | Soft identity → `X-KSG-Session` |
+| `defaultOwnerUserId` / `default_owner_user_id` | `null` | Owner namespace → `X-KSG-Owner` and `ownerUserId` on calls |
+| `defaultAgentSessionId` / `default_agent_session_id` | `null` | Sub-scope of an owner → `X-KSG-Session` |
+| `authToken` / `auth_token` (aliases `accessToken`, `apiToken`) | `null` | Bearer token → `Authorization: Bearer …`. Overrides the soft owner header; required for writes on the hosted API |
+| `tokenProvider` / `token_provider` | `null` | Function returning the current token, for rotation |
+| `adminSecret` / — | `null` | `X-KSG-Admin`, only for minting a token for another owner |
+| `timeoutMs` / — | `30000` (env `KSG_TIMEOUT_MS`) | Per-request timeout (JS). Python uses the `requests` default |
 
 ### `KnowShowGoClient.publicApi(options)` / `public_api(**kwargs)`
 
@@ -54,8 +64,8 @@ Reads the release manifest and validates it.
 
 | Option | Default | Purpose |
 |---|---|---|
-| `expected_channel` | `'release'` | Throws if `manifest.channel` differs |
-| `expected_release` | `'v0.2.7'` | Throws if `manifest.release` differs |
+| `expected_channel` | none | When set, throws if `manifest.channel` differs |
+| `expected_release` | none | When set, throws if `manifest.release` differs |
 | `enforce_contract` | `false` | Restrict calls to `surfaces.clientContract` paths |
 | `adopt_advertised_base_url` | `false` | Re-point `baseUrl` to `manifest.api.publicBaseUrl` |
 
@@ -89,6 +99,11 @@ resolved into current snapshots.
 | `get_entity_properties` | `(entityId, { predicate?, entityApiPrefix? })` → ranked `{ value, confidence, contested, claims[] }` map (`/api2.0`) |
 | `get_entity_types` | `(entityId, { top_k?, persist?, entityApiPrefix? })` → ranked prototype matches (fuzzy duck typing) |
 | `get_entity_snapshot` / `entity` | `(entityId, …)` → `EntityProxy` (`.middleName` → winner; `.getType()` → prototypes) |
+| `hydrate` | `(entityId, { topK?, threshold? })` → `KSGObject` in **one** request: synchronous members, `type()`, `typesNow()`, `explain(name)`, `cell(name)`, `claims(name)`, `isContested(name)`, `as(prototype)`. See [The duck-typed ORM](DUCK-TYPED-ORM.md) |
+| `get_beliefs` | `(entityId, { predicate? })` → winner + alternatives + speakers (`belief-v0.1`) |
+| `reinforce_assertion` | `{ subject, predicate, obj, speaker?, delta?, truth? }` same claim, another speaker |
+| `contradict_assertion` | `{ subject, predicate, obj, speaker?, truth?, against_assertion_id? }` competing claim, prior kept |
+| `retract_assertion` | `(assertionId, { speaker?, reason? })` soft delete |
 
 ```js
 await client.create_assertion({ subject: 'Ada', predicate: 'is_a', obj: 'Mathematician', source: 'app' });
@@ -126,7 +141,9 @@ supported).
 |---|---|
 | `create_concept` | `{ name, ... }` |
 | `get_concept` | `(uuid)` |
-| `search_concepts` | `(query, { top_k = 5 })` |
+| `search_concepts` | `(query, { top_k = 10, similarity_threshold = 0, prototype_filter? })` → results; no similarity floor by default |
+| `search_property_definitions` | `(query, { top_k? })` → `[{ property, valueType, score, uuid }]` — which stored field a label names |
+| `resolve_slots` | `{ labels, candidates?, floor?, top_k? }` → `{ slots: [{ label, property, score }], unresolved }`, one-to-one assignment |
 | `add_association` | `{ from_concept_uuid, to_concept_uuid, relation_type, strength? }` |
 | `get_associations` | `(uuid, { direction = 'both' })` |
 | `create_node_with_document` | `{ ... }` |
@@ -234,6 +251,54 @@ feature; the client exposes the endpoints.
 
 ---
 
+## Revision-pinned matching and casting
+
+Contract matching of one object **revision** against prototype **revisions**
+that declare a match contract (hard constraints, soft constraints, `minScore`).
+Distinct from centroid matching above. Not winner-take-all: the list returns
+every decision and casting is an explicit act. Explained in
+[Prototypes and casting](PROTOTYPES-AND-CASTING.md).
+
+| Method | Signature (JS) |
+|---|---|
+| `evaluatePrototypeMatch` / `evaluate_prototype_match` | `{ objectRevisionUuid, prototypeRevisionUuid, contextRevisionUuid? }` → `{ decision: 'match'\|'no_match'\|'unresolved', score, hardPass, constraints[], bindings, explanation }` (cached) |
+| `evaluatePrototypeMatchList` / `evaluate_prototype_match_list` | `{ objectRevisionUuid, prototypeRevisionUuids = [], limit? }` → `{ policy: 'list', wta: false, matches[] }`; empty uuid list → every prototype with a contract |
+| `cast_object` / `castObject` | `{ objectRevisionUuid, prototypeRevisionUuid, requireMatch = true, title?, objectLineageKey? }` → a **new** object under that prototype with a `cast_from` edge; 409 when `requireMatch` and the decision is not `match` |
+| `get_object(uuid, { match_prototypes: true, prototype_revision_uuids? })` | lazy list on read; never casts |
+| `logic_ir_prototypes` / `logicIrPrototypes` | `()` → `{ Concept: uuid, Proposition: uuid, Claim: uuid, … }` for the seeded Logic IR categories, without seeding |
+| `seed_logic_ir_primitives` | `()` seed them (a write; needed once on a fresh local server) |
+
+---
+
+## Logic IR
+
+Shape vs truth. `infer` never reads the graph; `evaluate` reads stored claims
+and answers three-valued. Explained in [Procedures and logic](PROCEDURES-AND-LOGIC.md).
+
+| Method | Signature (JS) |
+|---|---|
+| `evaluateLogicInference` / `evaluate_logic_inference` | `{ premiseRevisionUuids, conclusionRevisionUuid, argumentRevisionUuid?, record? }` → `decision: 'valid'\|'invalid'\|'unresolved'`; with `record: true` also `derivation: { ok, created, derivationUuid, rule, conclusionHash }` |
+| `evaluateLogicIr` / `evaluate_logic_ir` | `{ ir, bindings?, propositionRevisionUuid?, membershipPredicate?, record? }` → `{ decision, truth: 'true'\|'false'\|'unknown', atoms[], claimsConsulted[] }`; quantifiers and free variables are refused by name |
+| `explainDerivation` / `explain_derivation` | `(derivationUuid)` → `{ derivation, rule: { name, engineRevision }, premises[], conclusion }` |
+| `listDerivations` / `list_derivations` | `{ conclusionUuid }` → every derivation that derives that conclusion |
+| `create_syllogism` / `get_syllogism` | `{ title, premises, conclusion }` simple predicate-logic DAG |
+
+---
+
+## Semantic memory
+
+Natural language in, graph out: the sentence is kept as an immutable memory
+event, extracted claims are linked back to it.
+
+| Method | Signature (JS) |
+|---|---|
+| `semantic_remember` | `{ text, speaker = 'user', source?, session_id?, is_private = true, plan?, provenance? }` → `{ memoryId, createdEntities, resolvedEntities, ambiguousEntities, claims, changedBeliefs, warnings }`. Pass `plan` when the caller already extracted entities/claims |
+| `semantic_correct` | same shape; supersedes earlier claims instead of adding beside them |
+| `semantic_recall` | `{ query, top_k = 8, expand_depth = 1, similarity_threshold = 0.15 }` → `{ seeds[], hits[] }` |
+| `semantic_ask` | `{ subject, predicate, object? }` or `{ pattern }` → belief state `supported \| refuted \| conflicted \| unknown` with evidence |
+
+---
+
 ## Procedures
 
 Executable workflow DAGs with steps, dependencies, and selector repair.
@@ -251,11 +316,10 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 
 ---
 
-## Logic, market, channels, events, ratings
+## Market, channels, events, ratings (legacy scenario wrappers)
 
 | Method | Purpose |
 |---|---|
-| `create_syllogism` / `get_syllogism` | Predicate-logic DAGs |
 | `register_market_match` / `search_market_matches` | Barter/listing matches |
 | `subscribe_channel` / `post_channel_message` / `get_channel_feed` | Concept-tag channels |
 | `create_repeating_event` | Recurring calendar/event objects |
@@ -263,9 +327,11 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 
 ---
 
-## Private vault & payments
+## Private vault & payments (legacy)
 
-Owner-scoped private storage. Requires an identity (`defaultOwnerUserId`).
+Owner-scoped private storage, kept for compatibility. New private data goes
+through `upsert_object` with `sensitivity` / `private` set; see
+[Concepts](CONCEPTS.md). Requires an identity (`defaultOwnerUserId`).
 
 | Method | Purpose |
 |---|---|
@@ -280,8 +346,9 @@ Owner-scoped private storage. Requires an identity (`defaultOwnerUserId`).
 
 | Method | Purpose |
 |---|---|
-| `seed_osl_agent` / `seed_openclaw_agent` | Seed ontology prototypes |
-| `query_graph` | Structured graph query |
+| `seed_osl_agent` / `seed_openclaw_agent` / `seed_social_layer` / `seed_procedure_run_primitives` | Seed ontology prototypes on a fresh server |
+| `query_graph` | `{ search: { text, topK }, traverse: { edgeTypes, depth }, match_prototypes? }` seed + traverse in one call |
+| `create_api_token` / `list_api_tokens` / `revoke_api_token` | Mint (value returned once), list records, revoke by `jti` |
 | `create_knode` | Legacy knode create (Python; deprecated) |
 
 ---
@@ -296,7 +363,9 @@ Owner-scoped private storage. Requires an identity (`defaultOwnerUserId`).
 
 ## Using this SDK inside an agent
 
-The OpenClaw agent ([`osl-oc-agent`](https://github.com/lehelkovach/osl-oc-agent))
-wraps this SDK as its durable-memory skill (`memory.*`, `profile.*`, `dataset.*`,
-`procedure.*` tools). If you are building an agent, that skill is a working
-reference: [`docs/KSG-SKILL.md`](https://github.com/lehelkovach/osl-oc-agent/blob/main/docs/KSG-SKILL.md).
+Give the agent one client per user (owner identity plus token), write what it
+learns with `semantic_remember` / `upsert_object`, read with
+`semantic_recall` / `search_knowledge` / `hydrate`, and answer direct questions
+from `get_snapshot` / `semantic_ask` rather than from the model's context. Pass
+the agent's name as `speaker` so every claim stays attributable. Patterns:
+[Use cases](USE-CASES.md).
