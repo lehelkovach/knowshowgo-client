@@ -289,6 +289,7 @@ are readable only by their owner.
 
 ## Where next
 
+- Create, read, update, delete for each of these, and recipes per job: [Using the API](USING-THE-API.md)
 - The whole stack in code, from concept to logic: [The bare bones](BASICS.md)
 - Hands-on tour: [Getting started](GETTING-STARTED.md)
 - Matching and casting: [Prototypes and casting](PROTOTYPES-AND-CASTING.md)

@@ -408,6 +408,7 @@ embedding model, follow the server's
 
 ## Where next
 
+- [Using the API](USING-THE-API.md): the CRUD table for every primitive and recipes per job.
 - [The bare bones](BASICS.md): concept → prototype → object → version → claim → belief → logic, in code.
 - [Concepts](CONCEPTS.md): every primitive and the calls that touch it.
 - [Use cases](USE-CASES.md): what people build, mapped to calls.

@@ -8,8 +8,9 @@ assertion object value, Python takes `obj` too (mapped to `object` on the wire).
 - JS import: `import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';`
 - Python import: `from knowshowgo_client import KnowShowGoClient`
 
-New to the model? Read [Concepts](CONCEPTS.md) first; this page lists methods,
-it does not explain them.
+New to the model? Read [Concepts](CONCEPTS.md) first, and [Using the API](USING-THE-API.md)
+for create/read/update/delete per primitive and recipes per job; this page lists
+methods, it does not explain them.
 
 All methods return the parsed JSON response (JS: a `Promise`). Errors throw with
 the HTTP status and server message.
