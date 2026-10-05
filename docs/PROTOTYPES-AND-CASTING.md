@@ -9,6 +9,39 @@ its own page. Everything here is reachable from the SDK in both languages.
 
 ---
 
+## The whole idea in twelve lines
+
+```js
+// A prototype, minted explicitly; it may declare fields, it does not have to.
+const dog = await client.upsert_object_category({ name: 'Dog', parent_category_name: 'Animal',
+  properties: [{ name: 'breed', type: 'string' }] });
+
+// An object from it. Properties the prototype never declared are fine.
+const v1 = await client.upsert_object({ title: 'Hermione', category_prototype_uuid: dog.categoryPrototypeUuid,
+  properties: [{ name: 'breed', type: 'string', value: 'border collie' },
+               { name: 'favourite_toy', type: 'string', value: 'tennis ball' }] });
+
+// A change is a new version; the old one stays. Each value is its own node with a history.
+const v2 = await client.upsert_object({ title: 'Hermione', category_prototype_uuid: dog.categoryPrototypeUuid,
+  properties: [{ name: 'breed', type: 'string', value: 'border collie' },
+               { name: 'favourite_toy', type: 'string', value: 'frisbee' },
+               { name: 'weight_kg', type: 'number', value: 19 }] });
+v2.previousObjectUuid === v1.objectUuid;   // true
+
+// Read it like an object; ask what it resembles. Several answers, each scored.
+const hermione = await client.hydrate(v2.objectUuid);
+hermione.favouriteToy;        // 'frisbee'
+hermione.weightKg;            // 19 — present although Dog never declared it
+hermione.type();              // strongest match, with a score
+hermione.typesNow();          // every match, ranked
+```
+
+That is the object model: created from a prototype, not fenced in by it;
+every value a first-class node; every change a version; typed by what it has
+and what it resembles. The rest of this page explains the two matching
+mechanisms behind `type()`, how to read through a weaker match, and how an
+object gets a new category on purpose.
+
 ## Categories are prototypes
 
 A category in KnowShowGo is not a rigid type with a fixed schema that a thing

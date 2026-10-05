@@ -260,6 +260,38 @@ DAG you can read back with `get_syllogism(uuid)`.
 
 ---
 
+## Everything on this page is an object
+
+Procedures are the clearest demonstration that "everything is a first-class
+object" is literal. Nothing below is a special record type.
+
+```text
+Procedure object            category Procedure (or ProcedureDAG is_a Procedure via the typed-memory role)
+  ├─ dagJson                canonical JSON snapshot of the graph, a property on the object
+  ├─ has_step ─► Step object      title / tool / payload / order / guard … each written as a CLAIM on the step
+  │                 └─ next ─► Step object ─► next ─► Step object           (dependencies are edges too)
+  ├─ version chain          add_procedure_step / put_procedure_dag / repair_* write a new version with provenance
+  └─ generalize_procedure ─► Template object   a new lineage derived from this recording, specifics abstracted
+
+ProcedureRun object         category ProcedureRun (seeded, carries a match contract)
+  └─ StepRun objects        one per executed step: params, status, block reason,
+                            procedureRun: concept_ref → the run; stepTemplate → the step it ran
+```
+
+Consequences you can rely on:
+
+- `get_procedure` returns each step with its `next` link **and** an `evidence`
+  list, because the step's fields are assertions and come back with their
+  source.
+- Reading the graph compiled from edges and reading `dagJson` are two views of
+  one object; `get_procedure(uuid, { source })` picks, and the default checks
+  one against the other.
+- A step repair is a version, so the failed selector is still in the history.
+- A run is a separate object with its own lineage, so a thousand runs never
+  change the procedure, and a blocked run can be replayed as a tape.
+- Everything here is searchable by meaning, versioned, owned, and
+  attributable, with no code written for procedures to make that so.
+
 ## How the two parts meet
 
 A procedure step can be guarded by a condition; a run records how each

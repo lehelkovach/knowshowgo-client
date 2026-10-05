@@ -176,9 +176,28 @@ flag; no special endpoint.
 
 ---
 
+## 12. A shared, open vocabulary: the commons
+
+Every use above resolves its words against the same public layer of concepts,
+categories and topics. That layer is itself a use case: a machine-readable,
+unsiloed reference of what things are and how they relate, with permanent
+identities and sourced claims, open to read over the API.
+
+```text
+read a concept anyone shares   → search_concepts('mathematician'), get_concept(uuid)   (no token needed)
+resolve a word to its concept  → resolve_topic_tag({ tag })
+walk the ontology              → list_object_categories(), get_object_category(uuid)
+contribute                     → create_topic / upsert_object_category with a token; your private data points at it
+```
+
+What exists today: a public namespace anyone can read and token holders can
+write, seedable from open vocabularies. What is designed and not yet built:
+publishers with their own senses of a term, forkable editions, and
+endorsement, so the commons can be curated without a central gatekeeper.
+
 ## What these have in common
 
-Every one of them is built from the same handful of primitives
+Every one of them, the commons included, is built from the same handful of primitives
 ([Concepts](CONCEPTS.md)): concepts, categories, objects with property values,
 assertions resolved into beliefs, episodes, procedures, and Logic IR. New
 kinds of data do not get new endpoints. They get a category.

@@ -45,8 +45,11 @@ locally ([Installation](INSTALL.md)).
 Every call runs as an **owner** (`defaultOwnerUserId`), which is the
 namespace private data belongs to, and on the hosted service writes need a
 **bearer token** for that owner (`authToken`, from
-<https://knowshowgo.com/developers>). Public concepts are shared by everyone;
-private things are readable only by their owner. If you are an agent acting
+<https://knowshowgo.com/developers>). The graph has two layers: the
+**commons**, public concepts, categories and topics that anyone can read and
+every application resolves its words against, and **private data**, readable
+only by its owner and pointing into the commons for its vocabulary. Reads of
+the commons need no token. If you are an agent acting
 for several people, use one client per person. If several agents share one
 owner, pass your agent's name as `speaker` on writes so claims stay
 attributable.
