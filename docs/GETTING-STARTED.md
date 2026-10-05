@@ -408,6 +408,7 @@ embedding model, follow the server's
 
 ## Where next
 
+- [The bare bones](BASICS.md): concept → prototype → object → version → claim → belief → logic, in code.
 - [Concepts](CONCEPTS.md): every primitive and the calls that touch it.
 - [Use cases](USE-CASES.md): what people build, mapped to calls.
 - [Prototypes and casting](PROTOTYPES-AND-CASTING.md): resemblance, contracts, `hydrate`, `as()`, `cast_object`.

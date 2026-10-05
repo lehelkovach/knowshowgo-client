@@ -46,6 +46,7 @@ client.connect()
 | [**What is KnowShowGo?**](docs/WHAT-IS-KNOWSHOWGO.md) | The problem, the idea, the use cases. Plain language, no code. |
 | [**Installation**](docs/INSTALL.md) | npm, pip, choosing a server, configuration, troubleshooting. |
 | [**Getting started**](docs/GETTING-STARTED.md) | A fifteen-minute hands-on tour, JavaScript and Python side by side. |
+| [**The bare bones**](docs/BASICS.md) | Concept → prototype → ontology → object → version → claim → belief → logic, in code, from the atom up. |
 
 | Understand the model | |
 |---|---|
@@ -77,8 +78,10 @@ Details and a local-server option: [Installation](docs/INSTALL.md).
 
 ## What you get
 
-- **One identity per concept.** Spellings and synonyms resolve to one node;
-  everything carries a permanent UUID, versions, and provenance.
+- **Concepts all the way down.** Any text is tokenized into concepts;
+  categories, objects, property values, claims and even logical derivations
+  are the same kind of node, with a permanent UUID, versions and provenance.
+- **One identity per concept.** Spellings and synonyms resolve to one node.
 - **Fuzzy categories.** Things match prototypes with a score, several at once;
   typicality and membership are kept apart.
 - **Facts with sources, beliefs as views.** Competing claims live side by side;

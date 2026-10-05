@@ -10,7 +10,7 @@ wants to know what the pieces are.
 
 ---
 
-## The one rule
+## The one rule, and the strata it produces
 
 **Everything is a ConceptObject.** A person, a category, a property value, a
 claim, a procedure step, a conversation turn, a logical derivation: all of them
@@ -22,23 +22,49 @@ are nodes of the same kind, each with
 - optionally an **embedding** (a vector that lets it be found by meaning),
 - **edges** to other nodes, each edge typed by a relation.
 
-The primitives below are not different storage types. They are *roles* a
-ConceptObject can play, recognized by what it is linked to and how.
+The primitives below are not different storage types. They are *roles* the
+same node can play, and the roles stack. Facts and logic are near the top of
+the stack, not the bottom; they are patterns over concepts, which is why they
+inherit identity, history and provenance without any machinery of their own.
 
 ```text
-                         Concept  (the one root)
-                            │ is_a
-            ┌───────────────┼────────────────┐
-         Person          Animal            Event        … categories (prototypes)
-            │ instance_of    │ is_a
-       "Dr. Lee"           Dog
-       ├─ has_property ─► phone  (property definition)
-       └─ has_property_value ─► "+1 555 0100"  (value concept, with history)
+ DERIVED     logic: propositions, derivations        procedures: steps + next edges
+             claims  ──►  beliefs (a view)           episodes, memory events, composites
+             ─────────────────────────────────────────────────────────────────────────
+ INSTANCES   objects  (instance_of a category; every value its own concept; versioned by lineage)
+ TYPING      prototypes / categories  (is_a tree rooted at Concept; property definitions)
+ CONCEPTS    concepts and associations  (the vocabulary; the graph)
+ LEXICAL     tokens, tags, topics, aliases  (every label and phrase, canonical per language)
+ ATOM        node + uuid + versions + provenance + embedding + typed edges
 ```
+
+Read bottom up for how the system is built; read top down for how an
+application uses it. The shortest code path through all of it is
+[The bare bones](BASICS.md).
 
 ---
 
-## 1. Concept
+## Stratum 0: the lexical layer — tokens, tags, topics
+
+Any text that enters is **tokenized**: a title, a tag, a phrase, an alias
+becomes word and phrase **tag concepts**, canonical per language (one node for
+`phrase:und:dental care`, however it was spelled), linked to whatever carried
+the text. This is the layer the Token Viewer is named for, and it is what
+search by meaning and topic resolution stand on. A **topic** is a tag concept
+used to label other things. An **alias** is another surface form of the same
+node, which is how "dental care" resolves to the topic "dentistry".
+
+| Do | Client |
+|---|---|
+| Create a topic with aliases | `create_topic({ label, aliases, summary })` |
+| Resolve a surface form to its topic | `resolve_topic_tag({ tag })` |
+| Read one | `get_topic(uuid)` |
+
+Tokens are created for you on every object write; you rarely make one by hand.
+
+---
+
+## Stratum 1: Concept
 
 The most general thing: a named idea with an identity. "Mathematician",
 "protect", "billing city". Concepts are the vocabulary everything else is
@@ -53,11 +79,10 @@ a concept can carry aliases.
 | Walk links | `get_associations(uuid, { direction })` |
 | Suggest concepts for a text | `suggest_concept_objects({ text })` |
 
-Concepts are also where **tags and topics** live: a topic is a concept used to
-label other things, and the same identity rule applies, so "ML" and "machine
-learning" can be one topic. `create_topic`, `resolve_topic_tag`.
+A topic (stratum 0) is a concept too; the same identity rule applies, so "ML"
+and "machine learning" can be one topic.
 
-## 2. Category (prototype)
+## Stratum 2: Category (prototype)
 
 A **kind of thing**: Person, Dentist, Invoice, Proposition. In most systems a
 type is a rigid definition. In KnowShowGo a category is a **prototype**: a
@@ -84,7 +109,7 @@ soft constraints that are scored, and a minimum score.
 
 How matching, scoring and casting work: [Prototypes and casting](PROTOTYPES-AND-CASTING.md).
 
-## 3. Object (entity, instance)
+## Stratum 3: Object (entity, instance)
 
 An **individual thing** in a category: this contact, this invoice, this
 event. An object has a title, tags, and **properties**. It is identified by a
@@ -100,7 +125,7 @@ than new objects; the newest version is the head.
 | Inventory | `list_objects({ category, limit })` |
 | Typed roles (task, schedule, rule, …) | `instantiate_memory({ role, title, properties })`, `list_memory_roles()` |
 
-## 4. Property and value
+## Stratum 3, continued: Property and value
 
 A property is **not a column**. Each field a category declares is its own
 **property-definition concept** (so "billing city" can be found when someone
@@ -123,12 +148,21 @@ is ever an inline JSON blob.
 | Map a form's labels onto fields, one-to-one | `resolve_slots({ labels, candidates, floor })` |
 | Current values with confidence and rivals | `get_entity_properties(uuid)` |
 
-## 5. Assertion (claim) and belief
+## Derived: Assertion (claim) and belief
+
+Everything from here down is a *pattern* over the strata above. No new storage.
+
 
 An assertion is a **triple with a source**: `subject`, `predicate`, `object`,
-plus who said it, how confident, and when. Assertions are append-only. A
-competing claim about the same subject and predicate is stored *beside* the
-first; a retraction marks, never deletes.
+plus who said it, how true it asserts the triple to be (`truth` in `[0, 1]`),
+and when. Assertions are append-only. A competing claim about the same
+subject and predicate is stored *beside* the first; a retraction marks, never
+deletes.
+
+By design each part of the triple names a concept. In the implementation today
+a claim stores them as **label strings** and the concept is resolved from the
+label at read time; the logic evaluator reports this as `resolvedVia: 'label'`.
+Binding claims to concept UUIDs directly is on the server's roadmap.
 
 **Belief** is not stored. It is a *view* computed over the competing claims:
 the current winner, the alternatives, who said each, and whether they
@@ -149,7 +183,7 @@ authority-weighted explain); you read them, you do not configure them.
 Object property values are assertions underneath, which is why `get_snapshot`
 works on an object UUID too.
 
-## 6. Fact and verification
+## Derived: Fact and verification
 
 `store_fact` and `verify` are a convenience layer over assertions for the
 hallucination-check use case: store facts you have verified, then ask whether
@@ -157,7 +191,7 @@ a free-text claim matches one. The match is by meaning with a threshold, and
 the result names the matched fact so you can judge it. For exact questions
 about a specific subject, prefer the belief calls above or Logic IR evaluation.
 
-## 7. Episode and memory event
+## Derived: Episode and memory event
 
 An **episode** is a record of something that happened: a conversation turn,
 an action an agent took, an observation. It carries when, who, and the
@@ -173,7 +207,7 @@ extracted from it, each claim linked back to the sentence it came from.
 | Ask a structured question | `semantic_ask({ subject, predicate })` → supported / refuted / conflicted / unknown |
 | Search everything | `search_knowledge({ query })` → concepts, objects and episodes together |
 
-## 8. Procedure (DAG) and run
+## Derived: Procedure (DAG) and run
 
 A procedure is **how to do something**, stored as a graph: steps, the order
 and dependencies between them, guards, and the tool each step calls. Because
@@ -196,7 +230,7 @@ the skill itself.
 
 Detail: [Procedures and logic](PROCEDURES-AND-LOGIC.md).
 
-## 9. Logic IR, proposition, derivation
+## Derived: Logic IR, proposition, derivation
 
 **Logic IR** is a small formal language (predicates, variables, and, or, not,
 implies, quantifiers) whose symbols are bound to exact concept UUIDs. A
@@ -217,13 +251,13 @@ auditable. `record: true`, `explain_derivation`, `list_derivations`.
 
 Detail: [Procedures and logic](PROCEDURES-AND-LOGIC.md).
 
-## 10. Composite
+## Derived: Composite
 
 An object made of component objects, where the composition itself is
 versioned: a form and its fields, a résumé and its sections.
 `create_composite`, `get_composite`, `update_composite_component`.
 
-## 11. Owner, namespace, and token
+## Across every stratum: owner, namespace, and token
 
 Private data belongs to an **owner**, identified by a string you choose per
 user or app. A **token** proves you hold that owner identity and is required
@@ -255,7 +289,8 @@ are readable only by their owner.
 
 ## Where next
 
-- Hands-on: [Getting started](GETTING-STARTED.md)
+- The whole stack in code, from concept to logic: [The bare bones](BASICS.md)
+- Hands-on tour: [Getting started](GETTING-STARTED.md)
 - Matching and casting: [Prototypes and casting](PROTOTYPES-AND-CASTING.md)
 - DAGs and formal logic: [Procedures and logic](PROCEDURES-AND-LOGIC.md)
 - Every method: [API reference](API.md)
