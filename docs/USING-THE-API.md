@@ -297,6 +297,8 @@ implementation, so you are not surprised.
 
 | Designed | Today | What to do |
 |---|---|---|
+| One root, `ConceptObject`, that every node descends from | The node type is one, but the root is named three ways: the runtime roots every category at a prototype called `Concept`; the seed ontology has `BasePrototype → ConceptObject → Concept`; one seed uses `DataObject`. The server treats `Concept` as canonical until they are reconciled | Read "ConceptObject" as the node type and `Concept` as the category root; do not depend on the other two names |
+| Two objects with the same title in one category are two objects | The identity of an object on write is its (owner, category, title) lineage key, so a same-owner, same-title upsert is a **new version**, not a second object; different owners never collide. The identity gate that individuates on evidence is in progress on the server | Give distinct things distinct titles, or pass your own `object_lineage_key` |
 | A claim's subject, predicate and object point at concept UUIDs | Stored as **label strings**; the concept is resolved from the label when read (`resolvedVia: 'label'` in the evaluator) | Use consistent labels; make the predicate a concept with `create_topic` before evaluating logic |
 | Quantified formulas (`ForAll`, `Exists`) are evaluated over exhaustively enumerated domains | **Refused** with a diagnostic (`G001`); only ground formulas evaluate | Expand the quantifier yourself over `list_objects` and evaluate the ground cases |
 | Rules as graph objects with an enabled flag; recursive evaluation to a fixpoint | Derivations are recorded one step deep; the four inference rules are fixed | Chain evaluations in your code |
