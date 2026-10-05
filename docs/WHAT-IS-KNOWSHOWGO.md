@@ -215,6 +215,7 @@ yourself with an API token. The hosted service requires a token for writes.
 
 ## Where next
 
+- **Everything on one page, including CRUD and per-job recipes:** [Using the API](USING-THE-API.md).
 - **Install:** [Installation](INSTALL.md).
 - **Try it in fifteen minutes:** [Getting started](GETTING-STARTED.md), JavaScript
   and Python side by side.

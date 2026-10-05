@@ -43,6 +43,7 @@ client.connect()
 
 | Start here | |
 |---|---|
+| [**Using the API: one guide**](docs/USING-THE-API.md) | Everything in one page: what it is from the bottom, identity, create/read/update/delete for every primitive, recipes for agent memory, app records, topic registries, ontologies, logic and procedures, a section for AI agents, and what is designed vs how it works today. |
 | [**What is KnowShowGo?**](docs/WHAT-IS-KNOWSHOWGO.md) | The problem, the idea, the use cases. Plain language, no code. |
 | [**Installation**](docs/INSTALL.md) | npm, pip, choosing a server, configuration, troubleshooting. |
 | [**Getting started**](docs/GETTING-STARTED.md) | A fifteen-minute hands-on tour, JavaScript and Python side by side. |
@@ -121,7 +122,8 @@ KSG_LIVE_URL=http://127.0.0.1:3000 node --test js/ksg_object_live.test.mjs   # a
 ```
 
 Branch from `dev`, open pull requests into `dev`. Contributor notes are in
-[`AGENTS.md`](AGENTS.md).
+[`AGENTS.md`](AGENTS.md). An AI agent reading this repository should start at
+[`llms.txt`](llms.txt).
 
 ## License
 
