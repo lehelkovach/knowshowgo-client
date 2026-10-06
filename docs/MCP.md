@@ -61,6 +61,7 @@ does not offer yet; use Claude Code or a desktop client that takes a header.
 
 - **An agent that already runs in an MCP host** (Claude Code, Cursor, a
   desktop assistant): MCP. Nothing to install, the model calls the tools itself.
+- **Checking an answer** from either side: the MCP tool `verify_answer` and this client's `verify_answer()` call the same `POST /api2.0/verify/answer`, which verdicts an answer claim by claim against stored claims.
 - **Your own code** (a service, a script, a test): this client. It has the
   full surface, typed objects, procedures, Logic IR and the verification calls
   that MCP leaves out.

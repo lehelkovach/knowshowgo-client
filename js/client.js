@@ -2025,6 +2025,42 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Verify an answer claim by claim against stored claims
+   * (`POST /api2.0/verify/answer`, knowshowgo >= 0.2.23). The caller decomposes
+   * the answer into `claims: [{ subject, predicate, object }]`; the server runs
+   * no LLM. Each claim comes back `supported`, `contradicted`, `disputed`,
+   * `competing` (with the stored values) or `unknown`, with evidence, plus a
+   * `verdict` for the whole answer. `record: true` remembers only the claims
+   * the graph did not speak against, under `owner_user_id`, at the `inferred`
+   * provenance tier.
+   */
+  verify_answer({
+    claims,
+    text = undefined,
+    argument = undefined,
+    record = undefined,
+    agent = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!Array.isArray(claims)) throw new Error('verify_answer requires claims[]');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/verify/answer`, {
+      json: {
+        claims,
+        ...(text !== undefined ? { text } : {}),
+        ...(argument !== undefined ? { argument } : {}),
+        ...(record !== undefined ? { record } : {}),
+        ...(agent !== undefined ? { agent } : {}),
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
   semantic_correct({
     text,
     speaker = 'user',

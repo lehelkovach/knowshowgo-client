@@ -1966,6 +1966,37 @@ test('search_concepts + query_graph + get_associations paths (Todd vault walk)',
   assert.equal(assoc[0].rel, 'has_payment_field');
 });
 
+test('verify_answer posts the claims to /api2.0/verify/answer and returns the verdict', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      verdict: 'disputed',
+      groundedFraction: 0,
+      claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney', status: 'competing', competing: ['Canberra'], evidence: [] }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.verify_answer({
+    text: 'The capital of Australia is Sydney.',
+    claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }],
+    owner_user_id: 'u1',
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api2\.0\/verify\/answer(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claims, [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }]);
+  assert.equal(body.text, 'The capital of Australia is Sydney.');
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal('record' in body, false);
+  assert.equal(out.verdict, 'disputed');
+  assert.deepEqual(out.claims[0].competing, ['Canberra']);
+  assert.throws(() => client.verify_answer({ text: 'no claims' }), /claims\[\]/);
+});
+
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
