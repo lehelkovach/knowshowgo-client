@@ -1272,6 +1272,77 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={},
         )
 
+    def test_logic_ir_prototypes_reads_without_seeding(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-concept",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:logic-ir:concept",
+                        },
+                        {
+                            "uuid": "u-proposition",
+                            "name": "Proposition",
+                            "categoryLineageKey": "category:logic-ir:proposition",
+                        },
+                    ]
+                }
+            )
+        )
+        self.assertEqual(
+            client.logic_ir_prototypes(),
+            {"Concept": "u-concept", "Proposition": "u-proposition"},
+        )
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/object-categories",
+        )
+
+    def test_logic_ir_prototypes_keys_off_lineage_not_name(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-primitive",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:logic-ir:concept",
+                        },
+                        {
+                            "uuid": "u-mine",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:my-app:concept",
+                        },
+                    ]
+                }
+            )
+        )
+        self.assertEqual(client.logic_ir_prototypes(), {"Concept": "u-primitive"})
+
+    def test_logic_ir_prototypes_names_from_lineage_and_is_empty_before_seeding(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-1",
+                            "name": None,
+                            "categoryLineageKey": "category:logic-ir:derivation",
+                        }
+                    ]
+                }
+            )
+        )
+        self.assertEqual(client.logic_ir_prototypes(), {"Derivation": "u-1"})
+
+        client.session.request = MagicMock(return_value=FakeResponse({"categories": []}))
+        self.assertEqual(client.logic_ir_prototypes(), {})
+
     def test_evaluate_logic_inference_accepts_argument_uuid_alone(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(

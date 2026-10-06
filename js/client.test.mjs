@@ -140,6 +140,34 @@ test('contradict_assertion and retract_assertion post correctly', async () => {
   assert.match(calls[1].url, /\/api\/assertions\/a9\/retract$/);
 });
 
+test('contradict_assertion and reinforce_assertion omit optional fields they were not given', async () => {
+  // The server validates `truth` as a number in [0, 1]. Sending `truth: null`
+  // for a caller that simply did not pass one made every such call a 500
+  // ("truth must be a number between 0 and 1") against a live server, while
+  // the mocked tests stayed green because they always passed a truth.
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', speaker: 'forum' });
+  const contradict = JSON.parse(calls[0].options.body);
+  assert.deepEqual(contradict, { subject: 'Ada', predicate: 'born_in', object: '1816', speaker: 'forum', source: 'user' });
+  assert.equal('truth' in contradict, false);
+  assert.equal('againstAssertionId' in contradict, false);
+
+  await client.reinforce_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1815' });
+  const reinforce = JSON.parse(calls[1].options.body);
+  assert.deepEqual(reinforce, { subject: 'Ada', predicate: 'born_in', object: '1815', source: 'user' });
+
+  // A truth that IS given still goes through, including 0.
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', truth: 0 });
+  assert.equal(JSON.parse(calls[2].options.body).truth, 0);
+});
+
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -1415,6 +1443,67 @@ test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by defa
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
   await client.seed_logic_ir_primitives();
   assert.equal(calls[0].url, 'https://example.test/api2.0/seed/logic-ir-primitives');
+});
+
+test('logic_ir_prototypes reads the seeded prototypes by name and never writes', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, method: options?.method });
+    return makeJsonResponse({
+      categories: [
+        { uuid: 'u-concept', name: 'Concept', categoryLineageKey: 'category:logic-ir:concept', version: 3 },
+        { uuid: 'u-proposition', name: 'Proposition', categoryLineageKey: 'category:logic-ir:proposition', version: 1 },
+        { uuid: 'u-argument', name: 'Argument', categoryLineageKey: 'category:logic-ir:argument', version: 1 }
+      ]
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const protos = await client.logic_ir_prototypes();
+
+  assert.deepEqual(protos, { Concept: 'u-concept', Proposition: 'u-proposition', Argument: 'u-argument' });
+  assert.equal(calls.length, 1, 'one read');
+  assert.equal(calls[0].url, 'https://example.test/api/object-categories');
+  assert.equal(calls[0].method, 'GET', 'reading prototypes must not seed');
+});
+
+test('logic_ir_prototypes keys off the lineage key, so a caller category named Concept is not mistaken for the primitive', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({
+      categories: [
+        { uuid: 'u-primitive', name: 'Concept', categoryLineageKey: 'category:logic-ir:concept', version: 1 },
+        { uuid: 'u-mine', name: 'Concept', categoryLineageKey: 'category:my-app:concept', version: 1 },
+        { uuid: 'u-other', name: 'Invoice', categoryLineageKey: 'category:my-app:invoice', version: 1 }
+      ]
+    });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  assert.deepEqual(await client.logic_ir_prototypes(), { Concept: 'u-primitive' });
+});
+
+test('logic_ir_prototypes names a prototype from its lineage key when the row carries no name, and is empty before seeding', async () => {
+  const KnowShowGoClient = await loadClientClass();
+
+  const unnamed = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () =>
+      makeJsonResponse({ categories: [{ uuid: 'u-1', name: null, categoryLineageKey: 'category:logic-ir:derivation' }] })
+  });
+  assert.deepEqual(await unnamed.logic_ir_prototypes(), { Derivation: 'u-1' });
+
+  const empty = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => makeJsonResponse({ categories: [] })
+  });
+  assert.deepEqual(await empty.logic_ir_prototypes(), {}, 'nothing seeded yet is empty, not an error');
+});
+
+test('logicIrPrototypes is the camelCase alias of logic_ir_prototypes', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({ categories: [{ uuid: 'u-c', name: 'Claim', categoryLineageKey: 'category:logic-ir:claim' }] });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  assert.deepEqual(await client.logicIrPrototypes(), await client.logic_ir_prototypes());
 });
 
 test('seed_procedure_run_primitives posts to /api2.0/seed/procedure-run-primitives by default', async () => {
