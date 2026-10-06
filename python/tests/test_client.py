@@ -42,6 +42,29 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"delta": 2.0},
         )
 
+    def test_verify_answer_posts_claims_and_returns_verdict(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {"ok": True, "verdict": "disputed", "claims": [{"status": "competing", "competing": ["Canberra"]}]}
+            )
+        )
+        out = client.verify_answer(
+            [{"subject": "Australia", "predicate": "capital", "object": "Sydney"}],
+            text="The capital of Australia is Sydney.",
+            owner_user_id="u1",
+        )
+        self.assertEqual(out["verdict"], "disputed")
+        self.assertEqual(out["claims"][0]["competing"], ["Canberra"])
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/verify/answer"))
+        self.assertEqual(kwargs["json"]["claims"][0]["object"], "Sydney")
+        self.assertEqual(kwargs["json"]["text"], "The capital of Australia is Sydney.")
+        self.assertNotIn("record", kwargs["json"])
+        with self.assertRaises(ValueError):
+            client.verify_answer("not a list")
+
     def test_reinforce_assertion_posts_claim_and_speaker(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

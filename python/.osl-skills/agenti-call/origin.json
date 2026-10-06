@@ -1,0 +1,16 @@
+{
+  "slug": "agenti-call",
+  "owner": "knowshowgo",
+  "version": "0.1.0",
+  "summary": "Asterisk ARI telephony — approve-to-dial call.place / hangup / bridge for OSLO OpenClaw",
+  "ref": "https://github.com/lehelkovach/agenti-call",
+  "trigger": "/call |phone|dial|ring|telephony|asterisk|pstn|voice call|robocall|hang up|bridge (the )?call/i",
+  "installedAt": "2026-10-06T19:29:49.664Z",
+  "source": "bundled",
+  "scan": {
+    "ok": true,
+    "blocked": false,
+    "severity": "clean",
+    "flags": []
+  }
+}

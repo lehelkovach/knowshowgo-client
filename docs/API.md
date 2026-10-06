@@ -297,6 +297,7 @@ event, extracted claims are linked back to it.
 | `semantic_correct` | same shape; supersedes earlier claims instead of adding beside them |
 | `semantic_recall` | `{ query, top_k = 8, expand_depth = 1, similarity_threshold = 0.15 }` → `{ seeds[], hits[] }` |
 | `semantic_ask` | `{ subject, predicate, object? }` or `{ pattern }` → belief state `supported \| refuted \| conflicted \| unknown` with evidence |
+| `verify_answer` | `{ claims:[{subject, predicate, object}], text?, argument?, record?, agent? }` (Python: `verify_answer(claims, text=…, record=…)`) → `POST /api2.0/verify/answer` (knowshowgo >= 0.2.23): a status per claim, `supported \| contradicted \| disputed \| competing` (stored values named) `\| unknown`, with evidence, plus a `verdict` for the answer; `record: true` keeps only what the graph did not speak against, at the `inferred` tier. Server docs: `knowshowgo/docs/TRUTH-EVAL.md` |
 
 ---
 
