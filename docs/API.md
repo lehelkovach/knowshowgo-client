@@ -181,7 +181,7 @@ Schema-typed objects (instances) and their category prototypes.
 | `instantiate_memory` | `{ role, title, … }` role-typed upsert + claims |
 | `get_memory_object` | `(uuid)` object + claims + prototype lineage |
 | `list_objects` | `{ category?, limit?, owner_user_id?, agent_session_id? }` |
-| `resolve_object` | `{ ... }` resolve by tag, title, or embedding |
+| `resolve_object` | `{ object_lineage_key \| title, category_prototype_uuid, private, evidence }` head of a lineage; a title shared by several objects is `409 ambiguous` with candidates unless `evidence` (`{ property: value }`) picks one |
 | `generalize_object` | `{ ... }` promote a concrete object to a prototype |
 
 Owner/session args on `get_object`/`list_objects` override the client defaults
@@ -313,6 +313,7 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance? })` |
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
+| `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5 })` |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
 

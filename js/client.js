@@ -1717,13 +1717,23 @@ export class KnowShowGoClient {
       .then((r) => r.categories || []);
   }
 
+  /**
+   * Resolve the head of an object lineage by lineage key or title.
+   *
+   * `evidence` is `{ propertyName: value }` (a string, or a concept uuid for a
+   * `concept_ref` property). When several objects bear the same title the
+   * server answers `409 { status: 'ambiguous', candidates }` rather than pick
+   * the newest; evidence narrows it to the individual whose current values
+   * fit, and evidence that fits nobody is `404 { status: 'none' }`.
+   */
   resolve_object({
     object_lineage_key = null,
     category_prototype_uuid = null,
     title = null,
     private: is_private = false,
     owner_user_id = null,
-    agent_session_id = null
+    agent_session_id = null,
+    evidence = null
   } = {}) {
     return this._request('POST', '/api/objects/resolve', {
       json: {
@@ -1732,7 +1742,8 @@ export class KnowShowGoClient {
         title,
         private: is_private,
         ownerUserId: owner_user_id,
-        agentSessionId: agent_session_id
+        agentSessionId: agent_session_id,
+        ...(evidence && typeof evidence === 'object' ? { evidence } : {})
       }
     }).then((body) => ({
       ...body,
@@ -1783,6 +1794,19 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
+  /**
+   * Every procedure the caller may read, newest first. A complete listing
+   * (`total`, `truncated`), unlike `search_procedures`, which is a top-K by
+   * meaning. Resolves to `{ procedures, total, truncated }`.
+   */
+  list_procedures({ limit = 100, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/procedures', {
+      params: { limit },
+      owner_user_id,
+      agent_session_id
+    }).then((r) => ({ procedures: r.procedures || [], total: r.total ?? (r.procedures || []).length, truncated: r.truncated === true }));
+  }
+
   create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
       json: {

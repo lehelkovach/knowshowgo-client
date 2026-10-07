@@ -416,6 +416,19 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(called_json["objectLineageKey"], "obj:person:bowie")
         self.assertEqual(called_json["private"], True)
         self.assertEqual(called_json["ownerUserId"], "user-1")
+        self.assertNotIn("evidence", called_json)
+
+    def test_resolve_object_passes_evidence_for_a_title_tie(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selectedObjectUuid": "lehel-a"})
+        )
+
+        result = client.resolve_object(title="Lehel Kovach", evidence={"has_pet": "hermione-uuid"})
+
+        called_json = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(called_json["evidence"], {"has_pet": "hermione-uuid"})
+        self.assertEqual(result["objectUuid"], "lehel-a")
 
     def test_generalize_object_maps_source_and_target(self):
         client = KnowShowGoClient("https://example.test")
@@ -438,6 +451,19 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(called_json["assertionPredicate"], "generalized_fact")
 
     # ===== Procedures =====
+
+    def test_list_procedures_gets_the_listing(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
+        )
+
+        out = client.list_procedures(limit=1)
+
+        self.assertEqual(client.session.request.call_args.args[0], "GET")
+        self.assertEqual(client.session.request.call_args.args[1], "https://example.test/api/procedures")
+        self.assertEqual(client.session.request.call_args.kwargs["params"], {"limit": 1})
+        self.assertEqual(out, {"procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
 
     def test_create_procedure_maps_extra_props(self):
         client = KnowShowGoClient("https://example.test")
