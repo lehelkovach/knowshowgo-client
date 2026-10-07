@@ -1717,13 +1717,23 @@ export class KnowShowGoClient {
       .then((r) => r.categories || []);
   }
 
+  /**
+   * Resolve the head of an object lineage by lineage key or title.
+   *
+   * `evidence` is `{ propertyName: value }` (a string, or a concept uuid for a
+   * `concept_ref` property). When several objects bear the same title the
+   * server answers `409 { status: 'ambiguous', candidates }` rather than pick
+   * the newest; evidence narrows it to the individual whose current values
+   * fit, and evidence that fits nobody is `404 { status: 'none' }`.
+   */
   resolve_object({
     object_lineage_key = null,
     category_prototype_uuid = null,
     title = null,
     private: is_private = false,
     owner_user_id = null,
-    agent_session_id = null
+    agent_session_id = null,
+    evidence = null
   } = {}) {
     return this._request('POST', '/api/objects/resolve', {
       json: {
@@ -1732,7 +1742,8 @@ export class KnowShowGoClient {
         title,
         private: is_private,
         ownerUserId: owner_user_id,
-        agentSessionId: agent_session_id
+        agentSessionId: agent_session_id,
+        ...(evidence && typeof evidence === 'object' ? { evidence } : {})
       }
     }).then((body) => ({
       ...body,

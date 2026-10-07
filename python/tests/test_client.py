@@ -416,6 +416,19 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(called_json["objectLineageKey"], "obj:person:bowie")
         self.assertEqual(called_json["private"], True)
         self.assertEqual(called_json["ownerUserId"], "user-1")
+        self.assertNotIn("evidence", called_json)
+
+    def test_resolve_object_passes_evidence_for_a_title_tie(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selectedObjectUuid": "lehel-a"})
+        )
+
+        result = client.resolve_object(title="Lehel Kovach", evidence={"has_pet": "hermione-uuid"})
+
+        called_json = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(called_json["evidence"], {"has_pet": "hermione-uuid"})
+        self.assertEqual(result["objectUuid"], "lehel-a")
 
     def test_generalize_object_maps_source_and_target(self):
         client = KnowShowGoClient("https://example.test")

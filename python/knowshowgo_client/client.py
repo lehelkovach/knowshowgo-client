@@ -1776,9 +1776,17 @@ class KnowShowGoClient:
         title: Optional[str] = None,
         private: bool = False,
         owner_user_id: Optional[str] = None,
-        agent_session_id: Optional[str] = None
+        agent_session_id: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Resolve the latest object version by lineage key or title"""
+        """Resolve the latest object version by lineage key or title.
+
+        ``evidence`` is ``{propertyName: value}`` (a string, or a concept uuid
+        for a concept_ref property). When several objects bear the same title
+        the server answers ``409 {status: "ambiguous", candidates}`` rather
+        than pick the newest; evidence narrows it to the individual whose
+        current values fit; evidence that fits nobody is ``404 {status: "none"}``.
+        """
         data = {
             "objectLineageKey": object_lineage_key,
             "categoryPrototypeUuid": category_prototype_uuid,
@@ -1787,6 +1795,8 @@ class KnowShowGoClient:
             "ownerUserId": owner_user_id,
             "agentSessionId": agent_session_id
         }
+        if isinstance(evidence, dict):
+            data["evidence"] = evidence
         result = self._request("POST", "/api/objects/resolve", json=data)
         result["objectUuid"] = result.get("objectUuid") or result.get("selectedObjectUuid")
         return result

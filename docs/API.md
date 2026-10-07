@@ -181,7 +181,7 @@ Schema-typed objects (instances) and their category prototypes.
 | `instantiate_memory` | `{ role, title, … }` role-typed upsert + claims |
 | `get_memory_object` | `(uuid)` object + claims + prototype lineage |
 | `list_objects` | `{ category?, limit?, owner_user_id?, agent_session_id? }` |
-| `resolve_object` | `{ ... }` resolve by tag, title, or embedding |
+| `resolve_object` | `{ object_lineage_key \| title, category_prototype_uuid, private, evidence }` head of a lineage; a title shared by several objects is `409 ambiguous` with candidates unless `evidence` (`{ property: value }`) picks one |
 | `generalize_object` | `{ ... }` promote a concrete object to a prototype |
 
 Owner/session args on `get_object`/`list_objects` override the client defaults

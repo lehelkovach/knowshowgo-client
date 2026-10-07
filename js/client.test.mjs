@@ -401,6 +401,23 @@ test('resolve_object maps lineage key and private flag', async () => {
   assert.equal(body.objectLineageKey, 'obj:person:bowie');
   assert.equal(body.private, true);
   assert.equal(body.ownerUserId, 'user-1');
+  assert.equal('evidence' in body, false, 'no evidence key unless given');
+});
+
+test('resolve_object passes evidence through for a title tie (KG9a)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, selectedObjectUuid: 'lehel-a' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.resolve_object({ title: 'Lehel Kovach', evidence: { has_pet: 'hermione-uuid' } });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.evidence, { has_pet: 'hermione-uuid' });
+  assert.equal(body.title, 'Lehel Kovach');
+  assert.equal(result.objectUuid, 'lehel-a');
 });
 
 test('generalize_object maps source and target fields', async () => {
