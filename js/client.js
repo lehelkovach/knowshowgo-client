@@ -2061,6 +2061,38 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Ground a claim's terms, or one term, to concepts
+   * (`POST /api2.0/ground`, knowshowgo >= 0.2.24). Pass `claim: { subject,
+   * predicate, object }` or `term` + `role` (`entity` | `class` | `predicate`).
+   * Each term comes back `resolved` (uuid, label, `definedness`), `ambiguous`
+   * (`candidates[]`: ask the person which one), `undefined` (nothing readable
+   * names it; nothing is created) or `literal`; the predicate in canonical
+   * form (`is a` → `is_a`). `mentions` are concept uuids already in the
+   * conversation, a discourse cue. Reads only.
+   */
+  ground({
+    claim = undefined,
+    term = undefined,
+    role = undefined,
+    mentions = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!claim && !term) throw new Error('ground requires claim {subject, predicate, object} or term');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/ground`, {
+      json: {
+        ...(claim ? { claim } : { term, ...(role ? { role } : {}) }),
+        ...(mentions !== undefined ? { mentions } : {}),
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
   semantic_correct({
     text,
     speaker = 'user',

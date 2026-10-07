@@ -2163,6 +2163,42 @@ class KnowShowGoClient:
         )
 
 
+    def ground(
+        self,
+        claim: Optional[Dict[str, Any]] = None,
+        term: Optional[str] = None,
+        role: Optional[str] = None,
+        mentions: Optional[List[str]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
+        knowshowgo >= 0.2.24). Pass ``claim={"subject", "predicate", "object"}`` or
+        ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
+        ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
+        ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
+        ``mentions`` are concept uuids already in the conversation. Reads only."""
+        if not claim and not term:
+            raise ValueError("ground requires claim {subject, predicate, object} or term")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"ownerUserId": owner_user_id}
+        if claim:
+            body["claim"] = claim
+        else:
+            body["term"] = term
+            if role is not None:
+                body["role"] = role
+        if mentions is not None:
+            body["mentions"] = mentions
+        return self._request(
+            "POST",
+            f"{prefix}/ground",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
     def verify_answer(
         self,
         claims: List[Dict[str, Any]],

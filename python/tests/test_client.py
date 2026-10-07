@@ -65,6 +65,23 @@ class TestKnowShowGoClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.verify_answer("not a list")
 
+    def test_ground_posts_a_claim_or_a_term(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "ground": {"subject": {"status": "ambiguous", "candidates": [{"uuid": "a"}, {"uuid": "b"}]}}})
+        )
+        out = client.ground(claim={"subject": "Hermione", "predicate": "is a", "object": "dog"}, owner_user_id="u1")
+        self.assertEqual(out["ground"]["subject"]["status"], "ambiguous")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/ground"))
+        self.assertEqual(kwargs["json"]["claim"]["object"], "dog")
+        client.ground(term="dog", role="class", mentions=["x"])
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["json"], {"ownerUserId": None, "term": "dog", "role": "class", "mentions": ["x"]})
+        with self.assertRaises(ValueError):
+            client.ground()
+
     def test_reinforce_assertion_posts_claim_and_speaker(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
