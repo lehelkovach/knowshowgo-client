@@ -452,6 +452,19 @@ class TestKnowShowGoClient(unittest.TestCase):
 
     # ===== Procedures =====
 
+    def test_list_procedures_gets_the_listing(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
+        )
+
+        out = client.list_procedures(limit=1)
+
+        self.assertEqual(client.session.request.call_args.args[0], "GET")
+        self.assertEqual(client.session.request.call_args.args[1], "https://example.test/api/procedures")
+        self.assertEqual(client.session.request.call_args.kwargs["params"], {"limit": 1})
+        self.assertEqual(out, {"procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
+
     def test_create_procedure_maps_extra_props(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

@@ -445,6 +445,22 @@ test('generalize_object maps source and target fields', async () => {
 });
 
 // ===== Procedures =====
+test('list_procedures GETs /api/procedures and normalises the listing', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.list_procedures({ limit: 1 });
+  assert.match(calls[0].url, /^https:\/\/example\.test\/api\/procedures\?/);
+  assert.match(calls[0].url, /limit=1/);
+  assert.equal(calls[0].options.method, 'GET');
+  assert.deepEqual(out, { procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+});
+
 test('create_procedure maps extra_props to extraProps', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

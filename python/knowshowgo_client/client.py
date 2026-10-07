@@ -1845,6 +1845,31 @@ class KnowShowGoClient:
 
     # ===== Procedures (v0.2.2) =====
 
+    def list_procedures(
+        self,
+        limit: int = 100,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Every procedure the caller may read, newest first.
+
+        A complete listing (``total``, ``truncated``), unlike
+        ``search_procedures`` which is a top-K by meaning.
+        """
+        result = self._request(
+            "GET",
+            "/api/procedures",
+            params={"limit": limit},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        procedures = result.get("procedures") or []
+        return {
+            "procedures": procedures,
+            "total": result.get("total", len(procedures)),
+            "truncated": result.get("truncated") is True,
+        }
+
     def create_procedure(
         self,
         title: str,

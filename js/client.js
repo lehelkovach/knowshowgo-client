@@ -1794,6 +1794,19 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
+  /**
+   * Every procedure the caller may read, newest first. A complete listing
+   * (`total`, `truncated`), unlike `search_procedures`, which is a top-K by
+   * meaning. Resolves to `{ procedures, total, truncated }`.
+   */
+  list_procedures({ limit = 100, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/procedures', {
+      params: { limit },
+      owner_user_id,
+      agent_session_id
+    }).then((r) => ({ procedures: r.procedures || [], total: r.total ?? (r.procedures || []).length, truncated: r.truncated === true }));
+  }
+
   create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
       json: {

@@ -313,6 +313,7 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance? })` |
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
+| `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5 })` |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
 
