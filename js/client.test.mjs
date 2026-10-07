@@ -2030,6 +2030,32 @@ test('verify_answer posts the claims to /api2.0/verify/answer and returns the ve
   assert.throws(() => client.verify_answer({ text: 'no claims' }), /claims\[\]/);
 });
 
+test('ground posts a claim or a term to /api2.0/ground and returns the grounding', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      ground: { subject: { status: 'ambiguous', candidates: [{ uuid: 'a' }, { uuid: 'b' }] }, predicate: { canonical: 'is_a' }, evaluable: false },
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.ground({ claim: { subject: 'Hermione', predicate: 'is a', object: 'dog' }, owner_user_id: 'u1' });
+  assert.match(calls[0].url, /\/api2\.0\/ground(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claim, { subject: 'Hermione', predicate: 'is a', object: 'dog' });
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal(out.ground.subject.status, 'ambiguous');
+  assert.equal(out.ground.subject.candidates.length, 2);
+
+  await client.ground({ term: 'dog', role: 'class', mentions: ['x'] });
+  const body2 = JSON.parse(calls[1].options.body);
+  assert.deepEqual(body2, { term: 'dog', role: 'class', mentions: ['x'], ownerUserId: null });
+  assert.throws(() => client.ground({}), /claim .* or term/);
+});
+
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
