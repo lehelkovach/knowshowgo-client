@@ -1717,13 +1717,23 @@ export class KnowShowGoClient {
       .then((r) => r.categories || []);
   }
 
+  /**
+   * Resolve the head of an object lineage by lineage key or title.
+   *
+   * `evidence` is `{ propertyName: value }` (a string, or a concept uuid for a
+   * `concept_ref` property). When several objects bear the same title the
+   * server answers `409 { status: 'ambiguous', candidates }` rather than pick
+   * the newest; evidence narrows it to the individual whose current values
+   * fit, and evidence that fits nobody is `404 { status: 'none' }`.
+   */
   resolve_object({
     object_lineage_key = null,
     category_prototype_uuid = null,
     title = null,
     private: is_private = false,
     owner_user_id = null,
-    agent_session_id = null
+    agent_session_id = null,
+    evidence = null
   } = {}) {
     return this._request('POST', '/api/objects/resolve', {
       json: {
@@ -1732,7 +1742,8 @@ export class KnowShowGoClient {
         title,
         private: is_private,
         ownerUserId: owner_user_id,
-        agentSessionId: agent_session_id
+        agentSessionId: agent_session_id,
+        ...(evidence && typeof evidence === 'object' ? { evidence } : {})
       }
     }).then((body) => ({
       ...body,
@@ -1783,6 +1794,19 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
+  /**
+   * Every procedure the caller may read, newest first. A complete listing
+   * (`total`, `truncated`), unlike `search_procedures`, which is a top-K by
+   * meaning. Resolves to `{ procedures, total, truncated }`.
+   */
+  list_procedures({ limit = 100, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/procedures', {
+      params: { limit },
+      owner_user_id,
+      agent_session_id
+    }).then((r) => ({ procedures: r.procedures || [], total: r.total ?? (r.procedures || []).length, truncated: r.truncated === true }));
+  }
+
   create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
       json: {
@@ -2020,6 +2044,74 @@ export class KnowShowGoClient {
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
     return this._request('POST', `${prefix}/semantic/ask`, {
       json: pattern || { subject, predicate, object, ownerUserId: owner_user_id },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  /**
+   * Verify an answer claim by claim against stored claims
+   * (`POST /api2.0/verify/answer`, knowshowgo >= 0.2.23). The caller decomposes
+   * the answer into `claims: [{ subject, predicate, object }]`; the server runs
+   * no LLM. Each claim comes back `supported`, `contradicted`, `disputed`,
+   * `competing` (with the stored values) or `unknown`, with evidence, plus a
+   * `verdict` for the whole answer. `record: true` remembers only the claims
+   * the graph did not speak against, under `owner_user_id`, at the `inferred`
+   * provenance tier.
+   */
+  verify_answer({
+    claims,
+    text = undefined,
+    argument = undefined,
+    record = undefined,
+    agent = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!Array.isArray(claims)) throw new Error('verify_answer requires claims[]');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/verify/answer`, {
+      json: {
+        claims,
+        ...(text !== undefined ? { text } : {}),
+        ...(argument !== undefined ? { argument } : {}),
+        ...(record !== undefined ? { record } : {}),
+        ...(agent !== undefined ? { agent } : {}),
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  /**
+   * Ground a claim's terms, or one term, to concepts
+   * (`POST /api2.0/ground`, knowshowgo >= 0.2.24). Pass `claim: { subject,
+   * predicate, object }` or `term` + `role` (`entity` | `class` | `predicate`).
+   * Each term comes back `resolved` (uuid, label, `definedness`), `ambiguous`
+   * (`candidates[]`: ask the person which one), `undefined` (nothing readable
+   * names it; nothing is created) or `literal`; the predicate in canonical
+   * form (`is a` → `is_a`). `mentions` are concept uuids already in the
+   * conversation, a discourse cue. Reads only.
+   */
+  ground({
+    claim = undefined,
+    term = undefined,
+    role = undefined,
+    mentions = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!claim && !term) throw new Error('ground requires claim {subject, predicate, object} or term');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/ground`, {
+      json: {
+        ...(claim ? { claim } : { term, ...(role ? { role } : {}) }),
+        ...(mentions !== undefined ? { mentions } : {}),
+        ownerUserId: owner_user_id,
+      },
       owner_user_id,
       agent_session_id,
     });

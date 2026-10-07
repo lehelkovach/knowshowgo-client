@@ -181,7 +181,7 @@ Schema-typed objects (instances) and their category prototypes.
 | `instantiate_memory` | `{ role, title, … }` role-typed upsert + claims |
 | `get_memory_object` | `(uuid)` object + claims + prototype lineage |
 | `list_objects` | `{ category?, limit?, owner_user_id?, agent_session_id? }` |
-| `resolve_object` | `{ ... }` resolve by tag, title, or embedding |
+| `resolve_object` | `{ object_lineage_key \| title, category_prototype_uuid, private, evidence }` head of a lineage; a title shared by several objects is `409 ambiguous` with candidates unless `evidence` (`{ property: value }`) picks one |
 | `generalize_object` | `{ ... }` promote a concrete object to a prototype |
 
 Owner/session args on `get_object`/`list_objects` override the client defaults
@@ -297,6 +297,8 @@ event, extracted claims are linked back to it.
 | `semantic_correct` | same shape; supersedes earlier claims instead of adding beside them |
 | `semantic_recall` | `{ query, top_k = 8, expand_depth = 1, similarity_threshold = 0.15 }` → `{ seeds[], hits[] }` |
 | `semantic_ask` | `{ subject, predicate, object? }` or `{ pattern }` → belief state `supported \| refuted \| conflicted \| unknown` with evidence |
+| `verify_answer` | `{ claims:[{subject, predicate, object}], text?, argument?, record?, agent? }` (Python: `verify_answer(claims, text=…, record=…)`) → `POST /api2.0/verify/answer` (knowshowgo >= 0.2.23): a status per claim, `supported \| contradicted \| disputed \| competing` (stored values named) `\| unknown`, with evidence, plus a `verdict` for the answer; `record: true` keeps only what the graph did not speak against, at the `inferred` tier. Server docs: `knowshowgo/docs/TRUTH-EVAL.md` |
+| `ground` | `{ claim:{subject, predicate, object} }` or `{ term, role? }`, `mentions?` (Python: `ground(claim=…)` / `ground(term=…, role=…)`) → `POST /api2.0/ground` (knowshowgo >= 0.2.24): per term `resolved` (uuid, `definedness`) `\| ambiguous` (`candidates[]`, ask which) `\| undefined` (nothing created) `\| literal`; the predicate in canonical form. Server docs: `knowshowgo/docs/CLAIM-GROUNDING.md` |
 
 ---
 
@@ -312,6 +314,7 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance? })` |
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
+| `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5 })` |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
 

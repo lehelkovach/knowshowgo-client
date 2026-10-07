@@ -1776,9 +1776,17 @@ class KnowShowGoClient:
         title: Optional[str] = None,
         private: bool = False,
         owner_user_id: Optional[str] = None,
-        agent_session_id: Optional[str] = None
+        agent_session_id: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Resolve the latest object version by lineage key or title"""
+        """Resolve the latest object version by lineage key or title.
+
+        ``evidence`` is ``{propertyName: value}`` (a string, or a concept uuid
+        for a concept_ref property). When several objects bear the same title
+        the server answers ``409 {status: "ambiguous", candidates}`` rather
+        than pick the newest; evidence narrows it to the individual whose
+        current values fit; evidence that fits nobody is ``404 {status: "none"}``.
+        """
         data = {
             "objectLineageKey": object_lineage_key,
             "categoryPrototypeUuid": category_prototype_uuid,
@@ -1787,6 +1795,8 @@ class KnowShowGoClient:
             "ownerUserId": owner_user_id,
             "agentSessionId": agent_session_id
         }
+        if isinstance(evidence, dict):
+            data["evidence"] = evidence
         result = self._request("POST", "/api/objects/resolve", json=data)
         result["objectUuid"] = result.get("objectUuid") or result.get("selectedObjectUuid")
         return result
@@ -1834,6 +1844,31 @@ class KnowShowGoClient:
         return self._request("POST", "/api/objects/generalize", json=data)
 
     # ===== Procedures (v0.2.2) =====
+
+    def list_procedures(
+        self,
+        limit: int = 100,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Every procedure the caller may read, newest first.
+
+        A complete listing (``total``, ``truncated``), unlike
+        ``search_procedures`` which is a top-K by meaning.
+        """
+        result = self._request(
+            "GET",
+            "/api/procedures",
+            params={"limit": limit},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        procedures = result.get("procedures") or []
+        return {
+            "procedures": procedures,
+            "total": result.get("total", len(procedures)),
+            "truncated": result.get("truncated") is True,
+        }
 
     def create_procedure(
         self,
@@ -2162,6 +2197,79 @@ class KnowShowGoClient:
             agent_session_id=agent_session_id,
         )
 
+
+    def ground(
+        self,
+        claim: Optional[Dict[str, Any]] = None,
+        term: Optional[str] = None,
+        role: Optional[str] = None,
+        mentions: Optional[List[str]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
+        knowshowgo >= 0.2.24). Pass ``claim={"subject", "predicate", "object"}`` or
+        ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
+        ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
+        ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
+        ``mentions`` are concept uuids already in the conversation. Reads only."""
+        if not claim and not term:
+            raise ValueError("ground requires claim {subject, predicate, object} or term")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"ownerUserId": owner_user_id}
+        if claim:
+            body["claim"] = claim
+        else:
+            body["term"] = term
+            if role is not None:
+                body["role"] = role
+        if mentions is not None:
+            body["mentions"] = mentions
+        return self._request(
+            "POST",
+            f"{prefix}/ground",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def verify_answer(
+        self,
+        claims: List[Dict[str, Any]],
+        text: Optional[str] = None,
+        argument: Optional[Dict[str, Any]] = None,
+        record: Optional[bool] = None,
+        agent: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify an answer claim by claim against stored claims (``POST /api2.0/verify/answer``,
+        knowshowgo >= 0.2.23). ``claims`` is the answer decomposed into
+        ``{"subject", "predicate", "object"}`` triples; each comes back ``supported``,
+        ``contradicted``, ``disputed``, ``competing`` (with the stored values) or ``unknown``,
+        with evidence, plus a ``verdict`` for the answer. ``record=True`` remembers only the
+        claims the graph did not speak against, at the ``inferred`` provenance tier."""
+        if not isinstance(claims, list):
+            raise ValueError("verify_answer requires claims: a list of {subject, predicate, object}")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"claims": claims, "ownerUserId": owner_user_id}
+        if text is not None:
+            body["text"] = text
+        if argument is not None:
+            body["argument"] = argument
+        if record is not None:
+            body["record"] = record
+        if agent is not None:
+            body["agent"] = agent
+        return self._request(
+            "POST",
+            f"{prefix}/verify/answer",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
     def semantic_correct(
         self,
         text: str,

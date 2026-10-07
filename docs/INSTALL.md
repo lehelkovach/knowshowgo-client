@@ -86,6 +86,10 @@ client = KnowShowGoClient.public_api(
 Reads of public concepts work without a token. Writes, and reads of your own
 private data, need one.
 
+The same token also opens the server's MCP endpoint (`POST /mcp`) for Claude
+Code, Cursor and other MCP clients, with no SDK in between. See
+[`MCP.md`](MCP.md).
+
 ### Local, in-memory
 
 ```bash

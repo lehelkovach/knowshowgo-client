@@ -401,6 +401,23 @@ test('resolve_object maps lineage key and private flag', async () => {
   assert.equal(body.objectLineageKey, 'obj:person:bowie');
   assert.equal(body.private, true);
   assert.equal(body.ownerUserId, 'user-1');
+  assert.equal('evidence' in body, false, 'no evidence key unless given');
+});
+
+test('resolve_object passes evidence through for a title tie (KG9a)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, selectedObjectUuid: 'lehel-a' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.resolve_object({ title: 'Lehel Kovach', evidence: { has_pet: 'hermione-uuid' } });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.evidence, { has_pet: 'hermione-uuid' });
+  assert.equal(body.title, 'Lehel Kovach');
+  assert.equal(result.objectUuid, 'lehel-a');
 });
 
 test('generalize_object maps source and target fields', async () => {
@@ -428,6 +445,22 @@ test('generalize_object maps source and target fields', async () => {
 });
 
 // ===== Procedures =====
+test('list_procedures GETs /api/procedures and normalises the listing', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.list_procedures({ limit: 1 });
+  assert.match(calls[0].url, /^https:\/\/example\.test\/api\/procedures\?/);
+  assert.match(calls[0].url, /limit=1/);
+  assert.equal(calls[0].options.method, 'GET');
+  assert.deepEqual(out, { procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+});
+
 test('create_procedure maps extra_props to extraProps', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -1964,6 +1997,63 @@ test('search_concepts + query_graph + get_associations paths (Todd vault walk)',
   assert.ok(calls[2].url.includes('direction=outgoing'));
   assert.equal(assoc.length, 2);
   assert.equal(assoc[0].rel, 'has_payment_field');
+});
+
+test('verify_answer posts the claims to /api2.0/verify/answer and returns the verdict', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      verdict: 'disputed',
+      groundedFraction: 0,
+      claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney', status: 'competing', competing: ['Canberra'], evidence: [] }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.verify_answer({
+    text: 'The capital of Australia is Sydney.',
+    claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }],
+    owner_user_id: 'u1',
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api2\.0\/verify\/answer(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claims, [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }]);
+  assert.equal(body.text, 'The capital of Australia is Sydney.');
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal('record' in body, false);
+  assert.equal(out.verdict, 'disputed');
+  assert.deepEqual(out.claims[0].competing, ['Canberra']);
+  assert.throws(() => client.verify_answer({ text: 'no claims' }), /claims\[\]/);
+});
+
+test('ground posts a claim or a term to /api2.0/ground and returns the grounding', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      ground: { subject: { status: 'ambiguous', candidates: [{ uuid: 'a' }, { uuid: 'b' }] }, predicate: { canonical: 'is_a' }, evaluable: false },
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.ground({ claim: { subject: 'Hermione', predicate: 'is a', object: 'dog' }, owner_user_id: 'u1' });
+  assert.match(calls[0].url, /\/api2\.0\/ground(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claim, { subject: 'Hermione', predicate: 'is a', object: 'dog' });
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal(out.ground.subject.status, 'ambiguous');
+  assert.equal(out.ground.subject.candidates.length, 2);
+
+  await client.ground({ term: 'dog', role: 'class', mentions: ['x'] });
+  const body2 = JSON.parse(calls[1].options.body);
+  assert.deepEqual(body2, { term: 'dog', role: 'class', mentions: ['x'], ownerUserId: null });
+  assert.throws(() => client.ground({}), /claim .* or term/);
 });
 
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
