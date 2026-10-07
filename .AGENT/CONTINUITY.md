@@ -20,7 +20,11 @@
 ## Next
 
 1. Wrap KG2 in both SDKs: `record` on `evaluateLogicInference`, an `evaluate_logic_ir` wrapper for `POST /logic-ir/evaluate`, `explain_derivation(uuid)`, `list_derivations(conclusion)`; parity tests.
+<<<<<<< HEAD
 2. ~~The MCP server over this SDK~~ — superseded: KSG serves `POST /mcp` itself (live on prod since v0.2.22); this repo's job is a documented way to point an MCP host at it (`docs/USING-THE-API.md` agent section) and, after KG20, a node list.
+=======
+2. ~~The MCP server over this SDK (track S)~~ — shipped server-side instead: `POST /mcp` on the KSG host (knowshowgo v0.2.22) replays the REST routes, so no SDK wrapper is needed. Client-facing setup: `docs/MCP.md`.
+>>>>>>> origin/dev
 3. Docs sweep — **done 2026-10-05 for README + GETTING-STARTED** (new newcomer intro `docs/WHAT-IS-KNOWSHOWGO.md`; GETTING-STARTED rewritten as a hands-on tour covering tokens, beliefs/contradiction, `verify`, objects + `hydrate`, `search_knowledge`, semantic memory, `timeoutMs`; README no longer hardcodes a version table or tag pins). `API.md` still carries old examples; fix when touching it.
 
 ## Anti-drift

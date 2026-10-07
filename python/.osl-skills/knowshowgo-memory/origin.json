@@ -1,0 +1,21 @@
+{
+  "slug": "knowshowgo-memory",
+  "owner": "knowshowgo",
+  "version": "0.1.0",
+  "summary": "Search KnowShowGo Document graph + episodic memory via knowledge.search / memory.search",
+  "ref": "@knowshowgo/knowshowgo-memory",
+  "trigger": "/document|offer letter|resume|what does my|search (my )?(docs?|memory|ksg|knowshowgo)|ingested|drive file|pdf|knowledge graph/i",
+  "installedAt": "2026-10-06T19:29:49.665Z",
+  "source": "bundled",
+  "scan": {
+    "ok": true,
+    "blocked": false,
+    "severity": "high",
+    "flags": [
+      {
+        "severity": "high",
+        "label": "credential path / secret harvest"
+      }
+    ]
+  }
+}

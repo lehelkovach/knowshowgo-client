@@ -2162,6 +2162,43 @@ class KnowShowGoClient:
             agent_session_id=agent_session_id,
         )
 
+
+    def verify_answer(
+        self,
+        claims: List[Dict[str, Any]],
+        text: Optional[str] = None,
+        argument: Optional[Dict[str, Any]] = None,
+        record: Optional[bool] = None,
+        agent: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify an answer claim by claim against stored claims (``POST /api2.0/verify/answer``,
+        knowshowgo >= 0.2.23). ``claims`` is the answer decomposed into
+        ``{"subject", "predicate", "object"}`` triples; each comes back ``supported``,
+        ``contradicted``, ``disputed``, ``competing`` (with the stored values) or ``unknown``,
+        with evidence, plus a ``verdict`` for the answer. ``record=True`` remembers only the
+        claims the graph did not speak against, at the ``inferred`` provenance tier."""
+        if not isinstance(claims, list):
+            raise ValueError("verify_answer requires claims: a list of {subject, predicate, object}")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"claims": claims, "ownerUserId": owner_user_id}
+        if text is not None:
+            body["text"] = text
+        if argument is not None:
+            body["argument"] = argument
+        if record is not None:
+            body["record"] = record
+        if agent is not None:
+            body["agent"] = agent
+        return self._request(
+            "POST",
+            f"{prefix}/verify/answer",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
     def semantic_correct(
         self,
         text: str,
