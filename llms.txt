@@ -1,0 +1,29 @@
+# KnowShowGo client
+
+> JavaScript and Python SDKs for KnowShowGo, a knowledge graph service where every piece of information is a node with a permanent UUID, a version history that is never overwritten, provenance, an optional embedding, and typed edges. Categories are fuzzy prototypes, claims carry their source and resolve into beliefs, procedures are stored as graphs, and propositions can be evaluated against stored claims and audited. Hosted API: https://api.knowshowgo.com (bearer token for writes, from https://knowshowgo.com/developers). No delete exists; updates are new versions; an unknown answer is returned as unknown.
+
+Install: `npm install @lehelkovach/knowshowgo-client` (Node 18+) or `pip install knowshowgo-client` (Python 3.8+). Until a registry version exists: `npm install git+https://github.com/lehelkovach/knowshowgo-client.git#dev`.
+
+## Start here
+
+- [Using the API: one guide](docs/USING-THE-API.md): what it is from the bottom, identity, the CRUD table for every primitive, recipes per job (agent memory, application records, topic registry, ontology, logic, procedures, verification), a section for AI agents, and what is designed versus how it works today.
+- [What is KnowShowGo?](docs/WHAT-IS-KNOWSHOWGO.md): plain-language introduction, no code.
+- [Installation](docs/INSTALL.md): npm, pip, choosing a server, every constructor setting.
+- [Getting started](docs/GETTING-STARTED.md): fifteen-minute hands-on tour, JS and Python.
+- [The bare bones](docs/BASICS.md): concept → prototype → ontology → object → version → claim → belief → logic, in code, with verified outputs.
+
+## Model and reference
+
+- [Concepts](docs/CONCEPTS.md): the primitives by stratum and the calls that touch each.
+- [Prototypes and casting](docs/PROTOTYPES-AND-CASTING.md): resemblance vs contract matching, hydrate, as(), explicit cast.
+- [Procedures and logic](docs/PROCEDURES-AND-LOGIC.md): step graphs, Logic IR, truth vs shape, derivations.
+- [Use cases](docs/USE-CASES.md): eleven things people build, mapped to calls.
+- [The duck-typed ORM](docs/DUCK-TYPED-ORM.md): the KSGObject surface.
+- [API reference](docs/API.md): every method, grouped by domain.
+
+## Rules an agent should follow
+
+- One client per human owner, with that owner's token; pass your agent name as `speaker` on writes.
+- Never fabricate from the model what the graph does not hold; `unknown` is a valid answer.
+- Never delete; retract a claim or write a new version.
+- Send the full property set on every object version; a version is a snapshot, not a patch.

@@ -20,6 +20,15 @@ export function resolveBaseUrl(explicit) {
   return env.KSG_API_URL || env.KSG_PUBLIC_API_URL || LOCAL_API_BASE_URL;
 }
 
+/** A shallow copy without the keys whose value is null or undefined. */
+function withoutNulls(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (v !== null && v !== undefined) out[k] = v;
+  }
+  return out;
+}
+
 /** camelCase / PascalCase → snake_case */
 function toSnakeCase(name) {
   return String(name)
@@ -424,6 +433,16 @@ export function matchesRoute(template, actual) {
   return expected.every(
     (segment, i) => segment.startsWith(":") || segment === received[i],
   );
+}
+
+/** Lineage-key prefix every seeded Logic IR primitive category carries. */
+const LOGIC_IR_LINEAGE_PREFIX = 'category:logic-ir:';
+
+/** `category:logic-ir:proposition` -> `Proposition`, for rows with no name. */
+function logicIrNameFromLineage(lineage) {
+  const slug = lineage.slice(LOGIC_IR_LINEAGE_PREFIX.length);
+  if (!slug) return null;
+  return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
 export class KnowShowGoClient {
@@ -1224,8 +1243,12 @@ export class KnowShowGoClient {
     source = 'user',
     provenance = null
   } = {}) {
+    // Optional fields are omitted, not sent as null: the server validates
+    // `truth` as a number in [0, 1] and a literal null fails that check, which
+    // turned every reinforce/contradict call that left `truth` out into a 500.
+    // The Python client already omits them; this matches it.
     return this._request('POST', '/api/assertions/reinforce', {
-      json: {
+      json: withoutNulls({
         subject,
         predicate,
         object: obj,
@@ -1234,7 +1257,7 @@ export class KnowShowGoClient {
         truth,
         source,
         provenance
-      }
+      })
     });
   }
 
@@ -1250,7 +1273,7 @@ export class KnowShowGoClient {
     against_assertion_id = null
   } = {}) {
     return this._request('POST', '/api/assertions/contradict', {
-      json: {
+      json: withoutNulls({
         subject,
         predicate,
         object: obj,
@@ -1259,7 +1282,7 @@ export class KnowShowGoClient {
         source,
         provenance,
         againstAssertionId: against_assertion_id
-      }
+      })
     });
   }
 
@@ -1694,13 +1717,23 @@ export class KnowShowGoClient {
       .then((r) => r.categories || []);
   }
 
+  /**
+   * Resolve the head of an object lineage by lineage key or title.
+   *
+   * `evidence` is `{ propertyName: value }` (a string, or a concept uuid for a
+   * `concept_ref` property). When several objects bear the same title the
+   * server answers `409 { status: 'ambiguous', candidates }` rather than pick
+   * the newest; evidence narrows it to the individual whose current values
+   * fit, and evidence that fits nobody is `404 { status: 'none' }`.
+   */
   resolve_object({
     object_lineage_key = null,
     category_prototype_uuid = null,
     title = null,
     private: is_private = false,
     owner_user_id = null,
-    agent_session_id = null
+    agent_session_id = null,
+    evidence = null
   } = {}) {
     return this._request('POST', '/api/objects/resolve', {
       json: {
@@ -1709,7 +1742,8 @@ export class KnowShowGoClient {
         title,
         private: is_private,
         ownerUserId: owner_user_id,
-        agentSessionId: agent_session_id
+        agentSessionId: agent_session_id,
+        ...(evidence && typeof evidence === 'object' ? { evidence } : {})
       }
     }).then((body) => ({
       ...body,
@@ -1760,6 +1794,19 @@ export class KnowShowGoClient {
   }
 
   // ===== Procedures (v0.2.2) =====
+  /**
+   * Every procedure the caller may read, newest first. A complete listing
+   * (`total`, `truncated`), unlike `search_procedures`, which is a top-K by
+   * meaning. Resolves to `{ procedures, total, truncated }`.
+   */
+  list_procedures({ limit = 100, owner_user_id = null, agent_session_id = null } = {}) {
+    return this._request('GET', '/api/procedures', {
+      params: { limit },
+      owner_user_id,
+      agent_session_id
+    }).then((r) => ({ procedures: r.procedures || [], total: r.total ?? (r.procedures || []).length, truncated: r.truncated === true }));
+  }
+
   create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
     return this._request('POST', '/api/procedures', {
       json: {
@@ -2002,6 +2049,74 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * Verify an answer claim by claim against stored claims
+   * (`POST /api2.0/verify/answer`, knowshowgo >= 0.2.23). The caller decomposes
+   * the answer into `claims: [{ subject, predicate, object }]`; the server runs
+   * no LLM. Each claim comes back `supported`, `contradicted`, `disputed`,
+   * `competing` (with the stored values) or `unknown`, with evidence, plus a
+   * `verdict` for the whole answer. `record: true` remembers only the claims
+   * the graph did not speak against, under `owner_user_id`, at the `inferred`
+   * provenance tier.
+   */
+  verify_answer({
+    claims,
+    text = undefined,
+    argument = undefined,
+    record = undefined,
+    agent = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!Array.isArray(claims)) throw new Error('verify_answer requires claims[]');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/verify/answer`, {
+      json: {
+        claims,
+        ...(text !== undefined ? { text } : {}),
+        ...(argument !== undefined ? { argument } : {}),
+        ...(record !== undefined ? { record } : {}),
+        ...(agent !== undefined ? { agent } : {}),
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
+  /**
+   * Ground a claim's terms, or one term, to concepts
+   * (`POST /api2.0/ground`, knowshowgo >= 0.2.24). Pass `claim: { subject,
+   * predicate, object }` or `term` + `role` (`entity` | `class` | `predicate`).
+   * Each term comes back `resolved` (uuid, label, `definedness`), `ambiguous`
+   * (`candidates[]`: ask the person which one), `undefined` (nothing readable
+   * names it; nothing is created) or `literal`; the predicate in canonical
+   * form (`is a` → `is_a`). `mentions` are concept uuids already in the
+   * conversation, a discourse cue. Reads only.
+   */
+  ground({
+    claim = undefined,
+    term = undefined,
+    role = undefined,
+    mentions = undefined,
+    owner_user_id = null,
+    agent_session_id = null,
+    semanticApiPrefix = null,
+  } = {}) {
+    if (!claim && !term) throw new Error('ground requires claim {subject, predicate, object} or term');
+    const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    return this._request('POST', `${prefix}/ground`, {
+      json: {
+        ...(claim ? { claim } : { term, ...(role ? { role } : {}) }),
+        ...(mentions !== undefined ? { mentions } : {}),
+        ownerUserId: owner_user_id,
+      },
+      owner_user_id,
+      agent_session_id,
+    });
+  }
+
   semantic_correct({
     text,
     speaker = 'user',
@@ -2177,6 +2292,45 @@ export class KnowShowGoClient {
   seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {
     const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
     return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });
+  }
+
+  /**
+   * The seeded Logic IR prototypes as `{ name: uuid }`, **without seeding**.
+   *
+   * Seeding is the only way to learn these uuids today, and seeding is a
+   * write. On a deployment that sets `KSG_REQUIRE_WRITE_TOKEN=1` — which
+   * `docs/PUBLIC-API.md` says is on for the public API — that write is
+   * refused without write credentials, so a read-only caller cannot obtain
+   * the uuids at all. This reads them off `GET /api/object-categories`
+   * instead, which the write gate does not cover.
+   *
+   * (Re-seeding is otherwise cheap: it is idempotent, and an unchanged spec
+   * does not bump a category's version. The cost this avoids is the write
+   * itself and the ten upserts behind it, not version churn.)
+   *
+   * Rows are selected by their `category:logic-ir:` lineage key rather than by
+   * name, so a caller's own category also called `Concept` is never mistaken
+   * for the primitive. The listing collapses to the head version per lineage,
+   * so these are the current revisions.
+   *
+   * @returns {Promise<Record<string, string>>} `{ Concept: uuid, … }`; empty
+   *   when nothing has been seeded yet — seed once, then call this.
+   */
+  async logic_ir_prototypes() {
+    const categories = await this.list_object_categories();
+    const prototypes = {};
+    for (const row of categories || []) {
+      const lineage = String(row?.categoryLineageKey || '');
+      if (!lineage.startsWith(LOGIC_IR_LINEAGE_PREFIX) || !row?.uuid) continue;
+      const name = row?.name || logicIrNameFromLineage(lineage);
+      if (name) prototypes[name] = row.uuid;
+    }
+    return prototypes;
+  }
+
+  /** camelCase alias of {@link logic_ir_prototypes}. */
+  logicIrPrototypes() {
+    return this.logic_ir_prototypes();
   }
 
   seed_procedure_run_primitives({ api_prefix = '/api2.0' } = {}) {
