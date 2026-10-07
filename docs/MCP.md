@@ -27,6 +27,7 @@ Streamable HTTP in stateless mode: one JSON response per request, no sessions.
 | `upsert_object` / `get_object` | yes / no | Typed records (the same objects as `client.objects` here) |
 | `search_procedures` | no | Procedures, with their steps |
 | `resolve_topic` | no | A topic by tag, never creating one |
+| `feedback` | yes | File a bug, idea or question with the operators; returns a `ref` to quote later |
 
 The server runs no LLM, so the calling model passes the facts it read as
 `claims`. The full contract, metering and the auth table are in the server's
@@ -56,6 +57,20 @@ Cursor, Windsurf and other clients that read `mcp.json`:
 
 The claude.ai connector UI needs OAuth for remote servers, which the endpoint
 does not offer yet; use Claude Code or a desktop client that takes a header.
+
+## Discovery
+
+The server describes itself at `https://api.knowshowgo.com/.well-known/mcp.json`
+(endpoint, transport, auth mode, where a token comes from, tool names). Its
+listing for the official MCP Registry is `mcp/server.json` in this repo,
+published by the `publish-mcp-registry.yml` workflow under the GitHub-verified
+namespace `io.github.lehelkovach`.
+
+## Feedback
+
+The `feedback` tool files a ticket into the same graph: say what broke, what
+you expected, and which tool was in use. You get a `ref` like `FB-…`; quote it
+when you follow up. Tickets are never deleted.
 
 ## When to use which
 

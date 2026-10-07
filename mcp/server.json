@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.lehelkovach/knowshowgo",
+  "description": "Durable, attributable memory for agents: facts with provenance, corrections kept as history, typed objects, procedures, and a public commons of concepts. Remote server; token from knowshowgo.com/developers.",
+  "version": "0.2.22",
+  "websiteUrl": "https://knowshowgo.com",
+  "repository": {
+    "url": "https://github.com/lehelkovach/knowshowgo-client",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://api.knowshowgo.com/mcp",
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer ksg_… — mint one at https://knowshowgo.com/developers",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
