@@ -42,6 +42,46 @@ class TestKnowShowGoClient(unittest.TestCase):
             json={"delta": 2.0},
         )
 
+    def test_verify_answer_posts_claims_and_returns_verdict(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {"ok": True, "verdict": "disputed", "claims": [{"status": "competing", "competing": ["Canberra"]}]}
+            )
+        )
+        out = client.verify_answer(
+            [{"subject": "Australia", "predicate": "capital", "object": "Sydney"}],
+            text="The capital of Australia is Sydney.",
+            owner_user_id="u1",
+        )
+        self.assertEqual(out["verdict"], "disputed")
+        self.assertEqual(out["claims"][0]["competing"], ["Canberra"])
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/verify/answer"))
+        self.assertEqual(kwargs["json"]["claims"][0]["object"], "Sydney")
+        self.assertEqual(kwargs["json"]["text"], "The capital of Australia is Sydney.")
+        self.assertNotIn("record", kwargs["json"])
+        with self.assertRaises(ValueError):
+            client.verify_answer("not a list")
+
+    def test_ground_posts_a_claim_or_a_term(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "ground": {"subject": {"status": "ambiguous", "candidates": [{"uuid": "a"}, {"uuid": "b"}]}}})
+        )
+        out = client.ground(claim={"subject": "Hermione", "predicate": "is a", "object": "dog"}, owner_user_id="u1")
+        self.assertEqual(out["ground"]["subject"]["status"], "ambiguous")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/ground"))
+        self.assertEqual(kwargs["json"]["claim"]["object"], "dog")
+        client.ground(term="dog", role="class", mentions=["x"])
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["json"], {"ownerUserId": None, "term": "dog", "role": "class", "mentions": ["x"]})
+        with self.assertRaises(ValueError):
+            client.ground()
+
     def test_reinforce_assertion_posts_claim_and_speaker(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -393,6 +433,19 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(called_json["objectLineageKey"], "obj:person:bowie")
         self.assertEqual(called_json["private"], True)
         self.assertEqual(called_json["ownerUserId"], "user-1")
+        self.assertNotIn("evidence", called_json)
+
+    def test_resolve_object_passes_evidence_for_a_title_tie(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "selectedObjectUuid": "lehel-a"})
+        )
+
+        result = client.resolve_object(title="Lehel Kovach", evidence={"has_pet": "hermione-uuid"})
+
+        called_json = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(called_json["evidence"], {"has_pet": "hermione-uuid"})
+        self.assertEqual(result["objectUuid"], "lehel-a")
 
     def test_generalize_object_maps_source_and_target(self):
         client = KnowShowGoClient("https://example.test")
@@ -415,6 +468,19 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(called_json["assertionPredicate"], "generalized_fact")
 
     # ===== Procedures =====
+
+    def test_list_procedures_gets_the_listing(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
+        )
+
+        out = client.list_procedures(limit=1)
+
+        self.assertEqual(client.session.request.call_args.args[0], "GET")
+        self.assertEqual(client.session.request.call_args.args[1], "https://example.test/api/procedures")
+        self.assertEqual(client.session.request.call_args.kwargs["params"], {"limit": 1})
+        self.assertEqual(out, {"procedures": [{"uuid": "p-1", "title": "Expense report"}], "total": 7, "truncated": True})
 
     def test_create_procedure_maps_extra_props(self):
         client = KnowShowGoClient("https://example.test")
@@ -1271,6 +1337,77 @@ class TestKnowShowGoClient(unittest.TestCase):
             "https://example.test/api/seed/logic-ir-primitives",
             json={},
         )
+
+    def test_logic_ir_prototypes_reads_without_seeding(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-concept",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:logic-ir:concept",
+                        },
+                        {
+                            "uuid": "u-proposition",
+                            "name": "Proposition",
+                            "categoryLineageKey": "category:logic-ir:proposition",
+                        },
+                    ]
+                }
+            )
+        )
+        self.assertEqual(
+            client.logic_ir_prototypes(),
+            {"Concept": "u-concept", "Proposition": "u-proposition"},
+        )
+        client.session.request.assert_called_once_with(
+            "GET",
+            "https://example.test/api/object-categories",
+        )
+
+    def test_logic_ir_prototypes_keys_off_lineage_not_name(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-primitive",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:logic-ir:concept",
+                        },
+                        {
+                            "uuid": "u-mine",
+                            "name": "Concept",
+                            "categoryLineageKey": "category:my-app:concept",
+                        },
+                    ]
+                }
+            )
+        )
+        self.assertEqual(client.logic_ir_prototypes(), {"Concept": "u-primitive"})
+
+    def test_logic_ir_prototypes_names_from_lineage_and_is_empty_before_seeding(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "categories": [
+                        {
+                            "uuid": "u-1",
+                            "name": None,
+                            "categoryLineageKey": "category:logic-ir:derivation",
+                        }
+                    ]
+                }
+            )
+        )
+        self.assertEqual(client.logic_ir_prototypes(), {"Derivation": "u-1"})
+
+        client.session.request = MagicMock(return_value=FakeResponse({"categories": []}))
+        self.assertEqual(client.logic_ir_prototypes(), {})
 
     def test_evaluate_logic_inference_accepts_argument_uuid_alone(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret

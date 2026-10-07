@@ -1,0 +1,37 @@
+name: Publish to the MCP Registry
+
+# Lists the hosted server (api.knowshowgo.com/mcp) in the official MCP
+# Registry (registry.modelcontextprotocol.io) from mcp/server.json. The
+# `io.github.lehelkovach/*` namespace is proven by GitHub OIDC from this
+# repository, so no token is stored; the first run needs nothing but a person
+# pressing "Run workflow" after bumping `version` in mcp/server.json to match
+# the release. Re-run on each release.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch mcp-publisher
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --version
+      - name: Validate server.json against the live manifest
+        run: |
+          set -euo pipefail
+          url="$(python3 -c 'import json;print(json.load(open("mcp/server.json"))["remotes"][0]["url"])')"
+          live="$(curl -fsS --max-time 20 "${url%/mcp}/.well-known/mcp.json" || true)"
+          echo "live manifest: ${live:0:300}"
+          echo "$live" | python3 -c 'import json,sys;d=json.load(sys.stdin);assert d.get("transport")=="streamable-http", d' || { echo "::warning::could not confirm the live manifest; publishing anyway from mcp/server.json"; }
+      - name: Login (GitHub OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish
+        run: ./mcp-publisher publish mcp/server.json

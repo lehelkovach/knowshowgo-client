@@ -140,6 +140,34 @@ test('contradict_assertion and retract_assertion post correctly', async () => {
   assert.match(calls[1].url, /\/api\/assertions\/a9\/retract$/);
 });
 
+test('contradict_assertion and reinforce_assertion omit optional fields they were not given', async () => {
+  // The server validates `truth` as a number in [0, 1]. Sending `truth: null`
+  // for a caller that simply did not pass one made every such call a 500
+  // ("truth must be a number between 0 and 1") against a live server, while
+  // the mocked tests stayed green because they always passed a truth.
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', speaker: 'forum' });
+  const contradict = JSON.parse(calls[0].options.body);
+  assert.deepEqual(contradict, { subject: 'Ada', predicate: 'born_in', object: '1816', speaker: 'forum', source: 'user' });
+  assert.equal('truth' in contradict, false);
+  assert.equal('againstAssertionId' in contradict, false);
+
+  await client.reinforce_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1815' });
+  const reinforce = JSON.parse(calls[1].options.body);
+  assert.deepEqual(reinforce, { subject: 'Ada', predicate: 'born_in', object: '1815', source: 'user' });
+
+  // A truth that IS given still goes through, including 0.
+  await client.contradict_assertion({ subject: 'Ada', predicate: 'born_in', obj: '1816', truth: 0 });
+  assert.equal(JSON.parse(calls[2].options.body).truth, 0);
+});
+
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -373,6 +401,23 @@ test('resolve_object maps lineage key and private flag', async () => {
   assert.equal(body.objectLineageKey, 'obj:person:bowie');
   assert.equal(body.private, true);
   assert.equal(body.ownerUserId, 'user-1');
+  assert.equal('evidence' in body, false, 'no evidence key unless given');
+});
+
+test('resolve_object passes evidence through for a title tie (KG9a)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, selectedObjectUuid: 'lehel-a' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const result = await client.resolve_object({ title: 'Lehel Kovach', evidence: { has_pet: 'hermione-uuid' } });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.evidence, { has_pet: 'hermione-uuid' });
+  assert.equal(body.title, 'Lehel Kovach');
+  assert.equal(result.objectUuid, 'lehel-a');
 });
 
 test('generalize_object maps source and target fields', async () => {
@@ -400,6 +445,22 @@ test('generalize_object maps source and target fields', async () => {
 });
 
 // ===== Procedures =====
+test('list_procedures GETs /api/procedures and normalises the listing', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.list_procedures({ limit: 1 });
+  assert.match(calls[0].url, /^https:\/\/example\.test\/api\/procedures\?/);
+  assert.match(calls[0].url, /limit=1/);
+  assert.equal(calls[0].options.method, 'GET');
+  assert.deepEqual(out, { procedures: [{ uuid: 'p-1', title: 'Expense report', stepCount: 3 }], total: 7, truncated: true });
+});
+
 test('create_procedure maps extra_props to extraProps', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -1417,6 +1478,67 @@ test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by defa
   assert.equal(calls[0].url, 'https://example.test/api2.0/seed/logic-ir-primitives');
 });
 
+test('logic_ir_prototypes reads the seeded prototypes by name and never writes', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, method: options?.method });
+    return makeJsonResponse({
+      categories: [
+        { uuid: 'u-concept', name: 'Concept', categoryLineageKey: 'category:logic-ir:concept', version: 3 },
+        { uuid: 'u-proposition', name: 'Proposition', categoryLineageKey: 'category:logic-ir:proposition', version: 1 },
+        { uuid: 'u-argument', name: 'Argument', categoryLineageKey: 'category:logic-ir:argument', version: 1 }
+      ]
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const protos = await client.logic_ir_prototypes();
+
+  assert.deepEqual(protos, { Concept: 'u-concept', Proposition: 'u-proposition', Argument: 'u-argument' });
+  assert.equal(calls.length, 1, 'one read');
+  assert.equal(calls[0].url, 'https://example.test/api/object-categories');
+  assert.equal(calls[0].method, 'GET', 'reading prototypes must not seed');
+});
+
+test('logic_ir_prototypes keys off the lineage key, so a caller category named Concept is not mistaken for the primitive', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({
+      categories: [
+        { uuid: 'u-primitive', name: 'Concept', categoryLineageKey: 'category:logic-ir:concept', version: 1 },
+        { uuid: 'u-mine', name: 'Concept', categoryLineageKey: 'category:my-app:concept', version: 1 },
+        { uuid: 'u-other', name: 'Invoice', categoryLineageKey: 'category:my-app:invoice', version: 1 }
+      ]
+    });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  assert.deepEqual(await client.logic_ir_prototypes(), { Concept: 'u-primitive' });
+});
+
+test('logic_ir_prototypes names a prototype from its lineage key when the row carries no name, and is empty before seeding', async () => {
+  const KnowShowGoClient = await loadClientClass();
+
+  const unnamed = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () =>
+      makeJsonResponse({ categories: [{ uuid: 'u-1', name: null, categoryLineageKey: 'category:logic-ir:derivation' }] })
+  });
+  assert.deepEqual(await unnamed.logic_ir_prototypes(), { Derivation: 'u-1' });
+
+  const empty = new KnowShowGoClient({
+    baseUrl: 'https://example.test',
+    fetchImpl: async () => makeJsonResponse({ categories: [] })
+  });
+  assert.deepEqual(await empty.logic_ir_prototypes(), {}, 'nothing seeded yet is empty, not an error');
+});
+
+test('logicIrPrototypes is the camelCase alias of logic_ir_prototypes', async () => {
+  const fetchMock = async () =>
+    makeJsonResponse({ categories: [{ uuid: 'u-c', name: 'Claim', categoryLineageKey: 'category:logic-ir:claim' }] });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  assert.deepEqual(await client.logicIrPrototypes(), await client.logic_ir_prototypes());
+});
+
 test('seed_procedure_run_primitives posts to /api2.0/seed/procedure-run-primitives by default', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -1875,6 +1997,63 @@ test('search_concepts + query_graph + get_associations paths (Todd vault walk)',
   assert.ok(calls[2].url.includes('direction=outgoing'));
   assert.equal(assoc.length, 2);
   assert.equal(assoc[0].rel, 'has_payment_field');
+});
+
+test('verify_answer posts the claims to /api2.0/verify/answer and returns the verdict', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      verdict: 'disputed',
+      groundedFraction: 0,
+      claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney', status: 'competing', competing: ['Canberra'], evidence: [] }],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.verify_answer({
+    text: 'The capital of Australia is Sydney.',
+    claims: [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }],
+    owner_user_id: 'u1',
+  });
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api2\.0\/verify\/answer(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claims, [{ subject: 'Australia', predicate: 'capital', object: 'Sydney' }]);
+  assert.equal(body.text, 'The capital of Australia is Sydney.');
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal('record' in body, false);
+  assert.equal(out.verdict, 'disputed');
+  assert.deepEqual(out.claims[0].competing, ['Canberra']);
+  assert.throws(() => client.verify_answer({ text: 'no claims' }), /claims\[\]/);
+});
+
+test('ground posts a claim or a term to /api2.0/ground and returns the grounding', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      ground: { subject: { status: 'ambiguous', candidates: [{ uuid: 'a' }, { uuid: 'b' }] }, predicate: { canonical: 'is_a' }, evaluable: false },
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.ground({ claim: { subject: 'Hermione', predicate: 'is a', object: 'dog' }, owner_user_id: 'u1' });
+  assert.match(calls[0].url, /\/api2\.0\/ground(\?|$)/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.claim, { subject: 'Hermione', predicate: 'is a', object: 'dog' });
+  assert.equal(body.ownerUserId, 'u1');
+  assert.equal(out.ground.subject.status, 'ambiguous');
+  assert.equal(out.ground.subject.candidates.length, 2);
+
+  await client.ground({ term: 'dog', role: 'class', mentions: ['x'] });
+  const body2 = JSON.parse(calls[1].options.body);
+  assert.deepEqual(body2, { term: 'dog', role: 'class', mentions: ['x'], ownerUserId: null });
+  assert.throws(() => client.ground({}), /claim .* or term/);
 });
 
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {

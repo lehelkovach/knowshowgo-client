@@ -346,6 +346,18 @@ def matches_route(template: str, actual: str) -> bool:
     return True
 
 
+LOGIC_IR_LINEAGE_PREFIX = "category:logic-ir:"
+"""Lineage-key prefix every seeded Logic IR primitive category carries."""
+
+
+def _logic_ir_name_from_lineage(lineage: str) -> Optional[str]:
+    """``category:logic-ir:proposition`` -> ``Proposition``, for unnamed rows."""
+    slug = lineage[len(LOGIC_IR_LINEAGE_PREFIX):]
+    if not slug:
+        return None
+    return slug[0].upper() + slug[1:]
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -1764,9 +1776,17 @@ class KnowShowGoClient:
         title: Optional[str] = None,
         private: bool = False,
         owner_user_id: Optional[str] = None,
-        agent_session_id: Optional[str] = None
+        agent_session_id: Optional[str] = None,
+        evidence: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
-        """Resolve the latest object version by lineage key or title"""
+        """Resolve the latest object version by lineage key or title.
+
+        ``evidence`` is ``{propertyName: value}`` (a string, or a concept uuid
+        for a concept_ref property). When several objects bear the same title
+        the server answers ``409 {status: "ambiguous", candidates}`` rather
+        than pick the newest; evidence narrows it to the individual whose
+        current values fit; evidence that fits nobody is ``404 {status: "none"}``.
+        """
         data = {
             "objectLineageKey": object_lineage_key,
             "categoryPrototypeUuid": category_prototype_uuid,
@@ -1775,6 +1795,8 @@ class KnowShowGoClient:
             "ownerUserId": owner_user_id,
             "agentSessionId": agent_session_id
         }
+        if isinstance(evidence, dict):
+            data["evidence"] = evidence
         result = self._request("POST", "/api/objects/resolve", json=data)
         result["objectUuid"] = result.get("objectUuid") or result.get("selectedObjectUuid")
         return result
@@ -1822,6 +1844,31 @@ class KnowShowGoClient:
         return self._request("POST", "/api/objects/generalize", json=data)
 
     # ===== Procedures (v0.2.2) =====
+
+    def list_procedures(
+        self,
+        limit: int = 100,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Every procedure the caller may read, newest first.
+
+        A complete listing (``total``, ``truncated``), unlike
+        ``search_procedures`` which is a top-K by meaning.
+        """
+        result = self._request(
+            "GET",
+            "/api/procedures",
+            params={"limit": limit},
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+        procedures = result.get("procedures") or []
+        return {
+            "procedures": procedures,
+            "total": result.get("total", len(procedures)),
+            "truncated": result.get("truncated") is True,
+        }
 
     def create_procedure(
         self,
@@ -2150,6 +2197,79 @@ class KnowShowGoClient:
             agent_session_id=agent_session_id,
         )
 
+
+    def ground(
+        self,
+        claim: Optional[Dict[str, Any]] = None,
+        term: Optional[str] = None,
+        role: Optional[str] = None,
+        mentions: Optional[List[str]] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
+        knowshowgo >= 0.2.24). Pass ``claim={"subject", "predicate", "object"}`` or
+        ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
+        ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
+        ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
+        ``mentions`` are concept uuids already in the conversation. Reads only."""
+        if not claim and not term:
+            raise ValueError("ground requires claim {subject, predicate, object} or term")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"ownerUserId": owner_user_id}
+        if claim:
+            body["claim"] = claim
+        else:
+            body["term"] = term
+            if role is not None:
+                body["role"] = role
+        if mentions is not None:
+            body["mentions"] = mentions
+        return self._request(
+            "POST",
+            f"{prefix}/ground",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
+
+    def verify_answer(
+        self,
+        claims: List[Dict[str, Any]],
+        text: Optional[str] = None,
+        argument: Optional[Dict[str, Any]] = None,
+        record: Optional[bool] = None,
+        agent: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+        semantic_api_prefix: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify an answer claim by claim against stored claims (``POST /api2.0/verify/answer``,
+        knowshowgo >= 0.2.23). ``claims`` is the answer decomposed into
+        ``{"subject", "predicate", "object"}`` triples; each comes back ``supported``,
+        ``contradicted``, ``disputed``, ``competing`` (with the stored values) or ``unknown``,
+        with evidence, plus a ``verdict`` for the answer. ``record=True`` remembers only the
+        claims the graph did not speak against, at the ``inferred`` provenance tier."""
+        if not isinstance(claims, list):
+            raise ValueError("verify_answer requires claims: a list of {subject, predicate, object}")
+        prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        body: Dict[str, Any] = {"claims": claims, "ownerUserId": owner_user_id}
+        if text is not None:
+            body["text"] = text
+        if argument is not None:
+            body["argument"] = argument
+        if record is not None:
+            body["record"] = record
+        if agent is not None:
+            body["agent"] = agent
+        return self._request(
+            "POST",
+            f"{prefix}/verify/answer",
+            json=body,
+            owner_user_id=owner_user_id,
+            agent_session_id=agent_session_id,
+        )
     def semantic_correct(
         self,
         text: str,
@@ -2454,6 +2574,37 @@ class KnowShowGoClient:
     def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})
+
+    def logic_ir_prototypes(self) -> Dict[str, str]:
+        """The seeded Logic IR prototypes as ``{name: uuid}``, without seeding.
+
+        Seeding is the only way to learn these uuids today, and seeding is a
+        write. On a deployment that sets ``KSG_REQUIRE_WRITE_TOKEN=1`` — which
+        ``docs/PUBLIC-API.md`` says is on for the public API — that write is
+        refused without write credentials, so a read-only caller cannot obtain
+        the uuids at all. This reads them off ``GET /api/object-categories``
+        instead, which the write gate does not cover.
+
+        Re-seeding is otherwise cheap: it is idempotent, and an unchanged spec
+        does not bump a category's version. The cost this avoids is the write
+        itself, not version churn.
+
+        Rows are selected by their ``category:logic-ir:`` lineage key rather
+        than by name, so a caller's own category also called ``Concept`` is
+        never mistaken for the primitive. The listing collapses to the head
+        version per lineage, so these are the current revisions. Empty when
+        nothing has been seeded yet.
+        """
+        prototypes: Dict[str, str] = {}
+        for row in self.list_object_categories() or []:
+            lineage = str((row or {}).get("categoryLineageKey") or "")
+            uuid = (row or {}).get("uuid")
+            if not lineage.startswith(LOGIC_IR_LINEAGE_PREFIX) or not uuid:
+                continue
+            name = (row or {}).get("name") or _logic_ir_name_from_lineage(lineage)
+            if name:
+                prototypes[name] = uuid
+        return prototypes
 
     def seed_procedure_run_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
