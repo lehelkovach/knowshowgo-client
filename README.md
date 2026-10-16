@@ -9,6 +9,55 @@ Store what you know, who said it, and how to do things. Read it back by
 meaning, as typed objects, or as evidence. Let an AI model write to it and
 read from it without letting the model *be* the memory.
 
+## Why it exists
+
+AI models have a memory problem with three parts:
+
+1. **They forget.** Nothing carries over between sessions unless something
+   outside the model writes it down.
+2. **They make things up.** A wrong answer reads exactly like a right one.
+3. **They can't explain themselves.** "Why do you believe that?" gets another
+   fluent paragraph, not a trail back to a source.
+
+The usual fix is a vector store for "similar text". That finds look-alike
+chunks, but it doesn't know what a concept is, who said a fact, whether it was
+later contradicted, or whether a claim actually follows from what is stored.
+
+KnowShowGo is memory built for those questions. The name is the idea:
+**know** (facts and concepts), **show** (every fact shows where it came from),
+**go** (procedures, stored so an agent can do them again). It works with any
+model, so the memory survives a change of LLM provider.
+
+## What people build with it
+
+- **Agents that remember** users, preferences and past work across sessions.
+- **Grounded answers** that cite their sources, and say *unknown* instead of
+  guessing when nothing stored supports a claim.
+- **Hallucination checks** that test model output against stored facts.
+- **Shared memory** for several agents working on the same task.
+- **Reusable procedures:** workflows that worked, stored as graphs and run again.
+- **Knowledge bases and ontologies** with sources and history, without a
+  fixed schema.
+
+All twelve, each mapped to the calls it uses: [Use cases](docs/USE-CASES.md).
+The plain-language introduction: [What is KnowShowGo?](docs/WHAT-IS-KNOWSHOWGO.md)
+
+## How it fits together
+
+```mermaid
+flowchart LR
+    App["Your app or agent"] --> SDK["knowshowgo-client<br/>(JS / Python)"]
+    MCPc["Claude Code, Cursor,<br/>any MCP client"] -- MCP --> KSG
+    SDK -- REST --> KSG["KnowShowGo service<br/>concepts · claims + sources<br/>prototypes · procedures · Logic IR"]
+    LLM["Any LLM"] -.-> App
+```
+
+Your model does the language work; KnowShowGo is the memory and the checking
+around it. Use the hosted API at `https://api.knowshowgo.com` (get a token at
+<https://knowshowgo.com/developers>) or run your own server.
+
+## Thirty-second tour
+
 ```js
 import { KnowShowGoClient } from '@lehelkovach/knowshowgo-client';
 
@@ -32,6 +81,7 @@ dentist.explain('phone');                             // which category defined 
 ```
 
 ```python
+import os
 from knowshowgo_client import KnowShowGoClient
 client = KnowShowGoClient.public_api(default_owner_user_id="my-app", auth_token=os.environ["KSG_API_TOKEN"])
 client.connect()
