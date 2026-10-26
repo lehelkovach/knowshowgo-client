@@ -743,10 +743,19 @@ export class KnowShowGoClient {
    * verified as a silent nothing against a live service while all 114 mocked
    * unit tests stayed green. Callers that want a floor pass one.
    */
+  // `scope: 'owner'` (server ≥ 0.2.29) scopes the database scan to the caller's
+  // own nodes — the owner is already on the request as identity; this applies
+  // it before the scan instead of after — and `props` is exact equality on
+  // named props, for the lookups where "close enough" is wrong (a card's last
+  // four, a holder). Both are sent only when given, so the request to an
+  // older server is unchanged.
   search_concepts(query, {
     top_k = 10,
     similarity_threshold = 0,
     prototype_filter = null,
+    scope = null,
+    props = null,
+    kind = null,
     owner_user_id = null,
     agent_session_id = null
   } = {}) {
@@ -755,7 +764,10 @@ export class KnowShowGoClient {
         query,
         topK: top_k,
         similarityThreshold: similarity_threshold,
-        prototypeFilter: prototype_filter
+        prototypeFilter: prototype_filter,
+        ...(scope ? { scope } : {}),
+        ...(props && typeof props === 'object' ? { props } : {}),
+        ...(kind ? { kind } : {})
       },
       owner_user_id,
       agent_session_id

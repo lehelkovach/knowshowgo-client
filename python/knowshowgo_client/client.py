@@ -581,6 +581,9 @@ class KnowShowGoClient:
         top_k: int = 10,
         similarity_threshold: float = 0.0,
         prototype_filter: Optional[str] = None,
+        scope: Optional[str] = None,
+        props: Optional[Dict[str, Any]] = None,
+        kind: Optional[str] = None,
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
@@ -590,6 +593,10 @@ class KnowShowGoClient:
         the JS client. A 0.7 default was safe only while the server dropped the
         parameter; now that it is applied, and because both backends score a
         text-path match a constant 0.5, that default returned nothing at all.
+
+        ``scope="owner"`` (server >= 0.2.29) scopes the database scan to the
+        caller's own nodes; ``props`` is exact equality on named props. Both
+        are sent only when given, so the request to an older server is unchanged.
         """
         data = {
             "query": query,
@@ -597,6 +604,12 @@ class KnowShowGoClient:
             "similarityThreshold": similarity_threshold,
             "prototypeFilter": prototype_filter
         }
+        if scope:
+            data["scope"] = scope
+        if isinstance(props, dict) and props:
+            data["props"] = props
+        if kind:
+            data["kind"] = kind
         result = self._request(
             "POST",
             "/api/concepts/search",
