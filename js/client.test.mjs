@@ -2144,3 +2144,27 @@ test('create_node_with_document accepts securityClass and an explicit owner', as
   assert.equal(body.ownerUserId, 'lehel');
   assert.equal(body.agentSessionId, 'slack:U9');
 });
+
+test('search_concepts passes scope, props and kind through to the server body, and omits them when unset', async () => {
+  // Server 0.2.29: `scope: "owner"` scopes the database scan to the caller's
+  // own nodes and `props` is exact equality (a card's last four, a holder) —
+  // the two narrowings that took a vault recall from a 30,000-node scan to the
+  // owner's few hundred. Unset, the body is what 0.2.28 sent.
+  const calls = [];
+  const fetchMock = async (url, options) => { calls.push({ url, options }); return makeJsonResponse({ results: [] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, defaultOwnerUserId: 'alice' });
+
+  await client.search_concepts('travel card', { top_k: 5, scope: 'owner', props: { last4: '1005' }, kind: 'topic' });
+  const scoped = JSON.parse(calls[0].options.body);
+  assert.equal(scoped.scope, 'owner');
+  assert.deepEqual(scoped.props, { last4: '1005' });
+  assert.equal(scoped.kind, 'topic');
+  assert.equal(scoped.ownerUserId, 'alice');
+
+  await client.search_concepts('travel card', { top_k: 5 });
+  const plain = JSON.parse(calls[1].options.body);
+  assert.equal('scope' in plain, false);
+  assert.equal('props' in plain, false);
+  assert.equal('kind' in plain, false);
+});

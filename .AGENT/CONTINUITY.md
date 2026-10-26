@@ -4,6 +4,7 @@
 
 ## Now
 
+- **2026-10-26 — `search_concepts(query, { scope, props, kind })`** (JS and Python): `scope: 'owner'` scans only the caller's own nodes, `props` is exact equality — server ≥ 0.2.29. Sent only when given; the default body is unchanged. Pairs with the server's K1 rung (its CHANGELOG, Unreleased). `main` (0.2.28) merged back into this branch, as it had not been into `dev`.
 - Policy is root [`AGENTS.md`](../AGENTS.md). Pair with the **same-channel** KSG tip (`dev`↔`dev`, `main`↔`main`). Numbers live only in KSG `docs/VERSION-MATRIX.md` and this branch's `package.json`; do not restate them.
 - Board: KSG [`docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md) **v7.3**; this repo is **K0** and track **S** in KSG `docs/PARALLEL-TRACKS.md`.
 - **Two packages, one repo** (#60): npm ships `js/` + `dist/` only; Python is the package `knowshowgo_client` under `python/` with `pyproject.toml`, tests in `python/tests/`, and a `python/client.py` shim so `from client import …` still works. `npm test` runs every `js/*.test.mjs`. `node scripts/bump-version.mjs X.Y.Z[-dev]` bumps both.

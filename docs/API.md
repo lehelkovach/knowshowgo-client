@@ -142,7 +142,7 @@ supported).
 |---|---|
 | `create_concept` | `{ name, ... }` |
 | `get_concept` | `(uuid)` |
-| `search_concepts` | `(query, { top_k = 10, similarity_threshold = 0, prototype_filter? })` → results; no similarity floor by default |
+| `search_concepts` | `(query, { top_k = 10, similarity_threshold = 0, prototype_filter?, scope?, props?, kind? })` → results; no similarity floor by default. `scope: 'owner'` scans only the caller's own nodes (server ≥ 0.2.29); `props: { last4: '1005' }` is exact equality on named props |
 | `search_property_definitions` | `(query, { top_k? })` → `[{ property, valueType, score, uuid }]` — which stored field a label names |
 | `resolve_slots` | `{ labels, candidates?, floor?, top_k? }` → `{ slots: [{ label, property, score }], unresolved }`, one-to-one assignment |
 | `add_association` | `{ from_concept_uuid, to_concept_uuid, relation_type, strength? }` |
