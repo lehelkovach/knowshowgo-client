@@ -1,9 +1,13 @@
 name: CI
 
+# Manual only (2026-10-26). GitHub runs nothing by itself in this stack any
+# more (the founder, 2026-10-23: cut Actions out, cost as little as possible;
+# knowshowgo #325 did the same there). The suites run locally before a merge
+# (`npm run test:all`). On 2026-10-26 every job of this workflow failed in two
+# seconds with no log on the PR and on the `dev` push — the runner never
+# started — and painted a green change red.
 on:
-  pull_request:
-  push:
-    branches: [main, dev]
+  workflow_dispatch:
 
 jobs:
   js:
