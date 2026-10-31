@@ -29,6 +29,16 @@ function withoutNulls(obj) {
   return out;
 }
 
+/**
+ * `{ securityClass }` for an assertion write, or `{}` when neither
+ * `security_class` nor its alias `scope` was given. The value is not checked
+ * here: the server validates it (`public` | `private`, anything else 400).
+ */
+function securityClassField(security_class, scope) {
+  const value = security_class ?? scope;
+  return value === null || value === undefined ? {} : { securityClass: value };
+}
+
 /** camelCase / PascalCase → snake_case */
 function toSnakeCase(name) {
   return String(name)
@@ -1200,6 +1210,13 @@ export class KnowShowGoClient {
   }
 
   // ===== Assertions (v0.2.0/v0.2.1) =====
+  /**
+   * State a claim. `security_class` (`'public'` | `'private'`; `scope` is an
+   * alias) is sent as `securityClass` only when given, so the body of a call
+   * that leaves it out is unchanged. A private claim is stored under the
+   * caller's owner identity and read back only by that owner; the value is
+   * passed through as typed and validated by the server.
+   */
   create_assertion({
     subject,
     predicate,
@@ -1211,7 +1228,9 @@ export class KnowShowGoClient {
     source_rel = null,
     status = null,
     prev_assertion_id = null,
-    provenance = null
+    provenance = null,
+    security_class = null,
+    scope = null
   }) {
     return this._request('POST', '/api/assertions', {
       json: {
@@ -1225,7 +1244,8 @@ export class KnowShowGoClient {
         sourceRel: source_rel,
         status,
         prevAssertionId: prev_assertion_id,
-        provenance
+        provenance,
+        ...securityClassField(security_class, scope)
       }
     });
   }
@@ -1244,7 +1264,11 @@ export class KnowShowGoClient {
     }).then(r => r.assertion);
   }
 
-  /** Same claim from another speaker → strengthen belief (voteScore + speakers). */
+  /**
+   * Same claim from another speaker → strengthen belief (voteScore + speakers).
+   * `security_class` / `scope` as on `create_assertion`: a private reinforce
+   * bumps the caller's own private claim, never another owner's.
+   */
   reinforce_assertion({
     subject,
     predicate,
@@ -1253,7 +1277,9 @@ export class KnowShowGoClient {
     delta = null,
     truth = null,
     source = 'user',
-    provenance = null
+    provenance = null,
+    security_class = null,
+    scope = null
   } = {}) {
     // Optional fields are omitted, not sent as null: the server validates
     // `truth` as a number in [0, 1] and a literal null fails that check, which
@@ -1268,12 +1294,16 @@ export class KnowShowGoClient {
         delta,
         truth,
         source,
-        provenance
+        provenance,
+        ...securityClassField(security_class, scope)
       })
     });
   }
 
-  /** Competing claim for same subject/predicate (keeps prior evidence). */
+  /**
+   * Competing claim for same subject/predicate (keeps prior evidence).
+   * `security_class` / `scope` as on `create_assertion`.
+   */
   contradict_assertion({
     subject,
     predicate,
@@ -1282,7 +1312,9 @@ export class KnowShowGoClient {
     truth = null,
     source = 'user',
     provenance = null,
-    against_assertion_id = null
+    against_assertion_id = null,
+    security_class = null,
+    scope = null
   } = {}) {
     return this._request('POST', '/api/assertions/contradict', {
       json: withoutNulls({
@@ -1293,7 +1325,8 @@ export class KnowShowGoClient {
         truth,
         source,
         provenance,
-        againstAssertionId: against_assertion_id
+        againstAssertionId: against_assertion_id,
+        ...securityClassField(security_class, scope)
       })
     });
   }

@@ -19,6 +19,7 @@ const client = KnowShowGoClient.publicApi({
 await client.connect();
 
 await client.create_assertion({ subject: 'Ada Lovelace', predicate: 'is_a', obj: 'Mathematician', source: 'my-app' });
+await client.create_assertion({ subject: 'me', predicate: 'allergy', obj: 'peanuts', source: 'my-app', security_class: 'private' }); // read back only by this owner
 await client.get_snapshot('Ada Lovelace');            // { is_a: 'Mathematician' }
 
 const saved = await client.upsert_object({

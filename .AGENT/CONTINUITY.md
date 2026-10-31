@@ -4,6 +4,7 @@
 
 ## Now
 
+- **2026-10-31 — `create_assertion` / `reinforce_assertion` / `contradict_assertion` take `security_class`** (`'public'` | `'private'`; alias `scope`; JS and Python): sent as `securityClass` only when given, so the default body is unchanged; the server (≥ 0.2.35) stores a private claim under the caller's owner and reads it back only to that owner. OSLO's `rememberFact` passes it for private facts. Branch `assertion-security-class`, no version bump (the founder cuts the release).
 - **2026-10-26 — Release 0.2.29** (founder: "Deploy"; pairs with server 0.2.29): `search_concepts(query, { scope, props, kind })`, `ci.yml` manual-only.
 - **2026-10-26 — `ci.yml` is manual-only** (`workflow_dispatch`), as knowshowgo's workflows are since #325: on #93 every CI job failed in two seconds with no log (runner never started), on the PR and on the `dev` push. `js/workflow_hygiene.test.mjs` pins it. The suites run locally before a merge (`npm test` 111/111 here; the Python suite needs `requests`). `publish.yml` / `publish-pypi.yml` still fire on a `v*` tag — the founder's call whether that chain stays.
 - **2026-10-26 — `search_concepts(query, { scope, props, kind })`** (JS and Python): `scope: 'owner'` scans only the caller's own nodes, `props` is exact equality — server ≥ 0.2.29. Sent only when given; the default body is unchanged. Pairs with the server's K1 rung (its CHANGELOG, Unreleased). `main` (0.2.28) merged back into this branch, as it had not been into `dev`.
