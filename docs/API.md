@@ -91,7 +91,7 @@ resolved into current snapshots.
 
 | Method | Signature (JS) |
 |---|---|
-| `create_assertion` | `{ subject, predicate, obj, source?, confidence?, ... }` |
+| `create_assertion` | `{ subject, predicate, obj, source?, truth?, provenance?, security_class?, ... }`. `security_class: 'private'` (alias `scope`) stores the claim under the caller's owner identity so only that owner reads it back (server ≥ 0.2.35); sent only when given |
 | `get_assertions` | `{ subject?, predicate?, obj? }` |
 | `vote_assertion` | `(assertionId, { delta = 1 })` |
 | `get_snapshot` | `(entityId)` |
@@ -102,8 +102,8 @@ resolved into current snapshots.
 | `get_entity_snapshot` / `entity` | `(entityId, …)` → `EntityProxy` (`.middleName` → winner; `.getType()` → prototypes) |
 | `hydrate` | `(entityId, { topK?, threshold? })` → `KSGObject` in **one** request: synchronous members, `type()`, `typesNow()`, `explain(name)`, `cell(name)`, `claims(name)`, `isContested(name)`, `as(prototype)`. See [The duck-typed ORM](DUCK-TYPED-ORM.md) |
 | `get_beliefs` | `(entityId, { predicate? })` → winner + alternatives + speakers (`belief-v0.1`) |
-| `reinforce_assertion` | `{ subject, predicate, obj, speaker?, delta?, truth? }` same claim, another speaker |
-| `contradict_assertion` | `{ subject, predicate, obj, speaker?, truth?, against_assertion_id? }` competing claim, prior kept |
+| `reinforce_assertion` | `{ subject, predicate, obj, speaker?, delta?, truth?, security_class? }` same claim, another speaker; a private reinforce bumps the caller's own private claim, never another owner's |
+| `contradict_assertion` | `{ subject, predicate, obj, speaker?, truth?, against_assertion_id?, security_class? }` competing claim, prior kept |
 | `retract_assertion` | `(assertionId, { speaker?, reason? })` soft delete |
 
 ```js
