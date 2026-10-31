@@ -103,6 +103,45 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
 
+    def test_assertion_writes_send_security_class_only_when_asked(self):
+        # The server stores a claim as the caller's private row when the body
+        # says securityClass: "private"; a body without the key is a public row,
+        # byte-for-byte as before. The value is passed through as given (the
+        # server validates it); `scope` is an alias for `security_class`.
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True}))
+        subject = "ns:owner-a-example:person:user"
+
+        client.create_assertion(subject, "health_note", "allergic to fake-ingredient-zz9")
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(
+            kwargs["json"],
+            {"subject": subject, "predicate": "health_note", "object": "allergic to fake-ingredient-zz9", "truth": 1.0, "source": "user"},
+        )
+        client.reinforce_assertion(subject, "health_note", "allergic to fake-ingredient-zz9")
+        self.assertNotIn("securityClass", client.session.request.call_args.kwargs["json"])
+        client.contradict_assertion(subject, "health_note", "no known allergies")
+        self.assertNotIn("securityClass", client.session.request.call_args.kwargs["json"])
+
+        client.create_assertion(subject, "health_note", "allergic to fake-ingredient-zz9", security_class="private")
+        body = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(body["securityClass"], "private")
+        self.assertNotIn("scope", body)
+        client.reinforce_assertion(subject, "health_note", "allergic to fake-ingredient-zz9", speaker="owner-a-example", security_class="private")
+        self.assertEqual(client.session.request.call_args.kwargs["json"]["securityClass"], "private")
+        client.contradict_assertion(subject, "health_note", "no known allergies", security_class="private")
+        self.assertEqual(client.session.request.call_args.kwargs["json"]["securityClass"], "private")
+
+        client.create_assertion(subject, "health_note", "x", scope="private")
+        body = client.session.request.call_args.kwargs["json"]
+        self.assertEqual(body["securityClass"], "private")
+        self.assertNotIn("scope", body)
+        client.create_assertion(subject, "health_note", "x", security_class="public", scope="private")
+        self.assertEqual(client.session.request.call_args.kwargs["json"]["securityClass"], "public")
+        # An invalid value goes through untouched: the server answers 400.
+        client.create_assertion(subject, "health_note", "x", security_class="secret")
+        self.assertEqual(client.session.request.call_args.kwargs["json"]["securityClass"], "secret")
+
     def test_explain_entity_passes_optional_predicate(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

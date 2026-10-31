@@ -358,6 +358,14 @@ def _logic_ir_name_from_lineage(lineage: str) -> Optional[str]:
     return slug[0].upper() + slug[1:]
 
 
+def _security_class_field(security_class: Optional[str], scope: Optional[str]) -> Dict[str, Any]:
+    """``{"securityClass": ...}`` for an assertion write, or ``{}`` when neither
+    ``security_class`` nor its alias ``scope`` was given. The value is not checked
+    here: the server validates it (``public`` | ``private``, anything else 400)."""
+    value = security_class if security_class is not None else scope
+    return {} if value is None else {"securityClass": value}
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -1098,9 +1106,18 @@ class KnowShowGoClient:
         predicate: str,
         obj: Any,
         truth: float = 1.0,
-        source: str = "user"
+        source: str = "user",
+        security_class: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create an assertion"""
+        """Create an assertion.
+
+        ``security_class`` (``"public"`` | ``"private"``; ``scope`` is an alias)
+        is sent as ``securityClass`` only when given, so the body of a call that
+        leaves it out is unchanged. A private claim is stored under the caller's
+        owner identity and read back only by that owner; the server validates
+        the value.
+        """
         data = {
             "subject": subject,
             "predicate": predicate,
@@ -1108,6 +1125,7 @@ class KnowShowGoClient:
             "truth": truth,
             "source": source
         }
+        data.update(_security_class_field(security_class, scope))
         return self._request("POST", "/api/assertions", json=data)
 
     def get_assertions(
@@ -1150,8 +1168,14 @@ class KnowShowGoClient:
         truth: Optional[float] = None,
         source: str = "user",
         provenance: Optional[Dict[str, Any]] = None,
+        security_class: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Same claim from another speaker → strengthen belief."""
+        """Same claim from another speaker → strengthen belief.
+
+        ``security_class`` / ``scope`` as on ``create_assertion``: a private
+        reinforce bumps the caller's own private claim, never another owner's.
+        """
         data: Dict[str, Any] = {
             "subject": subject,
             "predicate": predicate,
@@ -1166,6 +1190,7 @@ class KnowShowGoClient:
             data["truth"] = truth
         if provenance is not None:
             data["provenance"] = provenance
+        data.update(_security_class_field(security_class, scope))
         return self._request("POST", "/api/assertions/reinforce", json=data)
 
     def contradict_assertion(
@@ -1178,8 +1203,13 @@ class KnowShowGoClient:
         source: str = "user",
         provenance: Optional[Dict[str, Any]] = None,
         against_assertion_id: Optional[str] = None,
+        security_class: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Competing claim for same subject/predicate."""
+        """Competing claim for same subject/predicate.
+
+        ``security_class`` / ``scope`` as on ``create_assertion``.
+        """
         data: Dict[str, Any] = {
             "subject": subject,
             "predicate": predicate,
@@ -1194,6 +1224,7 @@ class KnowShowGoClient:
             data["provenance"] = provenance
         if against_assertion_id is not None:
             data["againstAssertionId"] = against_assertion_id
+        data.update(_security_class_field(security_class, scope))
         return self._request("POST", "/api/assertions/contradict", json=data)
 
     def retract_assertion(
