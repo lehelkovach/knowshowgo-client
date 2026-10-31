@@ -168,6 +168,61 @@ test('contradict_assertion and reinforce_assertion omit optional fields they wer
   assert.equal(JSON.parse(calls[2].options.body).truth, 0);
 });
 
+test('assertion writes send securityClass only when asked (security_class or its alias scope)', async () => {
+  // The server (POST /api/assertions, /reinforce, /contradict) stores a claim
+  // as the caller's private row when the body says securityClass: 'private';
+  // a body without the key is a public row, byte-for-byte as before. The
+  // client therefore adds the key only when a caller gave a value, and passes
+  // that value through as typed: the server validates it, not the client.
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const body = (i) => JSON.parse(calls[i].options.body);
+  const claim = { subject: 'ns:owner-a-example:person:user', predicate: 'health_note', obj: 'allergic to fake-ingredient-zz9' };
+
+  // Not given: no key, and the rest of the body is exactly what it was.
+  await client.create_assertion(claim);
+  assert.deepEqual(body(0), {
+    subject: claim.subject, predicate: claim.predicate, object: claim.obj, truth: 1, source: 'user',
+    strength: null, voteScore: null, sourceRel: null, status: null, prevAssertionId: null, provenance: null
+  });
+  assert.equal('securityClass' in body(0), false);
+  assert.equal('scope' in body(0), false);
+  await client.reinforce_assertion(claim);
+  assert.equal('securityClass' in body(1), false);
+  await client.contradict_assertion(claim);
+  assert.equal('securityClass' in body(2), false);
+
+  // Given: carried as securityClass on all three writes.
+  await client.create_assertion({ ...claim, security_class: 'private' });
+  assert.equal(body(3).securityClass, 'private');
+  assert.equal('scope' in body(3), false);
+  await client.reinforce_assertion({ ...claim, speaker: 'owner-a-example', security_class: 'private' });
+  assert.equal(body(4).securityClass, 'private');
+  await client.contradict_assertion({ ...claim, obj: 'no known allergies', security_class: 'private' });
+  assert.equal(body(5).securityClass, 'private');
+
+  // `scope` is an alias; `security_class` wins when both are given.
+  await client.create_assertion({ ...claim, scope: 'private' });
+  assert.equal(body(6).securityClass, 'private');
+  assert.equal('scope' in body(6), false);
+  await client.create_assertion({ ...claim, security_class: 'public', scope: 'private' });
+  assert.equal(body(7).securityClass, 'public');
+
+  // An explicit public, and an invalid value, both go through untouched.
+  await client.reinforce_assertion({ ...claim, security_class: 'public' });
+  assert.equal(body(8).securityClass, 'public');
+  await client.create_assertion({ ...claim, security_class: 'secret' });
+  assert.equal(body(9).securityClass, 'secret');
+  // null is "not given", as for every other optional field.
+  await client.create_assertion({ ...claim, security_class: null, scope: null });
+  assert.equal('securityClass' in body(10), false);
+});
+
 test('store_facts_bulk normalizes tuple-style and object-style facts', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
