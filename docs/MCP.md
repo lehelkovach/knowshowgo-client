@@ -25,7 +25,7 @@ Streamable HTTP in stateless mode: one JSON response per request, no sessions.
 | `recall` | no | Memories near a query |
 | `search_knowledge` | no | Concepts and objects near a query |
 | `upsert_object` / `get_object` | yes / no | Typed records (the same objects as `client.objects` here) |
-| `search_procedures` | no | Procedures, with their steps |
+| `search_procedures` | no | Verified procedures, with their steps and `status`; drafts or retired only with `include` |
 | `resolve_topic` | no | A topic by tag, never creating one |
 | `feedback` | yes | File a bug, idea or question with the operators; returns a `ref` to quote later |
 

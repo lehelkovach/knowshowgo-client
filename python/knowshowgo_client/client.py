@@ -7,7 +7,7 @@ Provides a Python client for the KnowShowGo REST API.
 import os
 import re
 import requests
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union
 import json
 
 #: Canonical hosted KnowShowGo API (see server ``docs/PUBLIC-API.md``).
@@ -2055,13 +2055,20 @@ class KnowShowGoClient:
     def search_procedures(
         self,
         query: str,
-        top_k: int = 5
+        top_k: int = 5,
+        include: Union[str, List[str]] = "verified",
     ) -> List[Dict[str, Any]]:
-        """Search for Procedure DAGs by semantic similarity"""
+        """Search for Procedure DAGs by semantic similarity.
+
+        KSG-L1: only verified (replayable) procedures unless ``include`` opts in
+        to ``"drafts"``, ``"retired"`` or ``"all"`` (or a list of them). Each hit
+        carries its lifecycle ``status``.
+        """
+        inc = ",".join(include) if isinstance(include, (list, tuple)) else (include or "verified")
         result = self._request(
             "POST",
             "/api/procedures/search",
-            json={"query": query, "topK": top_k}
+            json={"query": query, "topK": top_k, "include": inc}
         )
         return result["results"]
 
