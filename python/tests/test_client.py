@@ -737,8 +737,18 @@ class TestKnowShowGoClient(unittest.TestCase):
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/procedures/search",
-            json={"query": "apply to job", "topK": 3},
+            json={"query": "apply to job", "topK": 3, "include": "verified"},
         )
+
+    def test_search_procedures_include_opt_in(self):
+        # KSG-L1: drafts/retired/all only when asked for.
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"results": []}))
+        client.search_procedures("apply to job", include="all")
+        client.search_procedures("apply to job", include=["drafts", "retired"])
+        calls = client.session.request.call_args_list
+        self.assertEqual(calls[0].kwargs["json"]["include"], "all")
+        self.assertEqual(calls[1].kwargs["json"]["include"], "drafts,retired")
 
     def test_import_procedure_json_maps_form_element_category(self):
         client = KnowShowGoClient("https://example.test")

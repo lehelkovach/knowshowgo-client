@@ -741,6 +741,22 @@ test('search_procedures unwraps results and maps top_k', async () => {
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.query, 'apply to job');
   assert.equal(body.topK, 3);
+  // KSG-L1: only verified (replayable) procedures unless the caller opts in.
+  assert.equal(body.include, 'verified');
+});
+
+test('search_procedures: include opts in to drafts, retired or all (KSG-L1)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ results: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.search_procedures('apply to job', { include: 'all' });
+  await client.search_procedures('apply to job', { include: ['drafts', 'retired'] });
+  assert.equal(JSON.parse(calls[0].options.body).include, 'all');
+  assert.equal(JSON.parse(calls[1].options.body).include, 'drafts,retired');
 });
 
 test('import_procedure_json maps form element category field', async () => {
