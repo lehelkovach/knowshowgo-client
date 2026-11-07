@@ -856,6 +856,10 @@ export class KnowShowGoClient {
   // Generalize an exemplar into a category: the service embeds it (if needed),
   // finds the nearest prototype by centroid similarity, and folds it in,
   // creating a new prototype when nothing is similar enough.
+  // `embedding` + `embedding_space_id` (server >= 0.2.43) send a vector the caller
+  // embedded with its own model: stored as the exemplar unchanged, generalized only
+  // within that space, never against text prototypes; a wrong-length vector is
+  // refused. Both are sent only when given, so a text call's body is unchanged.
   generalize_from_exemplar({
     concept_uuid = null,
     text = null,
@@ -863,19 +867,22 @@ export class KnowShowGoClient {
     prototype_uuid = null,
     label = null,
     threshold = 0.85,
-    create_if_no_match = true
+    create_if_no_match = true,
+    embedding = null,
+    embedding_space_id = null
   } = {}) {
-    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/generalize`, {
-      json: {
-        conceptUuid: concept_uuid,
-        text,
-        jsonObj: json_obj,
-        prototypeUuid: prototype_uuid,
-        label,
-        threshold,
-        createIfNoMatch: create_if_no_match
-      }
-    });
+    const json = {
+      conceptUuid: concept_uuid,
+      text,
+      jsonObj: json_obj,
+      prototypeUuid: prototype_uuid,
+      label,
+      threshold,
+      createIfNoMatch: create_if_no_match
+    };
+    if (embedding != null) json.embedding = Array.from(embedding);
+    if (embedding_space_id != null) json.embeddingSpaceId = embedding_space_id;
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/generalize`, { json });
   }
 
   // Match a perceived item (text or embedding) against existing prototypes.
@@ -884,10 +891,14 @@ export class KnowShowGoClient {
   // property-definition concepts instead (see `search_property_definitions`): a
   // value centroid drifts toward the shape of the data, so "Card number" would
   // rank closer to `cvv` than to `number`.
-  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
-    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
-      json: { text, embedding, topK: top_k, threshold }
-    }).then(r => r.matches);
+  // `embedding_space_id` (server >= 0.2.43) scopes the match to prototypes learned
+  // from the caller's own model's vectors; it needs `embedding`. Without it the
+  // match runs in the server's text space as before.
+  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0, embedding_space_id = null } = {}) {
+    const json = { text, embedding, topK: top_k, threshold };
+    if (embedding_space_id != null) json.embeddingSpaceId = embedding_space_id;
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, { json })
+      .then(r => r.matches);
   }
 
   /**
