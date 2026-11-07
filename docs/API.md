@@ -315,7 +315,7 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
 | `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
-| `search_procedures` | `(query, { top_k = 5 })` |
+| `search_procedures` | `(query, { top_k = 5, include = 'verified' })` by meaning. Only verified (replayable) procedures unless `include` is `'drafts'`, `'retired'`, `'all'` or a list; each hit carries `status` (KSG-L1, server ≥ the release that ships it) |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
 
 ---

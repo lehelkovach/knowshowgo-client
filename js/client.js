@@ -1946,9 +1946,13 @@ export class KnowShowGoClient {
     });
   }
 
-  search_procedures(query, { top_k = 5 } = {}) {
+  search_procedures(query, { top_k = 5, include = 'verified' } = {}) {
+    // KSG-L1: only verified (replayable) procedures unless the caller opts in
+    // with include: 'drafts' | 'retired' | 'all' (or a list). Each hit carries
+    // its lifecycle `status`.
+    const inc = Array.isArray(include) ? include.join(',') : (include || 'verified');
     return this._request('POST', '/api/procedures/search', {
-      json: { query, topK: top_k }
+      json: { query, topK: top_k, include: inc }
     }).then(r => r.results);
   }
 
