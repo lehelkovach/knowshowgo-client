@@ -1146,6 +1146,331 @@ export class KnowShowGoClient {
     return this.listDerivations({ conclusionUuid: conclusion_uuid });
   }
 
+  // ===== Logic IR rules (KG3 / KG5 / KG21) =====
+  // Rules are graph objects: each change is a new version of the same lineage,
+  // and every derivation names the rule version it used. Refusals come back as
+  // errors carrying the server body (`err.body.code`: R001 bad input, R002
+  // disabled → 409, R003 not found → 404).
+
+  /**
+   * Add a rule (a guarded universal in Logic IR). The same name with the same
+   * body is one object; a changed body is the next version. Resolves to
+   * `{ ok, ruleUuid, version, reused, revision, enabled, name, domain, variable }`.
+   */
+  create_rule({ name, ir, description, enabled, provenance } = {}) {
+    if (!name || !String(name).trim()) throw new Error('name is required');
+    if (!ir || typeof ir !== 'object') throw new Error('ir is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/rules`, {
+      json: withoutNulls({ name, ir, description, enabled, provenance })
+    });
+  }
+
+  /** The current version of every rule the caller may read: `{ ok, rulesRevision, rules }`. */
+  list_rules() {
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/rules`);
+  }
+
+  /** One rule version with every version of its lineage: `{ ok, rule, versions }`. */
+  get_rule(rule_uuid) {
+    if (!rule_uuid) throw new Error('rule_uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/rules/${encodeURIComponent(rule_uuid)}`);
+  }
+
+  /** Enable or disable a rule; writes a new version unless nothing changes (`unchanged: true`). */
+  set_rule_enabled(rule_uuid, enabled) {
+    if (!rule_uuid) throw new Error('rule_uuid is required');
+    if (typeof enabled !== 'boolean') throw new Error('enabled must be a boolean');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/rules/${encodeURIComponent(rule_uuid)}/enabled`, {
+      json: { enabled }
+    });
+  }
+
+  /**
+   * Check rules against named members in one round trip. A member is a subject
+   * string or `{ subject, facts: [{ predicate, object, negated? }] }`; given
+   * facts are written first as the caller's claims. `record: true` keeps each
+   * decided verdict as a Derivation. Resolves to `{ ok, rules, disabled,
+   * members: [{ member, truth, clauses, failing, missing, derivationUuid }], factsWritten }`.
+   */
+  check_rules({ rule_uuids, members, record, provenance } = {}) {
+    if (!Array.isArray(rule_uuids) || !rule_uuids.length) throw new Error('rule_uuids is required');
+    if (!Array.isArray(members) || !members.length) throw new Error('members is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/rules/check`, {
+      json: withoutNulls({ ruleUuids: rule_uuids, members, record: record === true ? true : null, provenance })
+    });
+  }
+
+  /**
+   * Fire one rule over its domain: one Derivation per member the antecedent
+   * holds for. Resolves to `{ ok, rule, domain, fired, skipped, conflicts, complete }`.
+   */
+  apply_rule(rule_uuid, { domain_limit } = {}) {
+    if (!rule_uuid) throw new Error('rule_uuid is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/rules/${encodeURIComponent(rule_uuid)}/apply`, {
+      json: withoutNulls({ domainLimit: domain_limit })
+    });
+  }
+
+  /** Run the enabled rules (or the named ones) to a fixpoint, within the given bounds. */
+  saturate_rules({ rule_uuids, max_rounds, max_facts, domain_limit } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/fixpoint`, {
+      json: withoutNulls({ ruleUuids: rule_uuids, maxRounds: max_rounds, maxFacts: max_facts, domainLimit: domain_limit })
+    });
+  }
+
+  // ===== Events & episodes (KG10 / KG13) =====
+  // An event is an action concept plus typed roles, each a concept uuid the
+  // graph already has. Roles: agent, patient, beneficiary, instrument,
+  // location, threat.
+
+  /**
+   * Record an event. `episode` is `{ uuid }` to extend one or `{ title,
+   * observedAt, source }` to open one. Resolves to `{ ok, event, created,
+   * reused, lineageKey, episode? }`; a role naming no concept is a 422 error
+   * with `err.body.unresolved`.
+   */
+  record_event({ action, roles, title, observed_at, episode, provenance, private: isPrivate } = {}) {
+    if (!action) throw new Error('action is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/events`, {
+      json: withoutNulls({
+        action,
+        roles,
+        title,
+        observedAt: observed_at,
+        episode,
+        provenance,
+        private: typeof isPrivate === 'boolean' ? isPrivate : null
+      })
+    });
+  }
+
+  /**
+   * Find events by structure: each role given (as a concept uuid) is a
+   * constraint; the answer is their intersection. Resolves to `{ ok,
+   * constraints, walked, events, count, complete, limit }`.
+   */
+  find_events({ action, agent, patient, beneficiary, instrument, location, threat, limit } = {}) {
+    const constraints = withoutNulls({ action, agent, patient, beneficiary, instrument, location, threat });
+    if (!Object.keys(constraints).length) {
+      throw new Error('find_events needs at least one role constraint (action, agent, patient, beneficiary, instrument, location, threat)');
+    }
+    return this._request('GET', `${this.prototypeApiPrefix}/events`, {
+      params: { ...constraints, limit }
+    });
+  }
+
+  /** One event with its roles, provenance and the episodes that contain it. */
+  get_event(uuid) {
+    if (!uuid) throw new Error('uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/events/${encodeURIComponent(uuid)}`);
+  }
+
+  /** One episode with every event it contains. */
+  get_episode(uuid) {
+    if (!uuid) throw new Error('uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/episodes/${encodeURIComponent(uuid)}`);
+  }
+
+  /**
+   * Recall the episodes whose events satisfy a structural pattern (triples
+   * over variables and concept uuids, with optional fuzzy roles). Each match
+   * says why: bindings, derivation steps, fuzzy scores. Resolves to `{ ok,
+   * episodes: [{ episode, matches, ranking }], events, count, complete }`.
+   */
+  recall_episodes({ pattern, event_variable, limit } = {}) {
+    if (!pattern) throw new Error('pattern is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/episodes/recall`, {
+      json: withoutNulls({ pattern, eventVariable: event_variable, limit })
+    });
+  }
+
+  // ===== Procedure runs (verified memory) =====
+
+  /**
+   * Record one run of a procedure. `ok` is required; `verified_by` names who
+   * confirmed the outcome: `'page' | 'person' | 'tool' | 'oracle' | 'email' |
+   * 'api'` (only person, oracle, email and api count as independent in the
+   * evaluation record). `version_uuid` or `version` names the procedure
+   * version that ran (default: the current one); `held_out: true` marks a
+   * held-out validation case. The server applies the lifecycle (draft →
+   * verified → retired / revived) and the IR-S1 `state` (candidate →
+   * validated → promoted | retired). Resolves to `{ ok, run, status, state,
+   * previousStatus, retired, revived, procedure }`. Only the procedure's owner
+   * may record its runs (403 otherwise); a version not of this procedure is a 400.
+   */
+  record_procedure_run(procedure_uuid, { ok, verified_by, failure, site, evidence, version_uuid, version, held_out } = {}) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    if (typeof ok !== 'boolean') throw new Error('ok (boolean) is required');
+    if (version != null && (!Number.isInteger(version) || version < 1)) throw new Error('version must be a positive integer');
+    return this._request('POST', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}/runs`, {
+      json: withoutNulls({
+        ok,
+        verifiedBy: verified_by,
+        failure,
+        site,
+        evidence,
+        versionUuid: version_uuid,
+        version,
+        heldOut: held_out === true ? true : null
+      })
+    });
+  }
+
+  /**
+   * A procedure's runs (oldest first), lifecycle `status`, IR-S1 `state`, and
+   * `currentVersion: { uuid, version, state, stateBasis }` (null when the
+   * procedure has no versions). The server has no separate runs route; this
+   * reads `GET /procedures/:uuid` and returns `{ procedureId, status, state,
+   * currentVersion, lifecycle, runs }`. Each run names the version it ran
+   * (`versionUuid`, `version`) when it was recorded with one.
+   */
+  list_procedure_runs(procedure_uuid) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}`)
+      .then((r) => ({
+        procedureId: r.id ?? procedure_uuid,
+        status: r.status ?? null,
+        state: r.state ?? null,
+        currentVersion: r.lifecycle?.currentVersion ?? r.currentVersion ?? null,
+        lifecycle: r.lifecycle ?? null,
+        runs: r.runs || []
+      }));
+  }
+
+  /**
+   * The procedure's evaluation record, computed on read: per version (newest
+   * first) `stats: { runs, verifiedSuccesses, failures, unverified,
+   * verifiedBy, lastRunAt, successRate, interval }` (Wilson 95%), `regression`
+   * against the previous version (one-sided Fisher exact, flagged at p < 0.05;
+   * `tested: false` when either side has no runs), `state` and `stateBasis`.
+   * Resolves to `{ ok, procedureId, procedure, versions, regression,
+   * unattributed, method }`.
+   */
+  get_procedure_evaluation(procedure_uuid) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}/evaluation`);
+  }
+
+  /**
+   * Verified procedural recall: semantic on `goal`, exact on `site`, verified
+   * procedures only unless `include` names `'drafts' | 'retired' | 'all'` (or a
+   * list). Each result carries `status`, `state` and, when the procedure has
+   * versions, `currentVersion`. Resolves to `{ ok, query, results, excluded,
+   * scanned }`. Distinct from `search_procedures` (POST, by meaning only).
+   */
+  search_verified_procedures({ goal, site, include, limit } = {}) {
+    if (!goal && !site) throw new Error('goal or site is required');
+    const inc = Array.isArray(include) ? include.join(',') : include;
+    return this._request('GET', `${this.prototypeApiPrefix}/procedures/search`, {
+      params: { goal, site, include: inc, limit }
+    });
+  }
+
+  // ===== Procedure versions (capability model) =====
+  // Every version read carries `state` (candidate | validated | promoted |
+  // retired), computed from the runs of that version, with `stateBasis`
+  // ('runs' | 'superseded' | 'status'), `statusAsState`, `lifecycle` and
+  // `statusDeprecated: true`. The hand-set `status` (draft, dogfood, tested,
+  // validated, stable, degraded, deprecated) is still returned and still
+  // writable; it now decides only a retirement by hand (degraded/deprecated).
+
+  /** Publish the next version of a procedure. Resolves to `{ ok, procedureVersion, capabilityResolution }`. */
+  create_procedure_version(procedure_uuid, { status, implementation, requires, provides, provenance } = {}) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}/versions`, {
+      json: withoutNulls({ status, implementation, requires, provides, provenance })
+    });
+  }
+
+  /** Every version, latest first, each with its `state`: `{ ok, procedureId, count, latest, versions, unattributedRuns }`. */
+  list_procedure_versions(procedure_uuid) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}/versions`);
+  }
+
+  /** One version by its number: `{ ok, procedureVersion }`. */
+  get_procedure_version_by_number(procedure_uuid, version) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    if (!Number.isInteger(version) || version < 1) throw new Error('version must be a positive integer');
+    return this._request('GET', `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}/versions/${version}`);
+  }
+
+  /** One version by its uuid, with its status history: `{ ok, procedureVersion }`. */
+  get_procedure_version(version_uuid) {
+    if (!version_uuid) throw new Error('version_uuid is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/procedure-versions/${encodeURIComponent(version_uuid)}`);
+  }
+
+  /**
+   * Move a version to another hand-set status, recorded in its history. The
+   * status is deprecated: `state` is computed from runs, and only degraded or
+   * deprecated retire a version by hand.
+   * Resolves to `{ ok, procedureVersion, transition }`; 409 `status_terminal`
+   * out of deprecated, 409 `status_unchanged` for the same status.
+   */
+  transition_procedure_version(version_uuid, { status, reason, provenance } = {}) {
+    if (!version_uuid) throw new Error('version_uuid is required');
+    if (!status) throw new Error('status is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/procedure-versions/${encodeURIComponent(version_uuid)}/status`, {
+      json: withoutNulls({ status, reason, provenance })
+    });
+  }
+
+  // ===== Verified facts =====
+  // Facts with status `candidate | confirmed` and provenance. Reads return
+  // confirmed facts unless `include` asks for more; a correction keeps the old
+  // fact as `corrected`. Distinct from the legacy `store_fact` (status
+  // 'verified', no lifecycle).
+
+  /** Add a fact, a `candidate` unless told otherwise. Resolves to `{ ok, fact }`. */
+  add_fact({ subject, predicate, obj, status = 'candidate', provenance, visibility, confidence } = {}) {
+    if (!subject) throw new Error('subject is required');
+    if (!predicate) throw new Error('predicate is required');
+    if (obj === undefined || obj === null || obj === '') throw new Error('obj is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/facts`, {
+      json: withoutNulls({ subject, predicate, object: obj, status, provenance, visibility, confidence })
+    });
+  }
+
+  /**
+   * Facts about a subject (or, with no subject, the caller's own). `include`:
+   * `'candidates' | 'corrected' | 'disputed' | 'all'` or a list. Resolves to
+   * `{ ok, facts, total, truncated, include }`.
+   */
+  list_facts({ subject, predicate, include, limit } = {}) {
+    const inc = Array.isArray(include) ? include.join(',') : include;
+    return this._request('GET', `${this.prototypeApiPrefix}/facts`, {
+      params: { subject, predicate, include: inc, limit }
+    });
+  }
+
+  /** One fact with its provenance and history: `{ ok, fact }`. */
+  get_fact(fact_id) {
+    if (!fact_id) throw new Error('fact_id is required');
+    return this._request('GET', `${this.prototypeApiPrefix}/facts/${encodeURIComponent(fact_id)}`);
+  }
+
+  /**
+   * A candidate fact becomes confirmed (idempotent on a confirmed one). `by`
+   * names who confirmed it. 409 when the fact was corrected (confirm its
+   * `replacedBy` instead); 403 when the caller is not its owner.
+   */
+  confirm_fact(fact_id, { by, provenance } = {}) {
+    if (!fact_id) throw new Error('fact_id is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/facts/${encodeURIComponent(fact_id)}/confirm`, {
+      json: withoutNulls({ by, provenance })
+    });
+  }
+
+  /** Write a corrected value as a new confirmed fact; the old one is kept as `corrected`. `{ ok, fact, corrected }`. */
+  correct_fact(fact_id, { obj, provenance } = {}) {
+    if (!fact_id) throw new Error('fact_id is required');
+    if (obj === undefined || obj === null || obj === '') throw new Error('obj is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/facts/${encodeURIComponent(fact_id)}/correct`, {
+      json: withoutNulls({ object: obj, provenance })
+    });
+  }
+
   // ===== Nodes with Documents =====
   /**
    * Create a node with an attached document.

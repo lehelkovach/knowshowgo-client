@@ -334,6 +334,11 @@ class EntityProxy:
         }
 
 
+def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
+    """``body`` without the keys whose value is ``None``: send only what was given."""
+    return {k: v for k, v in body.items() if v is not None}
+
+
 def matches_route(template: str, actual: str) -> bool:
     """Segment-wise match of `/api/objects/:uuid` templates to concrete paths."""
     expected = str(template or "").split("/")
@@ -997,6 +1002,459 @@ class KnowShowGoClient:
             params={"conclusion": conclusion_uuid},
         )
         return list(result.get("derivations") or [])
+
+    # ===== Logic IR rules (KG3 / KG5 / KG21) =====
+    # Rules are graph objects: each change is a new version of the same lineage,
+    # and every derivation names the rule version it used. Refusals raise
+    # requests.HTTPError; the body carries ``code`` (R001 bad input, R002
+    # disabled -> 409, R003 not found -> 404).
+
+    def create_rule(
+        self,
+        name: str,
+        ir: Dict[str, Any],
+        description: Optional[str] = None,
+        enabled: Optional[bool] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Add a rule (a guarded universal in Logic IR).
+
+        The same name with the same body is one object; a changed body is the
+        next version. Returns ``{ ok, ruleUuid, version, reused, revision,
+        enabled, name, domain, variable }``.
+        """
+        if not name or not str(name).strip():
+            raise ValueError("name is required")
+        if not isinstance(ir, dict):
+            raise ValueError("ir is required")
+        body = _without_nulls({"name": name, "ir": ir, "description": description, "enabled": enabled, "provenance": provenance})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/rules", json=body)
+
+    def list_rules(self) -> Dict[str, Any]:
+        """The current version of every rule the caller may read: ``{ ok, rulesRevision, rules }``."""
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/rules")
+
+    def get_rule(self, rule_uuid: str) -> Dict[str, Any]:
+        """One rule version with every version of its lineage: ``{ ok, rule, versions }``."""
+        if not rule_uuid:
+            raise ValueError("rule_uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/rules/{rule_uuid}")
+
+    def set_rule_enabled(self, rule_uuid: str, enabled: bool) -> Dict[str, Any]:
+        """Enable or disable a rule; a new version unless nothing changes (``unchanged: True``)."""
+        if not rule_uuid:
+            raise ValueError("rule_uuid is required")
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled must be a boolean")
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/rules/{rule_uuid}/enabled",
+            json={"enabled": enabled},
+        )
+
+    def check_rules(
+        self,
+        rule_uuids: List[str],
+        members: List[Any],
+        record: bool = False,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Check rules against named members in one round trip.
+
+        A member is a subject string or ``{ subject, facts: [{ predicate,
+        object, negated? }] }``; given facts are written first as the caller's
+        claims. ``record=True`` keeps each decided verdict as a Derivation.
+        Returns ``{ ok, rules, disabled, members, factsWritten }``.
+        """
+        if not rule_uuids:
+            raise ValueError("rule_uuids is required")
+        if not members:
+            raise ValueError("members is required")
+        body = _without_nulls({
+            "ruleUuids": list(rule_uuids),
+            "members": list(members),
+            "record": True if record is True else None,
+            "provenance": provenance,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/rules/check", json=body)
+
+    def apply_rule(self, rule_uuid: str, domain_limit: Optional[int] = None) -> Dict[str, Any]:
+        """Fire one rule over its domain: ``{ ok, rule, domain, fired, skipped, conflicts, complete }``."""
+        if not rule_uuid:
+            raise ValueError("rule_uuid is required")
+        return self._request(
+            "POST",
+            f"{self.prototype_api_prefix}/logic-ir/rules/{rule_uuid}/apply",
+            json=_without_nulls({"domainLimit": domain_limit}),
+        )
+
+    def saturate_rules(
+        self,
+        rule_uuids: Optional[List[str]] = None,
+        max_rounds: Optional[int] = None,
+        max_facts: Optional[int] = None,
+        domain_limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Run the enabled rules (or the named ones) to a fixpoint, within the given bounds."""
+        body = _without_nulls({
+            "ruleUuids": list(rule_uuids) if rule_uuids is not None else None,
+            "maxRounds": max_rounds,
+            "maxFacts": max_facts,
+            "domainLimit": domain_limit,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/fixpoint", json=body)
+
+    # ===== Events & episodes (KG10 / KG13) =====
+    # An event is an action concept plus typed roles, each a concept uuid the
+    # graph already has. Roles: agent, patient, beneficiary, instrument,
+    # location, threat.
+
+    def record_event(
+        self,
+        action: str,
+        roles: Optional[Dict[str, str]] = None,
+        title: Optional[str] = None,
+        observed_at: Optional[str] = None,
+        episode: Optional[Dict[str, Any]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        private: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Record an event.
+
+        ``episode`` is ``{ uuid }`` to extend one or ``{ title, observedAt,
+        source }`` to open one. Returns ``{ ok, event, created, reused,
+        lineageKey, episode? }``; a role naming no concept is a 422.
+        """
+        if not action:
+            raise ValueError("action is required")
+        body = _without_nulls({
+            "action": action,
+            "roles": roles,
+            "title": title,
+            "observedAt": observed_at,
+            "episode": episode,
+            "provenance": provenance,
+            "private": private if isinstance(private, bool) else None,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/events", json=body)
+
+    def find_events(
+        self,
+        action: Optional[str] = None,
+        agent: Optional[str] = None,
+        patient: Optional[str] = None,
+        beneficiary: Optional[str] = None,
+        instrument: Optional[str] = None,
+        location: Optional[str] = None,
+        threat: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Find events by structure: each role given (a concept uuid) is a constraint.
+
+        Returns ``{ ok, constraints, walked, events, count, complete, limit }``.
+        """
+        constraints = _without_nulls({
+            "action": action,
+            "agent": agent,
+            "patient": patient,
+            "beneficiary": beneficiary,
+            "instrument": instrument,
+            "location": location,
+            "threat": threat,
+        })
+        if not constraints:
+            raise ValueError(
+                "find_events needs at least one role constraint "
+                "(action, agent, patient, beneficiary, instrument, location, threat)"
+            )
+        params = _without_nulls({**constraints, "limit": limit})
+        return self._request("GET", f"{self.prototype_api_prefix}/events", params=params)
+
+    def get_event(self, uuid: str) -> Dict[str, Any]:
+        """One event with its roles, provenance and the episodes that contain it."""
+        if not uuid:
+            raise ValueError("uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/events/{uuid}")
+
+    def get_episode(self, uuid: str) -> Dict[str, Any]:
+        """One episode with every event it contains."""
+        if not uuid:
+            raise ValueError("uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/episodes/{uuid}")
+
+    def recall_episodes(
+        self,
+        pattern: List[Dict[str, Any]],
+        event_variable: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Recall the episodes whose events satisfy a structural pattern.
+
+        Each match says why (bindings, derivation steps, fuzzy scores). Returns
+        ``{ ok, episodes: [{ episode, matches, ranking }], events, count, complete }``.
+        """
+        if not pattern:
+            raise ValueError("pattern is required")
+        body = _without_nulls({"pattern": pattern, "eventVariable": event_variable, "limit": limit})
+        return self._request("POST", f"{self.prototype_api_prefix}/episodes/recall", json=body)
+
+    # ===== Procedure runs (verified memory) =====
+
+    def record_procedure_run(
+        self,
+        procedure_uuid: str,
+        ok: bool,
+        verified_by: Optional[str] = None,
+        failure: Optional[str] = None,
+        site: Optional[str] = None,
+        evidence: Optional[str] = None,
+        version_uuid: Optional[str] = None,
+        version: Optional[int] = None,
+        held_out: bool = False,
+    ) -> Dict[str, Any]:
+        """Record one run of a procedure.
+
+        ``verified_by`` names who confirmed the outcome: ``"page" | "person" |
+        "tool" | "oracle" | "email" | "api"`` (only person, oracle, email and
+        api count as independent in the evaluation record). ``version_uuid``
+        or ``version`` names the procedure version that ran (default: the
+        current one); ``held_out=True`` marks a held-out validation case. The
+        server applies the lifecycle (draft -> verified -> retired / revived)
+        and the IR-S1 ``state`` (candidate -> validated -> promoted | retired).
+        Returns ``{ ok, run, status, state, previousStatus, retired, revived,
+        procedure }``. Only the procedure's owner may record its runs (403
+        otherwise); a version not of this procedure is a 400.
+        """
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        if not isinstance(ok, bool):
+            raise ValueError("ok (boolean) is required")
+        if version is not None and (isinstance(version, bool) or not isinstance(version, int) or version < 1):
+            raise ValueError("version must be a positive integer")
+        body = _without_nulls({
+            "ok": ok,
+            "verifiedBy": verified_by,
+            "failure": failure,
+            "site": site,
+            "evidence": evidence,
+            "versionUuid": version_uuid,
+            "version": version,
+            "heldOut": True if held_out is True else None,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}/runs", json=body)
+
+    def list_procedure_runs(self, procedure_uuid: str) -> Dict[str, Any]:
+        """A procedure's runs (oldest first), lifecycle ``status``, IR-S1 ``state``
+        and ``currentVersion`` ``{ uuid, version, state, stateBasis }`` (None
+        when the procedure has no versions).
+
+        The server has no separate runs route; this reads ``GET /procedures/:uuid``
+        and returns ``{ procedureId, status, state, currentVersion, lifecycle, runs }``.
+        """
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        r = self._request("GET", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}")
+        lifecycle = r.get("lifecycle")
+        current = (lifecycle or {}).get("currentVersion") if isinstance(lifecycle, dict) else None
+        return {
+            "procedureId": r.get("id") or procedure_uuid,
+            "status": r.get("status"),
+            "state": r.get("state"),
+            "currentVersion": current or r.get("currentVersion"),
+            "lifecycle": lifecycle,
+            "runs": list(r.get("runs") or []),
+        }
+
+    def get_procedure_evaluation(self, procedure_uuid: str) -> Dict[str, Any]:
+        """The procedure's evaluation record, computed on read.
+
+        Per version (newest first): ``stats`` (runs, verifiedSuccesses,
+        failures, unverified, verifiedBy, lastRunAt, successRate, Wilson 95%
+        ``interval``), ``regression`` against the previous version (one-sided
+        Fisher exact, flagged at p < 0.05; ``tested: False`` when either side
+        has no runs), ``state`` and ``stateBasis``. Returns ``{ ok,
+        procedureId, procedure, versions, regression, unattributed, method }``.
+        """
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}/evaluation")
+
+    def search_verified_procedures(
+        self,
+        goal: Optional[str] = None,
+        site: Optional[str] = None,
+        include: Optional[Union[str, List[str]]] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Verified procedural recall: semantic on ``goal``, exact on ``site``.
+
+        Verified procedures only unless ``include`` names ``"drafts"``,
+        ``"retired"`` or ``"all"`` (or a list). Each result carries ``status``,
+        ``state`` and, when the procedure has versions, ``currentVersion``.
+        Returns ``{ ok, query, results, excluded, scanned }``. Distinct from
+        ``search_procedures`` (POST, by meaning only).
+        """
+        if not goal and not site:
+            raise ValueError("goal or site is required")
+        inc = ",".join(include) if isinstance(include, (list, tuple)) else include
+        params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit})
+        return self._request("GET", f"{self.prototype_api_prefix}/procedures/search", params=params)
+
+    # ===== Procedure versions (capability model) =====
+    # Every version read carries ``state`` (candidate | validated | promoted |
+    # retired), computed from the runs of that version, with ``stateBasis``
+    # ("runs" | "superseded" | "status"), ``statusAsState``, ``lifecycle`` and
+    # ``statusDeprecated: True``. The hand-set ``status`` (draft, dogfood,
+    # tested, validated, stable, degraded, deprecated) is still returned and
+    # writable; it now decides only a retirement by hand (degraded/deprecated).
+
+    def create_procedure_version(
+        self,
+        procedure_uuid: str,
+        status: Optional[str] = None,
+        implementation: Optional[Dict[str, Any]] = None,
+        requires: Optional[List[str]] = None,
+        provides: Optional[List[str]] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Publish the next version of a procedure: ``{ ok, procedureVersion, capabilityResolution }``."""
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        body = _without_nulls({
+            "status": status,
+            "implementation": implementation,
+            "requires": requires,
+            "provides": provides,
+            "provenance": provenance,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}/versions", json=body)
+
+    def list_procedure_versions(self, procedure_uuid: str) -> Dict[str, Any]:
+        """Every version, latest first, each with its ``state``: ``{ ok, procedureId, count, latest, versions, unattributedRuns }``."""
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}/versions")
+
+    def get_procedure_version_by_number(self, procedure_uuid: str, version: int) -> Dict[str, Any]:
+        """One version by its number: ``{ ok, procedureVersion }``."""
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+            raise ValueError("version must be a positive integer")
+        return self._request("GET", f"{self.prototype_api_prefix}/procedures/{procedure_uuid}/versions/{version}")
+
+    def get_procedure_version(self, version_uuid: str) -> Dict[str, Any]:
+        """One version by its uuid, with its status history: ``{ ok, procedureVersion }``."""
+        if not version_uuid:
+            raise ValueError("version_uuid is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/procedure-versions/{version_uuid}")
+
+    def transition_procedure_version(
+        self,
+        version_uuid: str,
+        status: str,
+        reason: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Move a version to another hand-set status, recorded in its history.
+
+        The status is deprecated: ``state`` is computed from runs, and only
+        degraded or deprecated retire a version by hand.
+
+        Returns ``{ ok, procedureVersion, transition }``; 409 ``status_terminal``
+        out of deprecated, 409 ``status_unchanged`` for the same status.
+        """
+        if not version_uuid:
+            raise ValueError("version_uuid is required")
+        if not status:
+            raise ValueError("status is required")
+        body = _without_nulls({"status": status, "reason": reason, "provenance": provenance})
+        return self._request("POST", f"{self.prototype_api_prefix}/procedure-versions/{version_uuid}/status", json=body)
+
+    # ===== Verified facts =====
+    # Facts with status ``candidate | confirmed`` and provenance. Reads return
+    # confirmed facts unless ``include`` asks for more; a correction keeps the
+    # old fact as ``corrected``. Distinct from the legacy ``store_fact``.
+
+    def add_fact(
+        self,
+        subject: str,
+        predicate: str,
+        obj: Any,
+        status: str = "candidate",
+        provenance: Optional[Dict[str, Any]] = None,
+        visibility: Optional[str] = None,
+        confidence: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Add a fact, a ``candidate`` unless told otherwise: ``{ ok, fact }``."""
+        if not subject:
+            raise ValueError("subject is required")
+        if not predicate:
+            raise ValueError("predicate is required")
+        if obj is None or obj == "":
+            raise ValueError("obj is required")
+        body = _without_nulls({
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "status": status,
+            "provenance": provenance,
+            "visibility": visibility,
+            "confidence": confidence,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/facts", json=body)
+
+    def list_facts(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        include: Optional[Union[str, List[str]]] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Facts about a subject (or, with no subject, the caller's own).
+
+        ``include``: ``"candidates" | "corrected" | "disputed" | "all"`` or a
+        list. Returns ``{ ok, facts, total, truncated, include }``.
+        """
+        inc = ",".join(include) if isinstance(include, (list, tuple)) else include
+        params = _without_nulls({"subject": subject, "predicate": predicate, "include": inc, "limit": limit})
+        return self._request("GET", f"{self.prototype_api_prefix}/facts", params=params)
+
+    def get_fact(self, fact_id: str) -> Dict[str, Any]:
+        """One fact with its provenance and history: ``{ ok, fact }``."""
+        if not fact_id:
+            raise ValueError("fact_id is required")
+        return self._request("GET", f"{self.prototype_api_prefix}/facts/{fact_id}")
+
+    def confirm_fact(
+        self,
+        fact_id: str,
+        by: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """A candidate fact becomes confirmed (idempotent on a confirmed one).
+
+        409 when the fact was corrected (confirm its ``replacedBy`` instead);
+        403 when the caller is not its owner.
+        """
+        if not fact_id:
+            raise ValueError("fact_id is required")
+        body = _without_nulls({"by": by, "provenance": provenance})
+        return self._request("POST", f"{self.prototype_api_prefix}/facts/{fact_id}/confirm", json=body)
+
+    def correct_fact(
+        self,
+        fact_id: str,
+        obj: Any,
+        provenance: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Write a corrected value as a new confirmed fact; the old one is kept as ``corrected``."""
+        if not fact_id:
+            raise ValueError("fact_id is required")
+        if obj is None or obj == "":
+            raise ValueError("obj is required")
+        body = _without_nulls({"object": obj, "provenance": provenance})
+        return self._request("POST", f"{self.prototype_api_prefix}/facts/{fact_id}/correct", json=body)
 
     # camelCase aliases: the JS client exposes both spellings, and agents port
     # call sites between the two SDKs. Parity is cheaper than a translation table.
