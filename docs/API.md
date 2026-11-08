@@ -29,6 +29,7 @@ the HTTP status and server message.
 - [Prototypes (centroid theory)](#prototypes-centroid-theory)
 - [Revision-pinned matching and casting](#revision-pinned-matching-and-casting)
 - [Logic IR](#logic-ir)
+- [Events & episodes](#events--episodes)
 - [Semantic memory](#semantic-memory)
 - [Procedures](#procedures)
 - [Logic, market, channels, events, ratings](#logic-market-channels-events-ratings)
@@ -130,6 +131,19 @@ Higher-level helpers over assertions for claim verification.
 | `get_fact_stats` | `()` |
 | `add_verified_fact` | `{ subject, predicate, obj, sources? }` (alias) |
 | `check` | `(claim)` (alias for `verify`) |
+
+Verified facts (server: `src/verified_memory/service.js`): status `candidate | confirmed` with
+provenance; reads return confirmed facts unless `include` asks for more; a
+correction keeps the old fact as `corrected`. Python takes the same names as
+keyword arguments (`add_fact(subject, predicate, obj, ...)`).
+
+| Method | Signature (JS) |
+|---|---|
+| `add_fact` | `{ subject, predicate, obj, status = 'candidate', provenance?, visibility?, confidence? }` → `POST /api2.0/facts` → `{ ok, fact }` |
+| `list_facts` | `{ subject?, predicate?, include?, limit? }` → `{ ok, facts, total, truncated, include }`; no subject lists the caller's own |
+| `get_fact` | `(factId)` → `{ ok, fact }` with provenance and history |
+| `confirm_fact` | `(factId, { by?, provenance? })` → `{ ok, fact }`; 409 when the fact was corrected, 403 when not the owner |
+| `correct_fact` | `(factId, { obj, provenance? })` → `{ ok, fact, corrected }` |
 
 ---
 
@@ -284,6 +298,36 @@ and answers three-valued. Explained in [Procedures and logic](PROCEDURES-AND-LOG
 | `listDerivations` / `list_derivations` | `{ conclusionUuid }` → every derivation that derives that conclusion |
 | `create_syllogism` / `get_syllogism` | `{ title, premises, conclusion }` simple predicate-logic DAG |
 
+Rules (KG3 / KG5 / KG21) are graph objects; every change is a new version and
+every derivation names the rule version it used. Refusals carry `err.body.code`
+(`R001` bad input, `R002` disabled → 409, `R003` not found → 404).
+
+| Method | Signature (JS) |
+|---|---|
+| `create_rule` | `{ name, ir, description?, enabled?, provenance? }` → `{ ok, ruleUuid, version, reused, revision, enabled, name, domain, variable }` |
+| `list_rules` | `()` → `{ ok, rulesRevision, rules }` (current version of each) |
+| `get_rule` | `(ruleUuid)` → `{ ok, rule, versions }` |
+| `set_rule_enabled` | `(ruleUuid, enabled: boolean)` → new version, or `unchanged: true` |
+| `check_rules` | `{ rule_uuids, members, record?, provenance? }`; a member is a subject or `{ subject, facts }` → `{ ok, rules, disabled, members: [{ member, truth, clauses, failing, missing, derivationUuid }], factsWritten }` |
+| `apply_rule` | `(ruleUuid, { domain_limit? })` → `{ ok, rule, domain, fired, skipped, conflicts, complete }` |
+| `saturate_rules` | `{ rule_uuids?, max_rounds?, max_facts?, domain_limit? }` → fixpoint over the enabled (or named) rules |
+
+---
+
+## Events & episodes
+
+Events are an action concept plus typed roles (`agent`, `patient`,
+`beneficiary`, `instrument`, `location`, `threat`), each a concept uuid the
+graph already has (KG10). Episodes group events; recall walks a structural
+pattern to the episodes and says why (KG13).
+
+| Method | Signature (JS) |
+|---|---|
+| `record_event` | `{ action, roles, title?, observed_at?, episode?, provenance?, private? }` → `{ ok, event, created, reused, lineageKey, episode? }`; an unresolved role is a 422 with `err.body.unresolved` |
+| `find_events` | `{ action?, agent?, patient?, beneficiary?, instrument?, location?, threat?, limit? }` (at least one role) → `{ ok, events, count, complete, walked }` |
+| `get_event` / `get_episode` | `(uuid)` → `{ ok, event }` / `{ ok, episode }` |
+| `recall_episodes` | `{ pattern, event_variable?, limit? }` → `{ ok, episodes: [{ episode, matches, ranking }], events, count, complete }` |
+
 ---
 
 ## Semantic memory
@@ -317,6 +361,23 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5, include = 'verified' })` by meaning. Only verified (replayable) procedures unless `include` is `'drafts'`, `'retired'`, `'all'` or a list; each hit carries `status` (KSG-L1, server ≥ the release that ships it) |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
+| `record_procedure_run` | `(procedureUuid, { ok, verified_by?: 'page'\|'person'\|'tool'\|'oracle'\|'email'\|'api', failure?, site?, evidence?, version_uuid?, version?, held_out? })` → `{ ok, run, status, state, previousStatus, retired, revived, procedure }`. `state` is the IR-S1 state (`candidate \| validated \| promoted \| retired`). `version_uuid` / `version` name the version that ran (default: the current one; another procedure's version is a 400); `held_out: true` marks a held-out validation case. Owner only |
+| `list_procedure_runs` | `(procedureUuid)` → `{ procedureId, status, state, currentVersion: { uuid, version, state, stateBasis } \| null, lifecycle, runs }`, read from `GET /procedures/:uuid` (the server has no separate runs route) |
+| `get_procedure_evaluation` | `(procedureUuid)` → `GET /procedures/:uuid/evaluation`: per version (newest first) `stats` (runs, verifiedSuccesses from oracle/email/api/person only, failures, successRate, Wilson 95% `interval`), `regression` against the previous version (one-sided Fisher exact, flagged at p < 0.05; `tested: false` when either side has no runs), `state`, `stateBasis`; plus `procedure`, `unattributed`, `method` |
+| `search_verified_procedures` | `({ goal?, site?, include?, limit? })` → `GET /procedures/search`: semantic on goal, exact on site, verified only unless `include`; each result carries `status`, `state` and `currentVersion` |
+| `create_procedure_version` | `(procedureUuid, { status?, implementation?, requires?, provides?, provenance? })` → `{ ok, procedureVersion, capabilityResolution }` |
+| `list_procedure_versions` | `(procedureUuid)` → `{ ok, procedureId, count, latest, versions }` |
+| `get_procedure_version_by_number` | `(procedureUuid, version)` → `{ ok, procedureVersion }` |
+| `get_procedure_version` | `(versionUuid)` → `{ ok, procedureVersion }` with `statusHistory` |
+| `transition_procedure_version` | `(versionUuid, { status, reason?, provenance? })` → `{ ok, procedureVersion, transition }`; 409 out of `deprecated` or to the same status |
+
+Every version read carries `state` (`candidate \| validated \| promoted \|
+retired`), computed from the runs of that version, with `stateBasis`
+(`runs \| superseded \| status`), `statusAsState`, `lifecycle` and
+`statusDeprecated: true`; `list_procedure_versions` adds `unattributedRuns`.
+The hand-set `status` (`draft`, `dogfood`, `tested`, `validated`, `stable`,
+`degraded`, `deprecated`) is still returned and writable; it now decides only a
+retirement by hand. `search_procedures` hits also carry `currentVersion`.
 
 ---
 
