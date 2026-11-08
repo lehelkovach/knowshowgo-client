@@ -92,7 +92,11 @@ Details and a local-server option: [Installation](docs/INSTALL.md).
 - **Objects you can read like objects.** `hydrate()` returns a duck-typed
   object with synchronous members, `type()`, `explain()`, and `as()`.
 - **Search by meaning** across concepts, objects and episodes.
-- **Procedures as graphs**, searchable, versioned, repairable.
+- **Procedures as graphs**, searchable, versioned, repairable, with recorded
+  runs and a lifecycle state earned from verified outcomes.
+- **Events and episodes** with typed roles, recalled by structure.
+- **Rules** as versioned graph objects, checked against members with recorded
+  derivations.
 - **Logic you can audit.** Propositions bound to concept UUIDs, three-valued
   evaluation over stored claims, recorded derivations.
 - **Private and public.** Owner-scoped data behind bearer tokens; a shared
