@@ -334,6 +334,9 @@ class EntityProxy:
         }
 
 
+_UNSET = object()
+
+
 def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
     """``body`` without the keys whose value is ``None``: send only what was given."""
     return {k: v for k, v in body.items() if v is not None}
@@ -1585,6 +1588,58 @@ class KnowShowGoClient:
         }
         data.update(_security_class_field(security_class, scope))
         return self._request("POST", "/api/assertions", json=data)
+
+    def assert_proposition(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        value: Any = _UNSET,
+        obj: Any = _UNSET,
+        subject_uuid: Optional[str] = None,
+        subject_prototype: Optional[str] = None,
+        predicate_uuid: Optional[str] = None,
+        object_uuid: Optional[str] = None,
+        object_prototype: Optional[str] = None,
+        value_prototype: Optional[str] = None,
+        truth: Optional[float] = None,
+        source: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        replace: bool = False,
+        security_class: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """KG-P1: write a claim as a proposition of three ConceptObject uuids.
+
+        Each term may be a uuid or a surface form. The subject is found by
+        structure (label + prototype + scope) or created as an instance of
+        ``subject_prototype``; the predicate is a ``Predicate`` concept; a
+        literal ``value`` becomes a value node (EmailAddress, PhoneNumber, ...
+        under Value); ``obj`` + ``object_prototype`` resolves an entity. Two
+        instances bearing one label raise a 409 (candidates in the error body)
+        and nothing is written. ``replace=True`` supersedes the live claims for
+        this subject and predicate; nothing is deleted.
+        """
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "subjectUuid": subject_uuid,
+            "subjectPrototype": subject_prototype,
+            "predicate": predicate,
+            "predicateUuid": predicate_uuid,
+            "objectUuid": object_uuid,
+            "objectPrototype": object_prototype,
+            "valuePrototype": value_prototype,
+            "truth": truth,
+            "source": source,
+            "provenance": provenance,
+            "replace": True if replace else None,
+        }
+        if value is not _UNSET:
+            data["value"] = value
+        if obj is not _UNSET:
+            data["object"] = obj
+        data = _without_nulls(data)
+        data.update(_security_class_field(security_class, scope))
+        return self._request("POST", "/api2.0/propositions", json=data)
 
     def get_assertions(
         self,
