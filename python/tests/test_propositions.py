@@ -57,5 +57,28 @@ class AssertPropositionTest(unittest.TestCase):
         self.assertEqual(kwargs["json"], {"subjectUuid": "u1", "predicate": "works for", "object": "Contoso", "objectPrototype": "Organization"})
 
 
+class LogicForAgentsTest(unittest.TestCase):
+    def last(self, client):
+        args, kwargs = client.session.request.call_args
+        return args[0], args[1], kwargs["json"]
+
+    def test_bind_pattern_with_label_term(self):
+        client = make_client()
+        pattern = [{"subject": {"label": "Avery Example", "prototype": "Person"}, "predicate": "email", "object": "?e"}]
+        client.bind_pattern(pattern, describe=True)
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/logic-ir/bind", {"pattern": pattern, "describe": True}))
+
+    def test_close_relation_joins_predicates_membership(self):
+        client = make_client()
+        client.close_relation("manager_of")
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/logic-ir/closure", {"predicate": "manager_of"}))
+        client.evaluate_joins([{"name": "skip", "ir": {"kind": "ForAll"}}])
+        self.assertEqual(self.last(client)[1], f"{BASE}/api2.0/logic-ir/joins")
+        client.ensure_predicate("skip_manager_of")
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/predicates", {"name": "skip_manager_of"}))
+        client.check_membership("s1", "c1")
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/prototypes/membership", {"subject": "s1", "category": "c1"}))
+
+
 if __name__ == "__main__":
     unittest.main()

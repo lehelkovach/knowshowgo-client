@@ -1107,6 +1107,51 @@ class KnowShowGoClient:
         })
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/fixpoint", json=body)
 
+    # ===== Logic over the graph for agents (KG-P2) =====
+
+    def bind_pattern(self, pattern: List[Dict[str, Any]], limit: Optional[int] = None, describe: bool = False) -> Dict[str, Any]:
+        """Bind a graph pattern. A term is ``"?var"``, a uuid, or ``{"label", "prototype"}`` /
+        ``{"prototype"}`` / ``{"value"}`` resolved by structure (ambiguous → 409, nothing guessed).
+        ``describe=True`` adds each variable's literal value and each claim's provenance."""
+        if not pattern:
+            raise ValueError("pattern is required")
+        body = _without_nulls({"pattern": list(pattern), "limit": limit, "describe": True if describe else None})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/bind", json=body)
+
+    def close_relation(self, predicate: str, as_: Optional[str] = None, include_alleged: bool = False,
+                       max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
+                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
+        """KA4: transitive closure of one relation; each fact names the claims on its path."""
+        if not predicate:
+            raise ValueError("predicate is required")
+        body = _without_nulls({"predicate": predicate, "as": as_, "includeAlleged": True if include_alleged else None,
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/closure", json=body)
+
+    def evaluate_joins(self, rules: List[Dict[str, Any]], include_alleged: bool = False,
+                       max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
+                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
+        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written."""
+        if not rules:
+            raise ValueError("rules is required")
+        body = _without_nulls({"rules": list(rules), "includeAlleged": True if include_alleged else None,
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/joins", json=body)
+
+    def ensure_predicate(self, name: str, create: bool = True) -> Dict[str, Any]:
+        """The Predicate concept for ``name`` (created once): ``{uuid, name, created}``."""
+        if not name:
+            raise ValueError("name is required")
+        body = _without_nulls({"name": name, "create": False if create is False else None})
+        return self._request("POST", f"{self.prototype_api_prefix}/predicates", json=body)
+
+    def check_membership(self, subject: str, category: str, candidate_threshold: Optional[float] = None) -> Dict[str, Any]:
+        """KG12: membership (from the graph) and typicality (a score), kept apart."""
+        if not subject or not category:
+            raise ValueError("subject and category are required")
+        body = _without_nulls({"subject": subject, "category": category, "candidateThreshold": candidate_threshold})
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/membership", json=body)
+
     # ===== Events & episodes (KG10 / KG13) =====
     # An event is an action concept plus typed roles, each a concept uuid the
     # graph already has. Roles: agent, patient, beneficiary, instrument,

@@ -76,3 +76,18 @@ test('create_assertion adds uuid terms only when given', async () => {
   assert.equal(calls[1].body.subjectUuid, U(1));
   assert.equal(calls[1].url, 'https://ksg.example.test/api/assertions');
 });
+
+test('KG-P2: bind_pattern, close_relation, evaluate_joins, ensure_predicate, check_membership send their bodies', async () => {
+  const { client, calls } = await recordingClient(() => ({ ok: true }));
+  const pattern = [{ subject: { label: 'Avery Example', prototype: 'Person' }, predicate: 'email', object: '?e' }];
+  await client.bind_pattern({ pattern, describe: true });
+  assert.deepEqual([calls[0].url, calls[0].body], ['https://ksg.example.test/api2.0/logic-ir/bind', { pattern, describe: true }]);
+  await client.close_relation({ predicate: 'manager_of' });
+  assert.deepEqual([calls[1].url, calls[1].body], ['https://ksg.example.test/api2.0/logic-ir/closure', { predicate: 'manager_of' }]);
+  await client.evaluate_joins({ rules: [{ name: 'skip', ir: { kind: 'ForAll' } }] });
+  assert.equal(calls[2].url, 'https://ksg.example.test/api2.0/logic-ir/joins');
+  await client.ensure_predicate({ name: 'skip_manager_of' });
+  assert.deepEqual([calls[3].url, calls[3].body], ['https://ksg.example.test/api2.0/predicates', { name: 'skip_manager_of' }]);
+  await client.check_membership({ subject: U(1), category: U(2) });
+  assert.deepEqual([calls[4].url, calls[4].body], ['https://ksg.example.test/api2.0/prototypes/membership', { subject: U(1), category: U(2) }]);
+});
