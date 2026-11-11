@@ -1211,6 +1211,69 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * KG4b / KG-P2: bind a graph pattern. A term is "?var", a uuid, or (KG-P2)
+   * `{ label, prototype }` / `{ prototype }` / `{ value, valuePrototype }`,
+   * resolved by structure to the one readable uuid (ambiguous → 409 with
+   * `err.body.candidates`; nothing is guessed or created). `describe: true`
+   * adds each variable's literal `value` and each claim's provenance:
+   *
+   *   bind_pattern({ pattern: [{ subject: { label: 'Avery Example', prototype: 'Person' },
+   *                              predicate: 'email', object: '?e' }], describe: true })
+   *
+   * Resolves to `{ ok, bindings: [{ vars, constraints }], count, complete, resolved }`.
+   */
+  bind_pattern({ pattern, limit = null, describe = false } = {}) {
+    if (!Array.isArray(pattern) || !pattern.length) throw new Error('pattern is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/bind`, {
+      json: withoutNulls({ pattern, limit, describe: describe === true ? true : null })
+    });
+  }
+
+  /**
+   * KA4 / KG-P2: the transitive closure of one relation over the caller's
+   * visible claims. Each fact names the claims on its path. Resolves to
+   * `{ ok, edges, facts, conflicts, complete, excluded, ... }`.
+   */
+  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+    if (!predicate) throw new Error('predicate is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/closure`, {
+      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+    });
+  }
+
+  /**
+   * KA4 / KG-P2: rules over binary relations with joins (`[{ name, ir }]`),
+   * run to a fixpoint in memory; nothing is written. Conclusions explain back
+   * to claim uuids.
+   */
+  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+    if (!Array.isArray(rules) || !rules.length) throw new Error('rules is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/joins`, {
+      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+    });
+  }
+
+  /** KG-P2 / PR1: the Predicate concept for `name` (created once), `{ uuid, name, created }`. */
+  ensure_predicate({ name, create = true } = {}) {
+    if (!name) throw new Error('name is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/predicates`, {
+      json: withoutNulls({ name, create: create === false ? false : null })
+    });
+  }
+
+  /**
+   * KG12: is `subject` a member of `category`, and how typical is it — two
+   * answers kept apart. Resolves to `{ verdict: 'member'|'candidate'|'none',
+   * membership, typicality }`.
+   */
+  check_membership({ subject, category, candidate_threshold = null } = {}) {
+    if (!subject || !category) throw new Error('subject and category are required');
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/membership`, {
+      json: withoutNulls({ subject, category, candidateThreshold: candidate_threshold })
+    });
+  }
+
   /** Run the enabled rules (or the named ones) to a fixpoint, within the given bounds. */
   saturate_rules({ rule_uuids, max_rounds, max_facts, domain_limit } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/fixpoint`, {
