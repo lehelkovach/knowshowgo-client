@@ -1211,6 +1211,69 @@ export class KnowShowGoClient {
     });
   }
 
+  /**
+   * KG4b / KG-P2: bind a graph pattern. A term is "?var", a uuid, or (KG-P2)
+   * `{ label, prototype }` / `{ prototype }` / `{ value, valuePrototype }`,
+   * resolved by structure to the one readable uuid (ambiguous → 409 with
+   * `err.body.candidates`; nothing is guessed or created). `describe: true`
+   * adds each variable's literal `value` and each claim's provenance:
+   *
+   *   bind_pattern({ pattern: [{ subject: { label: 'Avery Example', prototype: 'Person' },
+   *                              predicate: 'email', object: '?e' }], describe: true })
+   *
+   * Resolves to `{ ok, bindings: [{ vars, constraints }], count, complete, resolved }`.
+   */
+  bind_pattern({ pattern, limit = null, describe = false } = {}) {
+    if (!Array.isArray(pattern) || !pattern.length) throw new Error('pattern is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/bind`, {
+      json: withoutNulls({ pattern, limit, describe: describe === true ? true : null })
+    });
+  }
+
+  /**
+   * KA4 / KG-P2: the transitive closure of one relation over the caller's
+   * visible claims. Each fact names the claims on its path. Resolves to
+   * `{ ok, edges, facts, conflicts, complete, excluded, ... }`.
+   */
+  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+    if (!predicate) throw new Error('predicate is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/closure`, {
+      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+    });
+  }
+
+  /**
+   * KA4 / KG-P2: rules over binary relations with joins (`[{ name, ir }]`),
+   * run to a fixpoint in memory; nothing is written. Conclusions explain back
+   * to claim uuids.
+   */
+  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+    if (!Array.isArray(rules) || !rules.length) throw new Error('rules is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/joins`, {
+      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+    });
+  }
+
+  /** KG-P2 / PR1: the Predicate concept for `name` (created once), `{ uuid, name, created }`. */
+  ensure_predicate({ name, create = true } = {}) {
+    if (!name) throw new Error('name is required');
+    return this._request('POST', `${this.prototypeApiPrefix}/predicates`, {
+      json: withoutNulls({ name, create: create === false ? false : null })
+    });
+  }
+
+  /**
+   * KG12: is `subject` a member of `category`, and how typical is it — two
+   * answers kept apart. Resolves to `{ verdict: 'member'|'candidate'|'none',
+   * membership, typicality }`.
+   */
+  check_membership({ subject, category, candidate_threshold = null } = {}) {
+    if (!subject || !category) throw new Error('subject and category are required');
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/membership`, {
+      json: withoutNulls({ subject, category, candidateThreshold: candidate_threshold })
+    });
+  }
+
   /** Run the enabled rules (or the named ones) to a fixpoint, within the given bounds. */
   saturate_rules({ rule_uuids, max_rounds, max_facts, domain_limit } = {}) {
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/fixpoint`, {
@@ -1543,8 +1606,8 @@ export class KnowShowGoClient {
    * passed through as typed and validated by the server.
    */
   create_assertion({
-    subject,
-    predicate,
+    subject = null,
+    predicate = null,
     obj,
     truth = 1.0,
     source = 'user',
@@ -1555,7 +1618,12 @@ export class KnowShowGoClient {
     prev_assertion_id = null,
     provenance = null,
     security_class = null,
-    scope = null
+    scope = null,
+    // KG-P1: name any term by uuid and the claim is written as a proposition
+    // (three ConceptObject uuids). Leave them out and the call is unchanged.
+    subject_uuid = null,
+    predicate_uuid = null,
+    object_uuid = null
   }) {
     return this._request('POST', '/api/assertions', {
       json: {
@@ -1570,8 +1638,67 @@ export class KnowShowGoClient {
         status,
         prevAssertionId: prev_assertion_id,
         provenance,
+        ...(subject_uuid ? { subjectUuid: subject_uuid } : {}),
+        ...(predicate_uuid ? { predicateUuid: predicate_uuid } : {}),
+        ...(object_uuid ? { objectUuid: object_uuid } : {}),
         ...securityClassField(security_class, scope)
       }
+    });
+  }
+
+  /**
+   * KG-P1: write a claim as a proposition whose subject, predicate and object
+   * are ConceptObject uuids. Each term may be given as a uuid or a surface form:
+   *
+   *   assert_proposition({ subject: 'Avery Example', subject_prototype: 'Person',
+   *                        predicate: 'email', value: 'avery@example.test',
+   *                        scope: 'private', provenance: { statedBy: 'owner' } })
+   *
+   * The subject is found by structure (label + prototype + scope) or created as
+   * an instance of `subject_prototype`; the predicate is a `Predicate` concept;
+   * a literal `value` becomes a value node (EmailAddress, PhoneNumber, … under
+   * Value); `object` + `object_prototype` resolves an entity instead. Two
+   * instances bearing one label reject with 409 (`err.body.candidates`) and
+   * nothing is written — pass `subject_uuid` to choose. `replace: true` marks
+   * the live claims for this subject+predicate superseded (never deleted).
+   * Resolves to `{ ok, reused, claim, subject, predicate, object, superseded }`.
+   */
+  assert_proposition({
+    subject = null,
+    subject_uuid = null,
+    subject_prototype = null,
+    predicate = null,
+    predicate_uuid = null,
+    object = undefined,
+    object_uuid = null,
+    object_prototype = null,
+    value = undefined,
+    value_prototype = null,
+    truth = null,
+    source = null,
+    provenance = null,
+    replace = false,
+    security_class = null,
+    scope = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/propositions`, {
+      json: withoutNulls({
+        subject,
+        subjectUuid: subject_uuid,
+        subjectPrototype: subject_prototype,
+        predicate,
+        predicateUuid: predicate_uuid,
+        ...(object !== undefined ? { object } : {}),
+        objectUuid: object_uuid,
+        objectPrototype: object_prototype,
+        ...(value !== undefined ? { value } : {}),
+        valuePrototype: value_prototype,
+        truth,
+        source,
+        provenance,
+        replace: replace === true ? true : null,
+        ...securityClassField(security_class, scope)
+      })
     });
   }
 

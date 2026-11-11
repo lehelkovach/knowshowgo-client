@@ -334,6 +334,9 @@ class EntityProxy:
         }
 
 
+_UNSET = object()
+
+
 def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
     """``body`` without the keys whose value is ``None``: send only what was given."""
     return {k: v for k, v in body.items() if v is not None}
@@ -1104,6 +1107,51 @@ class KnowShowGoClient:
         })
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/fixpoint", json=body)
 
+    # ===== Logic over the graph for agents (KG-P2) =====
+
+    def bind_pattern(self, pattern: List[Dict[str, Any]], limit: Optional[int] = None, describe: bool = False) -> Dict[str, Any]:
+        """Bind a graph pattern. A term is ``"?var"``, a uuid, or ``{"label", "prototype"}`` /
+        ``{"prototype"}`` / ``{"value"}`` resolved by structure (ambiguous → 409, nothing guessed).
+        ``describe=True`` adds each variable's literal value and each claim's provenance."""
+        if not pattern:
+            raise ValueError("pattern is required")
+        body = _without_nulls({"pattern": list(pattern), "limit": limit, "describe": True if describe else None})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/bind", json=body)
+
+    def close_relation(self, predicate: str, as_: Optional[str] = None, include_alleged: bool = False,
+                       max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
+                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
+        """KA4: transitive closure of one relation; each fact names the claims on its path."""
+        if not predicate:
+            raise ValueError("predicate is required")
+        body = _without_nulls({"predicate": predicate, "as": as_, "includeAlleged": True if include_alleged else None,
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/closure", json=body)
+
+    def evaluate_joins(self, rules: List[Dict[str, Any]], include_alleged: bool = False,
+                       max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
+                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
+        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written."""
+        if not rules:
+            raise ValueError("rules is required")
+        body = _without_nulls({"rules": list(rules), "includeAlleged": True if include_alleged else None,
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+        return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/joins", json=body)
+
+    def ensure_predicate(self, name: str, create: bool = True) -> Dict[str, Any]:
+        """The Predicate concept for ``name`` (created once): ``{uuid, name, created}``."""
+        if not name:
+            raise ValueError("name is required")
+        body = _without_nulls({"name": name, "create": False if create is False else None})
+        return self._request("POST", f"{self.prototype_api_prefix}/predicates", json=body)
+
+    def check_membership(self, subject: str, category: str, candidate_threshold: Optional[float] = None) -> Dict[str, Any]:
+        """KG12: membership (from the graph) and typicality (a score), kept apart."""
+        if not subject or not category:
+            raise ValueError("subject and category are required")
+        body = _without_nulls({"subject": subject, "category": category, "candidateThreshold": candidate_threshold})
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/membership", json=body)
+
     # ===== Events & episodes (KG10 / KG13) =====
     # An event is an action concept plus typed roles, each a concept uuid the
     # graph already has. Roles: agent, patient, beneficiary, instrument,
@@ -1585,6 +1633,58 @@ class KnowShowGoClient:
         }
         data.update(_security_class_field(security_class, scope))
         return self._request("POST", "/api/assertions", json=data)
+
+    def assert_proposition(
+        self,
+        subject: Optional[str] = None,
+        predicate: Optional[str] = None,
+        value: Any = _UNSET,
+        obj: Any = _UNSET,
+        subject_uuid: Optional[str] = None,
+        subject_prototype: Optional[str] = None,
+        predicate_uuid: Optional[str] = None,
+        object_uuid: Optional[str] = None,
+        object_prototype: Optional[str] = None,
+        value_prototype: Optional[str] = None,
+        truth: Optional[float] = None,
+        source: Optional[str] = None,
+        provenance: Optional[Dict[str, Any]] = None,
+        replace: bool = False,
+        security_class: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """KG-P1: write a claim as a proposition of three ConceptObject uuids.
+
+        Each term may be a uuid or a surface form. The subject is found by
+        structure (label + prototype + scope) or created as an instance of
+        ``subject_prototype``; the predicate is a ``Predicate`` concept; a
+        literal ``value`` becomes a value node (EmailAddress, PhoneNumber, ...
+        under Value); ``obj`` + ``object_prototype`` resolves an entity. Two
+        instances bearing one label raise a 409 (candidates in the error body)
+        and nothing is written. ``replace=True`` supersedes the live claims for
+        this subject and predicate; nothing is deleted.
+        """
+        data: Dict[str, Any] = {
+            "subject": subject,
+            "subjectUuid": subject_uuid,
+            "subjectPrototype": subject_prototype,
+            "predicate": predicate,
+            "predicateUuid": predicate_uuid,
+            "objectUuid": object_uuid,
+            "objectPrototype": object_prototype,
+            "valuePrototype": value_prototype,
+            "truth": truth,
+            "source": source,
+            "provenance": provenance,
+            "replace": True if replace else None,
+        }
+        if value is not _UNSET:
+            data["value"] = value
+        if obj is not _UNSET:
+            data["object"] = obj
+        data = _without_nulls(data)
+        data.update(_security_class_field(security_class, scope))
+        return self._request("POST", "/api2.0/propositions", json=data)
 
     def get_assertions(
         self,
