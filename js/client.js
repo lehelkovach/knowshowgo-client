@@ -1543,8 +1543,8 @@ export class KnowShowGoClient {
    * passed through as typed and validated by the server.
    */
   create_assertion({
-    subject,
-    predicate,
+    subject = null,
+    predicate = null,
     obj,
     truth = 1.0,
     source = 'user',
@@ -1555,7 +1555,12 @@ export class KnowShowGoClient {
     prev_assertion_id = null,
     provenance = null,
     security_class = null,
-    scope = null
+    scope = null,
+    // KG-P1: name any term by uuid and the claim is written as a proposition
+    // (three ConceptObject uuids). Leave them out and the call is unchanged.
+    subject_uuid = null,
+    predicate_uuid = null,
+    object_uuid = null
   }) {
     return this._request('POST', '/api/assertions', {
       json: {
@@ -1570,8 +1575,67 @@ export class KnowShowGoClient {
         status,
         prevAssertionId: prev_assertion_id,
         provenance,
+        ...(subject_uuid ? { subjectUuid: subject_uuid } : {}),
+        ...(predicate_uuid ? { predicateUuid: predicate_uuid } : {}),
+        ...(object_uuid ? { objectUuid: object_uuid } : {}),
         ...securityClassField(security_class, scope)
       }
+    });
+  }
+
+  /**
+   * KG-P1: write a claim as a proposition whose subject, predicate and object
+   * are ConceptObject uuids. Each term may be given as a uuid or a surface form:
+   *
+   *   assert_proposition({ subject: 'Avery Example', subject_prototype: 'Person',
+   *                        predicate: 'email', value: 'avery@example.test',
+   *                        scope: 'private', provenance: { statedBy: 'owner' } })
+   *
+   * The subject is found by structure (label + prototype + scope) or created as
+   * an instance of `subject_prototype`; the predicate is a `Predicate` concept;
+   * a literal `value` becomes a value node (EmailAddress, PhoneNumber, … under
+   * Value); `object` + `object_prototype` resolves an entity instead. Two
+   * instances bearing one label reject with 409 (`err.body.candidates`) and
+   * nothing is written — pass `subject_uuid` to choose. `replace: true` marks
+   * the live claims for this subject+predicate superseded (never deleted).
+   * Resolves to `{ ok, reused, claim, subject, predicate, object, superseded }`.
+   */
+  assert_proposition({
+    subject = null,
+    subject_uuid = null,
+    subject_prototype = null,
+    predicate = null,
+    predicate_uuid = null,
+    object = undefined,
+    object_uuid = null,
+    object_prototype = null,
+    value = undefined,
+    value_prototype = null,
+    truth = null,
+    source = null,
+    provenance = null,
+    replace = false,
+    security_class = null,
+    scope = null
+  } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/propositions`, {
+      json: withoutNulls({
+        subject,
+        subjectUuid: subject_uuid,
+        subjectPrototype: subject_prototype,
+        predicate,
+        predicateUuid: predicate_uuid,
+        ...(object !== undefined ? { object } : {}),
+        objectUuid: object_uuid,
+        objectPrototype: object_prototype,
+        ...(value !== undefined ? { value } : {}),
+        valuePrototype: value_prototype,
+        truth,
+        source,
+        provenance,
+        replace: replace === true ? true : null,
+        ...securityClassField(security_class, scope)
+      })
     });
   }
 
