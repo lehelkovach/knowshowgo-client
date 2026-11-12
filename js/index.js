@@ -4,5 +4,8 @@ export {
   PUBLIC_API_BASE_URL,
   LOCAL_API_BASE_URL,
   resolveBaseUrl,
-  matchesRoute
+  matchesRoute,
+  objectToMatchText,
+  objectProperties,
+  PROPERTY_OVERLAP_WEIGHT
 } from './client.js';

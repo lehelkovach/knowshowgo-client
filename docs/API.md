@@ -255,7 +255,12 @@ feature; the client exposes the endpoints.
 | Method | Signature (JS) |
 |---|---|
 | `generalize_from_exemplar` | `{ ... }` create prototype from an exemplar |
-| `match_prototypes` | `{ text?, embedding?, top_k?, threshold? }` |
+| `match_prototypes` | `{ text?, embedding?, object?, top_k?, threshold?, evidence? }`. With `object` (`{ label, properties }`) each match carries `typicality` (cosine to the centroid), `evidence` (`matched`, `extra`, `missing`, `overlap`, `isA` lineage from the taxonomy) and `rankScore` (score blended with property overlap, weight `PROPERTY_OVERLAP_WEIGHT` = 0.3), and the list is ordered by it |
+| `get_taxonomy` | `{ root? }` TX1 prototype tree (default Thing) |
+| `get_taxonomy_prototype` | `(uuid)` one prototype: centroid, own + inherited properties, exemplars, instances |
+| `get_taxonomy_node` | `(uuid, { history? })` one node: prototypes with typicality, propositions with provenance |
+| `lookup_concept` | `{ term, context?, entity_type?, force? }` CE3 public lookup (Wikidata, Wikipedia, Wiktionary) |
+| `get_inferred_proposition_stats` | `()` CE3d counters: proposed, reused, refused, confirmed, contradicted |
 | `search_prototypes` | `{ query?, top_k? }` label autocomplete |
 | `attach_exemplar` | `(prototypeUuid, conceptUuid)` |
 | `create_prototype` | `{ ... }` (legacy create) |
