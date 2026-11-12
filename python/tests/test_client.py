@@ -1129,6 +1129,34 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
 
+    def test_client_vector_generalizes_and_matches_within_its_space(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            side_effect=[
+                FakeResponse({"prototypeUuid": "v1", "created": True, "exemplarCount": 1,
+                              "embeddingSpaceId": "yolov8n_embed_l21_160_v1"}),
+                FakeResponse({"matches": [{"uuid": "v1", "name": "mug", "score": 0.97,
+                                           "embeddingSpaceId": "yolov8n_embed_l21_160_v1"}]}),
+            ]
+        )
+
+        out = client.generalize_from_exemplar(
+            embedding=(0.0, 1.0, 0.0), embedding_space_id="yolov8n_embed_l21_160_v1", label="mug"
+        )
+        matches = client.match_prototypes(
+            embedding=[0.0, 1.0, 0.0], embedding_space_id="yolov8n_embed_l21_160_v1", top_k=2
+        )
+
+        self.assertEqual(out["embeddingSpaceId"], "yolov8n_embed_l21_160_v1")
+        self.assertEqual(matches[0]["uuid"], "v1")
+        generalize_json = client.session.request.call_args_list[0].kwargs["json"]
+        self.assertEqual(generalize_json["embedding"], [0.0, 1.0, 0.0])
+        self.assertEqual(generalize_json["embeddingSpaceId"], "yolov8n_embed_l21_160_v1")
+        self.assertIsNone(generalize_json["text"])
+        match_json = client.session.request.call_args_list[1].kwargs["json"]
+        self.assertEqual(match_json["embeddingSpaceId"], "yolov8n_embed_l21_160_v1")
+        self.assertEqual(match_json["embedding"], [0.0, 1.0, 0.0])
+
     def test_match_prototypes_unwraps_matches(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(

@@ -1081,6 +1081,35 @@ test('generalize_from_exemplar maps snake_case to camelCase payload', async () =
   assert.equal(body.createIfNoMatch, true);
 });
 
+test('a client vector generalizes and matches within its own embedding space', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return url.endsWith('/generalize')
+      ? makeJsonResponse({ prototypeUuid: 'v1', created: true, exemplarCount: 1, embeddingSpaceId: 'yolov8n_embed_l21_160_v1' })
+      : makeJsonResponse({ matches: [{ uuid: 'v1', name: 'mug', score: 0.97, embeddingSpaceId: 'yolov8n_embed_l21_160_v1' }] });
+  };
+  const ClientClass = await loadClientClass(); // pragma: allowlist secret
+  const client = new ClientClass({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.generalize_from_exemplar({
+    embedding: new Float32Array([0, 1, 0]), embedding_space_id: 'yolov8n_embed_l21_160_v1', label: 'mug'
+  });
+  assert.equal(out.embeddingSpaceId, 'yolov8n_embed_l21_160_v1');
+  const g = JSON.parse(calls[0].options.body);
+  assert.deepEqual(g.embedding, [0, 1, 0]);
+  assert.equal(g.embeddingSpaceId, 'yolov8n_embed_l21_160_v1');
+  assert.equal(g.text, null);
+
+  const matches = await client.match_prototypes({
+    embedding: [0, 1, 0], embedding_space_id: 'yolov8n_embed_l21_160_v1', top_k: 2
+  });
+  assert.equal(matches[0].uuid, 'v1');
+  const m = JSON.parse(calls[1].options.body);
+  assert.equal(m.embeddingSpaceId, 'yolov8n_embed_l21_160_v1');
+  assert.deepEqual(m.embedding, [0, 1, 0]);
+});
+
 test('match_prototypes posts query and unwraps matches array', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -1096,6 +1125,8 @@ test('match_prototypes posts query and unwraps matches array', async () => {
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.topK, 3);
   assert.equal(body.space, undefined);
+  // A text call does not name a space: the body of legacy callers is unchanged.
+  assert.equal('embeddingSpaceId' in body, false);
 });
 
 test('search_property_definitions answers which field a label names', async () => {

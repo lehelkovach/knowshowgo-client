@@ -254,8 +254,8 @@ feature; the client exposes the endpoints.
 
 | Method | Signature (JS) |
 |---|---|
-| `generalize_from_exemplar` | `{ ... }` create prototype from an exemplar |
-| `match_prototypes` | `{ text?, embedding?, top_k?, threshold? }` |
+| `generalize_from_exemplar` | `{ text? \| concept_uuid? \| (embedding + embedding_space_id), label?, threshold?, prototype_uuid?, create_if_no_match? }` create or extend a prototype from an exemplar; a client vector generalizes only within its named space (server >= 0.2.43) |
+| `match_prototypes` | `{ text?, embedding?, embedding_space_id?, top_k?, threshold? }`; `embedding_space_id` scopes the match to one model's space and a wrong-length vector is refused (server >= 0.2.43) |
 | `search_prototypes` | `{ query?, top_k? }` label autocomplete |
 | `attach_exemplar` | `(prototypeUuid, conceptUuid)` |
 | `create_prototype` | `{ ... }` (legacy create) |

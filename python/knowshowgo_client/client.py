@@ -737,10 +737,19 @@ class KnowShowGoClient:
         prototype_uuid: str = None,
         label: str = None,
         threshold: float = 0.85,
-        create_if_no_match: bool = True
+        create_if_no_match: bool = True,
+        embedding: List[float] = None,
+        embedding_space_id: str = None,
     ) -> Dict[str, Any]:
         """Fold an exemplar into the nearest prototype by centroid similarity,
-        creating a new prototype when nothing is similar enough."""
+        creating a new prototype when nothing is similar enough.
+
+        ``embedding`` with ``embedding_space_id`` sends a vector the caller embedded
+        with its own model (server >= 0.2.43). The server stores it as the exemplar
+        unchanged and generalizes only within that space, never against text
+        prototypes; a vector of the wrong length for the space is refused. Both are
+        sent only when given, so the body of a text call is unchanged.
+        """
         data = {
             "conceptUuid": concept_uuid,
             "text": text,
@@ -750,6 +759,10 @@ class KnowShowGoClient:
             "threshold": threshold,
             "createIfNoMatch": create_if_no_match
         }
+        if embedding is not None:
+            data["embedding"] = list(embedding)
+        if embedding_space_id is not None:
+            data["embeddingSpaceId"] = embedding_space_id
         return self._request("POST", f"{self.prototype_api_prefix}/prototypes/generalize", json=data)
 
     def match_prototypes(
@@ -757,7 +770,8 @@ class KnowShowGoClient:
         text: str = None,
         embedding: List[float] = None,
         top_k: int = 5,
-        threshold: float = 0.0
+        threshold: float = 0.0,
+        embedding_space_id: str = None,
     ) -> List[Dict[str, Any]]:
         """Rank existing prototypes by how typical the item is of each.
 
@@ -766,6 +780,10 @@ class KnowShowGoClient:
         label names, use :meth:`search_property_definitions`: a value centroid
         drifts toward the shape of the data, so "Card number" would rank closer
         to ``cvv`` than to ``number``.
+
+        ``embedding_space_id`` (server >= 0.2.43) scopes the match to prototypes
+        learned from vectors of the caller's own model; it needs ``embedding``.
+        Without it the match runs in the server's text space as before.
         """
         data = {
             "text": text,
@@ -773,6 +791,8 @@ class KnowShowGoClient:
             "topK": top_k,
             "threshold": threshold,
         }
+        if embedding_space_id is not None:
+            data["embeddingSpaceId"] = embedding_space_id
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
         return result["matches"]
 
