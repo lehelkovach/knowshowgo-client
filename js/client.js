@@ -446,6 +446,120 @@ export function matchesRoute(template, actual) {
 }
 
 /** Lineage-key prefix every seeded Logic IR primitive category carries. */
+// ===== Object → prototype matching (AC1) =====
+// Keys that name or identify an object rather than describe it.
+const OBJECT_NAME_KEYS = ['label', 'name', 'title'];
+const OBJECT_META_KEYS = new Set(['uuid', 'id', 'type', 'types', 'prototype', 'prototypeIds', 'instanceOf', 'properties', 'props', 'description', 'summary', ...OBJECT_NAME_KEYS]);
+// How much the property overlap may move a prototype's rank. The centroid score
+// stays the main signal; overlap breaks near-ties the embedding cannot see,
+// such as a person whose description reads like an employer.
+export const PROPERTY_OVERLAP_WEIGHT = 0.3;
+const TAXONOMY_CACHE_MS = 10 * 60 * 1000;
+const MATCH_EVIDENCE_WINDOW = 25;
+
+const normalizeKey = (k) => String(k ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const humanKey = (k) => String(k).replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').toLowerCase();
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function valueText(v) {
+  if (v == null) return '';
+  if (Array.isArray(v)) return v.map(valueText).filter(Boolean).join(', ');
+  if (typeof v === 'object') return valueText(v.label ?? v.name ?? v.value ?? v.title ?? '');
+  const s = String(v);
+  return UUID_RE.test(s) ? '' : s;
+}
+
+/** The descriptive properties of an object: `properties`/`props`, else its own non-meta keys. */
+export function objectProperties(object) {
+  if (!object || typeof object !== 'object') return {};
+  const nested = object.properties ?? object.props;
+  if (nested && typeof nested === 'object') return nested;
+  const out = {};
+  for (const [k, v] of Object.entries(object)) if (!OBJECT_META_KEYS.has(k)) out[k] = v;
+  return out;
+}
+
+/**
+ * Text an object is embedded as for prototype matching:
+ * "<label>. <description>. key: value; key: value".
+ */
+export function objectToMatchText(object) {
+  if (object == null) return '';
+  if (typeof object !== 'object') return String(object);
+  const name = OBJECT_NAME_KEYS.map((k) => object[k]).find((v) => v != null && v !== '');
+  const parts = [];
+  if (name) parts.push(`${valueText(name)}.`);
+  const description = object.description ?? object.summary;
+  if (description) parts.push(`${valueText(description)}.`);
+  const pairs = Object.entries(objectProperties(object))
+    .map(([k, v]) => [humanKey(k), valueText(v)])
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}: ${v}`);
+  if (pairs.length) parts.push(pairs.join('; '));
+  return parts.join(' ').trim();
+}
+
+/**
+ * For every prototype in a taxonomy tree, keyed by uuid: its own + inherited
+ * property names (normalized → canonical) and its lineage (its own name, then
+ * every ancestor's), so a match on City still counts as a Place.
+ */
+function propertySchemaByPrototype(tree) {
+  const nodes = new Map((tree?.nodes || []).map((n) => [n.uuid, n]));
+  const memo = new Map();
+  const collect = (uuid, seen = new Set()) => {
+    if (memo.has(uuid)) return memo.get(uuid);
+    const empty = { props: new Map(), lineage: [] };
+    if (seen.has(uuid)) return empty;
+    seen.add(uuid);
+    const node = nodes.get(uuid);
+    const props = new Map();
+    const lineage = node?.name ? [node.name] : [];
+    for (const parent of node?.parents || []) {
+      const up = collect(parent, seen);
+      for (const [k, v] of up.props) props.set(k, v);
+      for (const name of up.lineage) if (!lineage.includes(name)) lineage.push(name);
+    }
+    for (const p of node?.properties || []) {
+      if (!p?.name) continue;
+      props.set(normalizeKey(p.name), p.name);
+      if (p.schemaName) props.set(normalizeKey(p.schemaName), p.name);
+    }
+    const out = { props, lineage };
+    memo.set(uuid, out);
+    return out;
+  };
+  const schema = new Map();
+  for (const uuid of nodes.keys()) schema.set(uuid, collect(uuid));
+  return schema;
+}
+
+const isPropertyValuePrototype = (m) => Boolean(m?.propertyName) || /^PropertyValue:/.test(String(m?.name || ''));
+
+/** Which of the object's keys the prototype declares, and which it lacks. */
+function propertyEvidence(objectProps, entry) {
+  const keys = Object.keys(objectProps || {});
+  if (!entry) return { schema: false, matched: [], missing: [], extra: keys, known: [], isA: [], overlap: null };
+  const known = entry.props;
+  const matched = [];
+  const extra = [];
+  for (const k of keys) {
+    const hit = known.get(normalizeKey(k));
+    if (hit) matched.push(hit); else extra.push(k);
+  }
+  const names = [...new Set(known.values())];
+  const matchedSet = new Set(matched);
+  return {
+    schema: true,
+    matched: [...matchedSet],
+    extra,
+    missing: names.filter((n) => !matchedSet.has(n)),
+    known: names,
+    isA: entry.lineage,
+    overlap: keys.length ? Math.round((matchedSet.size / keys.length) * 10000) / 10000 : null
+  };
+}
+
 const LOGIC_IR_LINEAGE_PREFIX = 'category:logic-ir:';
 
 /** `category:logic-ir:proposition` -> `Proposition`, for rows with no name. */
@@ -884,10 +998,86 @@ export class KnowShowGoClient {
   // property-definition concepts instead (see `search_property_definitions`): a
   // value centroid drifts toward the shape of the data, so "Card number" would
   // rank closer to `cvv` than to `number`.
-  match_prototypes({ text = null, embedding = null, top_k = 5, threshold = 0 } = {}) {
-    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
-      json: { text, embedding, topK: top_k, threshold }
+  //
+  // Pass `object` (a label plus properties, e.g. `{ label, properties: { birthDate,
+  // works_for } }`) to classify a structured thing. Each match then carries
+  // `typicality` (cosine to the prototype's centroid), `evidence` (which of the
+  // object's properties the prototype declares, own or inherited, from the
+  // schema.org taxonomy) and `rankScore`, the order the list is returned in:
+  // score blended with property overlap by PROPERTY_OVERLAP_WEIGHT. A prototype
+  // outside the taxonomy, or no taxonomy at all, ranks on score alone.
+  async match_prototypes({ text = null, embedding = null, object = null, top_k = 5, threshold = 0, evidence = null } = {}) {
+    const queryText = text ?? (object != null ? objectToMatchText(object) : null);
+    const withEvidence = evidence ?? (object != null);
+    // Evidence can only re-rank what the server returns, so ask for a wider
+    // window of candidates by centroid and cut back to top_k after re-ranking.
+    const window = withEvidence ? Math.max(top_k * 4, MATCH_EVIDENCE_WINDOW) : top_k;
+    const matches = await this._request('POST', `${this.prototypeApiPrefix}/prototypes/match`, {
+      json: { text: queryText, embedding, topK: window, threshold }
     }).then(r => r.matches);
+    if (!withEvidence || !Array.isArray(matches)) return matches;
+
+    const objectProps = objectProperties(object);
+    const hasProps = Object.keys(objectProps).length > 0;
+    const schema = await this._taxonomySchema();
+    // A per-property value prototype ("PropertyValue:city") answers which FIELD
+    // a value fills, never what an object IS; keep them out of a classification.
+    const ranked = matches.filter((m) => !isPropertyValuePrototype(m)).map((m) => {
+      const ev = propertyEvidence(objectProps, schema?.get(m.uuid) || null);
+      const score = Number(m.score) || 0;
+      // With properties to compare, a prototype that declares none of them (or
+      // has no schema at all) scores overlap 0 rather than escaping the blend.
+      const rankScore = !hasProps
+        ? score
+        : Math.round(((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * (ev.overlap ?? 0)) * 10000) / 10000;
+      return { ...m, typicality: m.centroidScore ?? m.score ?? null, evidence: ev, rankScore };
+    });
+    return ranked.sort((a, b) => b.rankScore - a.rankScore).slice(0, top_k);
+  }
+
+  /** The taxonomy's property schema, cached; null when the taxonomy cannot be read. */
+  async _taxonomySchema() {
+    const now = Date.now();
+    if (this._taxonomyCache && now - this._taxonomyCache.at < TAXONOMY_CACHE_MS) return this._taxonomyCache.schema;
+    try {
+      const tree = await this.get_taxonomy();
+      this._taxonomyCache = { at: now, schema: propertySchemaByPrototype(tree) };
+    } catch {
+      // Retry soon rather than every call: a missing route should not double latency.
+      this._taxonomyCache = { at: now - TAXONOMY_CACHE_MS + 30000, schema: null };
+    }
+    return this._taxonomyCache.schema;
+  }
+
+  // ===== Taxonomy (TX1, read-only) =====
+  /** The prototype tree under `root` (default Thing): properties, counts, badges. */
+  get_taxonomy({ root = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/taxonomy`, { params: root ? { root } : undefined });
+  }
+
+  /** One prototype: definition, centroid, own + inherited properties, exemplars, instances. */
+  get_taxonomy_prototype(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/taxonomy/prototypes/${encodeURIComponent(uuid)}`);
+  }
+
+  /** One node: its prototypes with typicality, propositions with provenance, links. */
+  get_taxonomy_node(uuid, { history = false } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/taxonomy/nodes/${encodeURIComponent(uuid)}`, {
+      params: history ? { history: 1 } : undefined
+    });
+  }
+
+  // ===== Concept lookup (CE3) =====
+  /** Look a public term up in Wikidata / Wikipedia / Wiktionary and ground it as a concept. */
+  lookup_concept({ term, context = null, entity_type = null, force = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/lookup`, {
+      json: withoutNulls({ term, context, entityType: entity_type, force })
+    });
+  }
+
+  /** CE3d counters: model propositions proposed, reused, refused, confirmed, contradicted. */
+  get_inferred_proposition_stats() {
+    return this._request('GET', `${this.prototypeApiPrefix}/propositions/inferred/stats`);
   }
 
   /**
