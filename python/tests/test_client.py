@@ -1805,5 +1805,47 @@ class TestP0Transport(unittest.TestCase):
         self.assertTrue(out.get("ok"))
 
 
+class TestWhy1(unittest.TestCase):
+    """WHY1 / KSG-1 and KSG-2: why a claim is believed, and the contradiction inbox."""
+
+    def test_explain_claim_reads_one_claim_with_why(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"assertions": [{"uuid": "c1", "why": {"status": {"state": "contested"}}}]})
+        )
+        claim = client.explain_claim("c1")
+        self.assertEqual(claim["why"]["status"]["state"], "contested")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "GET")
+        self.assertEqual(args[1], "https://example.test/api2.0/assertions")
+        self.assertEqual(kwargs["params"], {"uuid": "c1", "why": "true"})
+
+    def test_explain_claim_missing_is_none(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"assertions": []}))
+        self.assertIsNone(client.explain_claim("missing"))
+
+    def test_get_assertions_passes_uuid_and_why(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"assertions": []}))
+        client.get_assertions(subject="s1", why=True)
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["params"], {"subject": "s1", "why": "true"})
+        client.get_assertions(uuid="c1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["params"], {"uuid": "c1"})
+
+    def test_list_contradictions_reads_the_inbox(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"assertions": [], "contradictions": [{"id": "c1"}], "total": 1, "truncated": False})
+        )
+        box = client.list_contradictions(visibility="public", limit=5)
+        self.assertEqual(box["total"], 1)
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[1], "https://example.test/api2.0/assertions")
+        self.assertEqual(kwargs["params"], {"contested": "true", "visibility": "public", "limit": 5})
+
+
 if __name__ == "__main__":
     unittest.main()

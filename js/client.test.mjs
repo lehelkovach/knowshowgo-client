@@ -2239,3 +2239,52 @@ test('search_concepts passes scope, props and kind through to the server body, a
   assert.equal('props' in plain, false);
   assert.equal('kind' in plain, false);
 });
+
+test('WHY1: explain_claim reads one claim with why=true and returns it (null when absent)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse(calls.length === 1
+      ? { assertions: [{ uuid: 'c1', why: { status: { state: 'contested' } } }] }
+      : { assertions: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const claim = await client.explain_claim('c1');
+  assert.equal(claim.why.status.state, 'contested');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api2\.0\/assertions\?/);
+  assert.match(calls[0].url, /uuid=c1/);
+  assert.match(calls[0].url, /why=true/);
+  assert.equal(await client.explain_claim('missing'), null);
+});
+
+test('WHY1: get_assertions passes uuid, why and contested', async () => {
+  const calls = [];
+  const fetchMock = async (url) => { calls.push(url); return makeJsonResponse({ assertions: [] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_assertions({ subject: 's1', predicate: 'birth_date', why: true });
+  assert.match(calls[0], /subject=s1/);
+  assert.match(calls[0], /why=true/);
+  await client.get_assertions({ uuid: 'c1' });
+  assert.match(calls[1], /uuid=c1/);
+  assert.doesNotMatch(calls[1], /why=/);
+});
+
+test('KSG-2: list_contradictions reads the inbox with visibility and limit and returns the whole answer', async () => {
+  const calls = [];
+  const fetchMock = async (url) => {
+    calls.push(url);
+    return makeJsonResponse({ assertions: [], contradictions: [{ id: 'c1', sides: [{ uuid: 'a' }, { uuid: 'b' }] }], total: 1, truncated: false });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const box = await client.list_contradictions({ visibility: 'private', limit: 10 });
+  assert.equal(box.total, 1);
+  assert.equal(box.contradictions[0].sides.length, 2);
+  assert.match(calls[0], /\/api2\.0\/assertions\?/);
+  assert.match(calls[0], /contested=true/);
+  assert.match(calls[0], /visibility=private/);
+  assert.match(calls[0], /limit=10/);
+});
