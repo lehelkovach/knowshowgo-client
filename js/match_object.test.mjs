@@ -58,7 +58,9 @@ const MATCHES = {
     { uuid: ORG, name: 'Organization', score: 0.61, centroidScore: 0.62, definitionScore: 0.55, exemplarCount: 30 },
     { uuid: PERSON, name: 'Person', score: 0.60, centroidScore: 0.59, definitionScore: 0.66, exemplarCount: 56 },
     // …and a prototype outside the schema.org tree has no property schema.
-    { uuid: LEGACY, name: 'ProcedureRun', score: 0.40, centroidScore: 0.40, definitionScore: null, exemplarCount: 0 }
+    { uuid: LEGACY, name: 'ProcedureRun', score: 0.40, centroidScore: 0.40, definitionScore: null, exemplarCount: 0 },
+    // A per-property value prototype never classifies an object.
+    { uuid: U(8), name: 'PropertyValue:city', score: 0.9, centroidScore: 0.9, propertyName: 'city', exemplarCount: 50 }
   ]
 };
 
@@ -94,7 +96,9 @@ test('match_prototypes(object) embeds the object as text and returns typicality 
   const legacy = ranked[2];
   assert.equal(legacy.evidence.schema, false);
   assert.equal(legacy.evidence.overlap, null);
-  assert.equal(legacy.rankScore, legacy.score);
+  // No schema to compare against counts as no overlap, not as a free pass.
+  assert.equal(legacy.rankScore, 0.28);
+  assert.ok(!ranked.some((r) => r.name.startsWith('PropertyValue:')));
 });
 
 test('match_prototypes caches the taxonomy so a second object costs one request', async () => {
@@ -113,6 +117,7 @@ test('match_prototypes keeps working when the taxonomy is unavailable (scores on
   const ranked = await client.match_prototypes({ object: { label: 'Avery Example', properties: { nationality: 'Utopia' } } });
   assert.deepEqual(ranked.map((r) => r.name), ['Organization', 'Person', 'ProcedureRun']);
   assert.deepEqual(ranked[0].evidence.isA, []);
+  assert.equal(ranked[0].rankScore, 0.427);
   assert.equal(ranked[0].evidence.schema, false);
 });
 

@@ -906,12 +906,16 @@ class KnowShowGoClient:
         if not with_evidence or not isinstance(matches, list):
             return matches
         object_props = object_properties(object)
+        has_props = bool(object_props)
         schema = self._taxonomy_schema()
         ranked = []
         for m in matches:
+            # Per-property value prototypes answer which FIELD a value fills, not what a thing IS.
+            if m.get("propertyName") or str(m.get("name") or "").startswith("PropertyValue:"):
+                continue
             ev = _property_evidence(object_props, (schema or {}).get(m.get("uuid")))
             score = float(m.get("score") or 0)
-            rank = score if ev["overlap"] is None else round((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * ev["overlap"], 4)
+            rank = score if not has_props else round((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * (ev["overlap"] or 0), 4)
             typicality = m.get("centroidScore") if m.get("centroidScore") is not None else m.get("score")
             ranked.append({**m, "typicality": typicality, "evidence": ev, "rankScore": rank})
         ranked.sort(key=lambda r: r["rankScore"], reverse=True)
