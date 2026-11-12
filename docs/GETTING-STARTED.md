@@ -75,8 +75,8 @@ What the two settings mean:
 - `defaultOwnerUserId` is your **namespace**. Private things you write belong
   to it, and reads are scoped to it. Pick a stable string per user or per app.
 - `authToken` is a server-issued token that proves you hold that namespace.
-  The hosted API requires one for writes. Reads without a token see only the
-  public commons.
+  The hosted API requires one for writes; on server 0.2.55 (live) reads
+  without a token see only the public commons. From server **0.2.56** (cut, not deployed yet) the hosted API also answers `401` to any `/api*` call without a token, reads included; on **0.2.55** (live) such calls still work and are counted. Get a token now so nothing breaks when 0.2.56 deploys.
 
 `connect()` fetches the server's release manifest. Pass
 `expected_release: 'vX.Y.Z'` to fail fast if the server is not the version you

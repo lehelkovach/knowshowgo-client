@@ -63,7 +63,9 @@ client.connect()
 | [**API reference**](docs/API.md) | Every method, grouped by domain, JS and Python. |
 | Live API | `https://api.knowshowgo.com` · manifest at `GET /api/release` · tokens at <https://knowshowgo.com/developers> |
 | MCP | `POST https://api.knowshowgo.com/mcp` serves the memory tools (`remember`, `ask`, `recall`, …) to Claude Code, Cursor and any MCP client with the same token. Setup and tool list: [`docs/MCP.md`](docs/MCP.md). |
-| Demos | <https://knowshowgo.com/demo/> |
+| Demos | <https://knowshowgo.com/demo/> · taxonomy of prototypes at <https://knowshowgo.com/taxonomy/> |
+| Tour | [`examples/tour.mjs`](examples/tour.mjs): the SDK end to end with fake data, against any running server ([how to run it](examples/README.md)) |
+| Plans | Rung status: [`docs/DEV-LADDER.md`](docs/DEV-LADDER.md). What runs next: the Sprint queue in osl-oc-agent [`docs/IDEAS-BACKLOG.md`](https://github.com/lehelkovach/osl-oc-agent/blob/dev/docs/IDEAS-BACKLOG.md) |
 
 ---
 
