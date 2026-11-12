@@ -31,6 +31,7 @@ MATCHES = {"matches": [
     {"uuid": ORG, "name": "Organization", "score": 0.61, "centroidScore": 0.62},
     {"uuid": PERSON, "name": "Person", "score": 0.60, "centroidScore": 0.59},
     {"uuid": LEGACY, "name": "ProcedureRun", "score": 0.40, "centroidScore": 0.40},
+    {"uuid": U(8), "name": "PropertyValue:city", "score": 0.9, "centroidScore": 0.9, "propertyName": "city"},
 ]}
 
 
@@ -79,7 +80,8 @@ class MatchObjectTest(unittest.TestCase):
         self.assertEqual(person["evidence"]["overlap"], 0.75)
         self.assertEqual(person["evidence"]["isA"], ["Person", "Thing"])
         self.assertFalse(ranked[2]["evidence"]["schema"])
-        self.assertEqual(ranked[2]["rankScore"], ranked[2]["score"])
+        self.assertEqual(ranked[2]["rankScore"], 0.28)
+        self.assertFalse(any(r["name"].startswith("PropertyValue:") for r in ranked))
 
     def test_taxonomy_cached_and_failure_tolerated(self):
         client, calls = routed_client({"POST /api2.0/prototypes/match": MATCHES, "GET /api2.0/taxonomy": ({"error": "boom"}, 500)})

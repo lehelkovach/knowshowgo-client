@@ -534,6 +534,8 @@ function propertySchemaByPrototype(tree) {
   return schema;
 }
 
+const isPropertyValuePrototype = (m) => Boolean(m?.propertyName) || /^PropertyValue:/.test(String(m?.name || ''));
+
 /** Which of the object's keys the prototype declares, and which it lacks. */
 function propertyEvidence(objectProps, entry) {
   const keys = Object.keys(objectProps || {});
@@ -1016,13 +1018,18 @@ export class KnowShowGoClient {
     if (!withEvidence || !Array.isArray(matches)) return matches;
 
     const objectProps = objectProperties(object);
+    const hasProps = Object.keys(objectProps).length > 0;
     const schema = await this._taxonomySchema();
-    const ranked = matches.map((m) => {
+    // A per-property value prototype ("PropertyValue:city") answers which FIELD
+    // a value fills, never what an object IS; keep them out of a classification.
+    const ranked = matches.filter((m) => !isPropertyValuePrototype(m)).map((m) => {
       const ev = propertyEvidence(objectProps, schema?.get(m.uuid) || null);
       const score = Number(m.score) || 0;
-      const rankScore = ev.overlap == null
+      // With properties to compare, a prototype that declares none of them (or
+      // has no schema at all) scores overlap 0 rather than escaping the blend.
+      const rankScore = !hasProps
         ? score
-        : Math.round(((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * ev.overlap) * 10000) / 10000;
+        : Math.round(((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * (ev.overlap ?? 0)) * 10000) / 10000;
       return { ...m, typicality: m.centroidScore ?? m.score ?? null, evidence: ev, rankScore };
     });
     return ranked.sort((a, b) => b.rankScore - a.rankScore).slice(0, top_k);
