@@ -2031,9 +2031,16 @@ class KnowShowGoClient:
         self,
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
-        obj: Optional[Any] = None
+        obj: Optional[Any] = None,
+        uuid: Optional[str] = None,
+        why: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Get assertions with optional filters"""
+        """Get assertions with optional filters, or one claim by ``uuid``.
+
+        ``why=True`` (WHY1) gives each claim a ``why`` block: sources with tier
+        and speaker, version chain, contested peers, model or Logic IR rule,
+        status with the reason. Another owner's private claim is simply absent.
+        """
         params = {}
         if subject:
             params["subject"] = subject
@@ -2041,8 +2048,43 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         if obj is not None:
             params["object"] = obj
+        if uuid:
+            params["uuid"] = uuid
+        if why:
+            params["why"] = "true"
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
+
+    def explain_claim(self, claim_uuid: str) -> Optional[Dict[str, Any]]:
+        """WHY1 / KSG-1: "why do we believe this?" for one claim.
+
+        Returns the claim with its ``why`` block (``sources``, ``versions``,
+        ``contested``, ``inference``, ``status``) or None when there is no such
+        claim the caller may read.
+        """
+        result = self._request("GET", "/api2.0/assertions", params={"uuid": claim_uuid, "why": "true"})
+        rows = result.get("assertions") if isinstance(result, dict) else None
+        return rows[0] if rows else None
+
+    def list_contradictions(
+        self,
+        visibility: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """WHY1 / KSG-2: the contradiction inbox.
+
+        Open contested sets the caller may read (their own private ones and
+        the public ones), each side with its source and tier, highest tier
+        first: ``{contradictions, total, truncated}``. Resolve one with
+        ``confirm_fact(side_uuid)`` or ``correct_fact(side_uuid, obj=...)``;
+        a new version supersedes every side, nothing is deleted.
+        """
+        params: Dict[str, Any] = {"contested": "true"}
+        if visibility:
+            params["visibility"] = visibility
+        if limit is not None:
+            params["limit"] = limit
+        return self._request("GET", "/api2.0/assertions", params=params)
 
     def vote_assertion(
         self,

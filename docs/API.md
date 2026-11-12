@@ -110,7 +110,9 @@ resolved into current snapshots.
 | Method | Signature (JS) |
 |---|---|
 | `create_assertion` | `{ subject, predicate, obj, source?, truth?, provenance?, security_class?, ... }`. `security_class: 'private'` (alias `scope`) stores the claim under the caller's owner identity so only that owner reads it back (server ≥ 0.2.35); sent only when given |
-| `get_assertions` | `{ subject?, predicate?, obj? }` |
+| `get_assertions` | `{ subject?, predicate?, obj?, uuid?, why? }`; `why: true` adds each claim's `why` block (WHY1) |
+| `explain_claim` | `(claimUuid)` → the claim with `why`: `sources` (tier, speaker, document/model), `versions`, `contested`, `inference`, `status: { state, stored, reason }`; null when absent or another owner's private claim (WHY1 / KSG-1) |
+| `list_contradictions` | `({ visibility?: 'private'\|'public', limit? })` → `{ contradictions: [{ id, subject, predicate, visibility, openedAt, sides[] }], total, truncated }`; resolve with `confirm_fact` / `correct_fact` on a side (WHY1 / KSG-2) |
 | `vote_assertion` | `(assertionId, { delta = 1 })` |
 | `get_snapshot` | `(entityId)` |
 | `get_evidence` | `(entityId, { predicate? })` |
@@ -160,8 +162,8 @@ keyword arguments (`add_fact(subject, predicate, obj, ...)`).
 | `add_fact` | `{ subject, predicate, obj, status = 'candidate', provenance?, visibility?, confidence? }` → `POST /api2.0/facts` → `{ ok, fact }` |
 | `list_facts` | `{ subject?, predicate?, include?, limit? }` → `{ ok, facts, total, truncated, include }`; no subject lists the caller's own |
 | `get_fact` | `(factId)` → `{ ok, fact }` with provenance and history |
-| `confirm_fact` | `(factId, { by?, provenance? })` → `{ ok, fact }`; 409 when the fact was corrected, 403 when not the owner |
-| `correct_fact` | `(factId, { obj, provenance? })` → `{ ok, fact, corrected }` |
+| `confirm_fact` | `(factId, { by?, provenance? })` → `{ ok, fact }`; 409 when the fact was corrected, 403 when not the owner. On a contested claim (KSG-2): `{ ok, fact, resolution }`, a new version keeping this side supersedes every side |
+| `correct_fact` | `(factId, { obj, provenance? })` → `{ ok, fact, corrected }`. On a contested claim (KSG-2) also `resolution`: the new value supersedes every side |
 
 ---
 

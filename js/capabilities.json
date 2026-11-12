@@ -31,7 +31,7 @@
       "id": "auth-tokens",
       "title": "Owner tokens (KT1)",
       "audience": "agent",
-      "since": "0.2.8 (tokens); 0.2.55 (gate, log-only); unreleased (gate enforces)",
+      "since": "0.2.8 (tokens); 0.2.55 (gate, log-only); 0.2.56 (gate enforces)",
       "summary": "Issue, list and revoke per-owner API tokens. With the access gate on, every other /api* call needs one.",
       "whenToUse": "Give each owner (user) their own token and send it on every call (`set_auth_token` per client, `for_owner({ auth_token })` per owner, or `auth_token` per call). A 401 means no or a revoked token: get a new one; never retry anonymously.",
       "tokenNote": "The gate lets these through (`open`); the handler itself needs the admin secret (`x-ksg-admin`) or the owner’s own bearer token, so a token is issued by an operator or minted from an existing one.",
@@ -157,7 +157,7 @@
       "audience": "agent",
       "since": "0.2.31",
       "summary": "Owner facts that go candidate → verified by confirmation, corrected by a new version.",
-      "whenToUse": "Store a user statement as a fact (`add_fact`); a model guess stays a candidate until `confirm_fact`; `correct_fact` supersedes, never overwrites.",
+      "whenToUse": "Store a user statement as a fact (`add_fact`); a model guess stays a candidate until `confirm_fact`; `correct_fact` supersedes, never overwrites. On a claim in a contested set (KSG-2), confirm keeps that side and correct sets a new value: either way a new version supersedes every side (owner for a private set, admin token for a public one).",
       "routes": [
         "GET /facts",
         "POST /facts",
@@ -208,9 +208,9 @@
       "id": "assertions",
       "title": "Assertions and beliefs",
       "audience": "agent",
-      "since": "0.2.8",
-      "summary": "Weighted claims with votes, reinforcement, contradiction and retraction.",
-      "whenToUse": "Prefer propositions (KG-P1) for new claims; use assertions to reinforce, contradict or retract an existing claim with a reason.",
+      "since": "0.2.8; unreleased (why and the contradiction inbox, WHY1)",
+      "summary": "Weighted claims with votes, reinforcement, contradiction and retraction; any claim returns why it is believed (sources with tier and speaker, version chain, contested peers, model or Logic IR rule, status with the reason). The contradiction inbox lists the open contested sets (KS-TIER) with both sides’ sources and tiers.",
+      "whenToUse": "Prefer propositions (KG-P1) for new claims; use assertions to reinforce, contradict or retract an existing claim with a reason. To answer \"why do we believe this?\" about one value, `explain_claim(uuid)` (GET /assertions?uuid=…&why=true). To review disagreements, `list_contradictions()` (GET /assertions?contested=true); resolve one with `confirm_fact(side)` or `correct_fact(side, {obj})`, which write a new superseding version, never a delete.",
       "routes": [
         "GET /assertions",
         "POST /assertions",
@@ -225,7 +225,9 @@
         "retract_assertion",
         "vote_assertion",
         "contradict_assertion",
-        "reinforce_assertion"
+        "reinforce_assertion",
+        "explain_claim",
+        "list_contradictions"
       ],
       "clientRoutes": {
         "get_assertions": [
@@ -245,6 +247,12 @@
         ],
         "reinforce_assertion": [
           "POST /assertions/reinforce"
+        ],
+        "explain_claim": [
+          "GET /assertions"
+        ],
+        "list_contradictions": [
+          "GET /assertions"
         ]
       }
     },
@@ -286,7 +294,7 @@
       "id": "typed-properties",
       "title": "Typed property values (TB2 / KV1)",
       "audience": "agent",
-      "since": "unreleased (TB2)",
+      "since": "0.2.56 (TB2)",
       "summary": "A closed list of value types (url, uuid ref, number, date, time, …), declared properties with cardinality and range, a prototype’s field list.",
       "whenToUse": "Before writing a property, read its type (`list_value_types`, `get_prototype_fields`); declare a missing one with `declare_predicate` (an existing name is returned, not duplicated).",
       "routes": [
@@ -320,7 +328,7 @@
       "id": "articles",
       "title": "Topic articles and amendments (TB2)",
       "audience": "agent",
-      "since": "unreleased (TB2)",
+      "since": "0.2.56 (TB2)",
       "summary": "A topic read like an article: fields from its prototypes and claims, the current value and every other version with its provenance; amend by adding a claim.",
       "whenToUse": "Read a topic for a person (`get_article`); amend with `amend_article` and `replaces_claim` to version a value (the old one stays readable). Needs a signed-in owner (401 otherwise).",
       "routes": [
@@ -757,7 +765,7 @@
       "id": "taxonomy",
       "title": "Taxonomy reader (DH1 duplicates)",
       "audience": "agent",
-      "since": "0.2.52; unreleased (duplicates)",
+      "since": "0.2.52; 0.2.57 (duplicates)",
       "summary": "The category tree, a prototype’s definition, centroid, properties and exemplars, a node’s propositions; duplicate prototype names.",
       "whenToUse": "`get_taxonomy` to browse; `get_taxonomy_prototype` for what a category means; `get_taxonomy_duplicates` before seeding a prototype by name.",
       "routes": [
@@ -1373,7 +1381,7 @@
     {
       "id": "kv1-value-types",
       "title": "Typed property values",
-      "since": "unreleased (TB2)",
+      "since": "0.2.56 (TB2)",
       "capability": "typed-properties",
       "client": [
         "list_value_types",
@@ -1385,7 +1393,7 @@
     {
       "id": "tb2-versions",
       "title": "Version chains and amendments",
-      "since": "unreleased (TB2)",
+      "since": "0.2.56 (TB2)",
       "capability": "articles",
       "client": [
         "get_article",
@@ -1396,7 +1404,7 @@
     {
       "id": "kt1-tokens",
       "title": "Per-owner tokens, 401 at the edge",
-      "since": "0.2.55 (log-only); unreleased (enforce)",
+      "since": "0.2.55 (log-only); 0.2.56 (enforce)",
       "capability": "auth-tokens",
       "client": [
         "set_auth_token",
@@ -1409,13 +1417,36 @@
     {
       "id": "dh1-supersede",
       "title": "Supersede, never delete (replacedBy)",
-      "since": "unreleased (DH1)",
+      "since": "0.2.57 (DH1)",
       "capability": "taxonomy",
       "client": [
         "get_taxonomy_duplicates",
         "search_procedures"
       ],
       "whenToUse": "A duplicate or outdated record is superseded with `replacedBy`; follow it, and never ask KSG to delete."
+    },
+    {
+      "id": "why1-derivation",
+      "title": "Why do we believe this? (KSG-1)",
+      "since": "unreleased (WHY1)",
+      "capability": "assertions",
+      "client": [
+        "explain_claim",
+        "get_assertions"
+      ],
+      "whenToUse": "Before relying on or showing a value, read its `why`: a `contested` or `candidate` status means say so, not state it as fact; cite `sources` and their tiers."
+    },
+    {
+      "id": "ksg2-contradictions",
+      "title": "Contradiction inbox (KSG-2)",
+      "since": "unreleased (WHY1)",
+      "capability": "assertions",
+      "client": [
+        "list_contradictions",
+        "confirm_fact",
+        "correct_fact"
+      ],
+      "whenToUse": "Disagreements are a review queue, not last-write-wins: list them, show both sides with their tiers, and resolve by confirm or correct (a new version); never pick a side silently."
     }
   ]
 }

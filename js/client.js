@@ -2052,12 +2052,46 @@ export class KnowShowGoClient {
     });
   }
 
-  get_assertions({ subject = null, predicate = null, obj = undefined } = {}) {
+  /**
+   * Claims by subject / predicate / object, or one claim by `uuid`.
+   * `why: true` (WHY1) gives each claim a `why` block: sources with tier and
+   * speaker, version chain, contested peers, model or Logic IR rule, status
+   * with the reason. Another owner's private claim is simply absent.
+   */
+  get_assertions({ subject = null, predicate = null, obj = undefined, uuid = null, why = false } = {}) {
     const params = {};
     if (subject !== null && subject !== undefined) params.subject = subject;
     if (predicate !== null && predicate !== undefined) params.predicate = predicate;
     if (obj !== undefined) params.object = obj;
+    if (uuid) params.uuid = uuid;
+    if (why === true) params.why = 'true';
     return this._request('GET', '/api/assertions', { params }).then(r => r.assertions);
+  }
+
+  /**
+   * WHY1 / KSG-1: "why do we believe this?" for one claim. Returns the claim
+   * with its `why` block (`sources`, `versions`, `contested`, `inference`,
+   * `status: { state, stored, reason }`), or null when there is no such claim
+   * the caller may read.
+   */
+  explain_claim(claim_uuid) {
+    return this._request('GET', '/api2.0/assertions', { params: { uuid: claim_uuid, why: 'true' } })
+      .then(r => (Array.isArray(r?.assertions) && r.assertions[0]) || null);
+  }
+
+  /**
+   * WHY1 / KSG-2: the contradiction inbox — open contested sets the caller may
+   * read (their own private ones and the public ones), each side with its
+   * source and tier, highest tier first. Returns `{ contradictions, total,
+   * truncated }`. Resolve one with `confirm_fact(side_uuid)` (keep that side)
+   * or `correct_fact(side_uuid, { obj })` (another value): a new version
+   * supersedes every side; nothing is deleted.
+   */
+  list_contradictions({ visibility = null, limit = null } = {}) {
+    const params = { contested: 'true' };
+    if (visibility) params.visibility = visibility;
+    if (limit !== null && limit !== undefined) params.limit = limit;
+    return this._request('GET', '/api2.0/assertions', { params });
   }
 
   vote_assertion(assertion_id, { delta = 1 } = {}) {
