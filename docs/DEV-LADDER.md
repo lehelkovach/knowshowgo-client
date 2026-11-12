@@ -1,6 +1,8 @@
 # Client `dev` ladder
 
-Canonical board: sibling [`knowshowgo/docs/DEVELOPMENT-PLAN.md`](../knowshowgo/docs/DEVELOPMENT-PLAN.md) (v6.6).
+Order (what runs next) for KSG, OSLO and this client: the Sprint queue in osl-oc-agent [`docs/IDEAS-BACKLOG.md`](https://github.com/lehelkovach/osl-oc-agent/blob/dev/docs/IDEAS-BACKLOG.md) (2026-11-12). Rung IDs and product detail: [`knowshowgo/docs/DEVELOPMENT-PLAN.md`](https://github.com/lehelkovach/knowshowgo/blob/dev/docs/DEVELOPMENT-PLAN.md).
+
+Shipped since this list was written: 0.2.32 rules, events/episodes, procedure runs, versions, evaluation, verified facts; 0.2.34 propositions (`assert_proposition`) and logic for agents (`bind_pattern`, `close_relation`, `evaluate_joins`, `ensure_predicate`, `check_membership`); 0.2.35 `match_prototypes({ object })`, the taxonomy and concept-lookup reads, the CE3d inferred-candidate stats, and [`examples/tour.mjs`](../examples/tour.mjs), which knowshowgo runs end to end against an in-memory server (AC1). 0.2.36 (CS1) every agent-facing server route: TB2 articles and typed values (`get_article`, `amend_article`, `declare_predicate`, `list_value_types`, `get_prototype_fields`), concept identity and merges, derivation trees, `reconcile_inferred_propositions`, `get_taxonomy_duplicates`, `for_owner` (one token per owner on any call), JS and Python; `js/capabilities.json` and a contract test against it. Method-by-method detail lives in [`API.md`](API.md).
 
 This SDK is plane **K** / **K0**. Surfaces on `dev`:
 

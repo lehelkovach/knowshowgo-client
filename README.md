@@ -60,12 +60,53 @@ client.connect()
 
 | Reference | |
 |---|---|
+| [**What KnowShowGo can do**](#what-knowshowgo-can-do) | Every server capability, when an agent should use it, one example each. |
 | [**API reference**](docs/API.md) | Every method, grouped by domain, JS and Python. |
 | Live API | `https://api.knowshowgo.com` · manifest at `GET /api/release` · tokens at <https://knowshowgo.com/developers> |
 | MCP | `POST https://api.knowshowgo.com/mcp` serves the memory tools (`remember`, `ask`, `recall`, …) to Claude Code, Cursor and any MCP client with the same token. Setup and tool list: [`docs/MCP.md`](docs/MCP.md). |
-| Demos | <https://knowshowgo.com/demo/> |
+| Demos | <https://knowshowgo.com/demo/> · taxonomy of prototypes at <https://knowshowgo.com/taxonomy/> |
+| Tour | [`examples/tour.mjs`](examples/tour.mjs): the SDK end to end with fake data, against any running server ([how to run it](examples/README.md)) |
+| Plans | Rung status: [`docs/DEV-LADDER.md`](docs/DEV-LADDER.md). What runs next: the Sprint queue in osl-oc-agent [`docs/IDEAS-BACKLOG.md`](https://github.com/lehelkovach/osl-oc-agent/blob/dev/docs/IDEAS-BACKLOG.md) |
 
 ---
+
+## What KnowShowGo can do
+
+One row per server capability, generated from the same manifest the server
+checks itself against ([`js/capabilities.json`](js/capabilities.json), a copy of
+knowshowgo `src/capabilities.json`; every route, its token rule and client
+method is in the server's `docs/API-ROUTES.md`). `js/capabilities_contract.test.mjs`
+fails when a capability here has no method, no doc line or no row. Examples use
+fake data. `c` is a client; `avery` is `c.for_owner({ auth_token: averyToken })`.
+
+| Capability | When to use it | Example |
+|---|---|---|
+| Release (`release`) | Once at start: version and the server's capability ids | `(await c.get_release_manifest()).capabilities.ids` |
+| Owner tokens (`auth-tokens`, `kt1-tokens`) | One token per owner on every call; a 401 means a missing or revoked token, never retry anonymously | `const avery = c.for_owner({ auth_token: averyToken, owner_user_id: 'avery' })` |
+| Semantic memory (`semantic-memory`) | Remember what the user said; recall or ask before answering | `await avery.semantic_remember({ text: 'I moved to Contoso in March.' })` |
+| Episodes and events (`episodes-events`) | Record what happened as typed roles; recall similar situations before planning | `await avery.recall_episodes({ pattern: [{ subject: '?e', predicate: 'action', object: 'onboard' }] })` |
+| Facts (`facts`) | A user statement as a fact; a model guess stays a candidate until confirmed | `await avery.add_fact({ subject: 'Avery Example', predicate: 'employer', obj: 'Contoso' })` |
+| Assertions (`assertions`) | Reinforce, contradict or retract an existing claim with a reason | `await avery.reinforce_assertion({ subject: 'Contoso', predicate: 'hq', obj: 'Example City' })` |
+| Why and contradictions (`why1-derivation`, `ksg2-contradictions`) | Before relying on a value, ask why it is believed (sources, tiers, versions, status); review disagreements as a queue and resolve by a new version | `(await avery.explain_claim(claimUuid)).why.status` · `await avery.list_contradictions()` |
+| Propositions and proposals (`propositions`, `kg-p1`, `ce3d-proposals`) | Every relational claim, over concept uuids; a model inference is a proposal (`source: 'llm:…'`), never a fact | `await avery.assert_proposition({ subject: 'Contoso', subject_prototype: 'Organization', predicate: 'website', value: 'https://contoso.example.test', source: 'llm:planner' })` |
+| Typed values (`typed-properties`, `kv1-value-types`) | Read a property's type before writing; declare a missing one | `await c.declare_predicate({ name: 'founded', value_type: 'date' })` |
+| Articles and versions (`articles`, `tb2-versions`) | Read a topic with every version of every value; amend, never overwrite | `await avery.amend_article(contosoUuid, { predicate: 'founded', value_type: 'date', value: '2001-04-01', replaces_claim: oldClaimUuid })` |
+| Concepts and lookup (`concepts`, `ce3a-wikidata`, `ce3c-conceptnet`) | Resolve a name before creating; look a public term up (Wikidata links and ConceptNet `commonly_a`, both attributed) | `await c.resolve_concept({ label: 'Contoso' }); await c.lookup_concept({ term: 'supplier portal' })` |
+| Topics and tags (`topics-tags`) | Resolve a free-text tag to a topic before making a new one | `await c.resolve_topic_tag({ tag: 'vendor onboarding' })` |
+| Knowledge search (`knowledge-search`, `kl2-vector-search`) | A fuzzy question across concepts and objects (vector rows) | `await avery.search_knowledge({ query: 'Contoso tax form' })` |
+| Verification (`verification`) | Check an answer against stored evidence before stating it; "unknown" means say so | `await avery.verify_answer({ claims: [{ subject: 'Contoso', predicate: 'hq', object: 'Example City' }] })` |
+| Entities (`entities`) | "Why do you think that?": evidence and explanation for one thing | `await avery.explain_entity(contosoUuid, { predicate: 'hq' })` |
+| Logic (`logic`, `bind-pattern`, `close-relation`, `evaluate-joins`) | Prefer `bind_pattern` over free text for relational questions; closure for chains; joins across relations | `await avery.bind_pattern({ pattern: [{ subject: '?p', predicate: 'employer', object: 'Contoso' }] })` |
+| Prototypes (`prototypes`, `match-prototypes`, `check-membership`, `sx1-exemplars`) | Type an unknown thing (ranked, with typicality); membership needs evidence | `await c.match_prototypes({ object: { label: 'Contoso', properties: { website: 'https://contoso.example.test' } } })` |
+| Taxonomy (`taxonomy`, `taxonomy-reader`, `dh1-supersede`) | Browse categories and what one means; check duplicates before seeding (duplicates are superseded, never deleted) | `await c.get_taxonomy_prototype(organizationUuid)` |
+| Objects (`objects`) | A record with a stable identity (a company, a portal) | `await avery.upsert_object({ title: 'Contoso supplier portal', category_name: 'WebSite' })` |
+| Procedures (`procedures`, `kl1-procedure-search`, `rp1-retired-opt-in`) | Recall verified procedures (retired only to audit; follow `replacedBy`); record every run with an independent signal | `await avery.search_verified_procedures({ goal: 'register as a supplier', site: 'portal.example.test' })` |
+| Social (`social`) | Multi-agent or marketplace flows only | `await c.post_channel_message({ channel_tag: 'suppliers', actor_id: 'agent-1', message: 'Contoso registered' })` |
+| Private vault (`private-vaults`) | Owner-only payment records, through an approval gate | `await avery.lookup_private_payment()` |
+| Feedback (`feedback`) | File a ticket when KSG answers wrongly (MCP `feedback` tool) | — |
+
+Operator-only capabilities (seeds including `schemaorg-seed`, admin and ops)
+have no client methods; the server's `docs/CAPABILITIES.md` lists them.
 
 ## Install
 

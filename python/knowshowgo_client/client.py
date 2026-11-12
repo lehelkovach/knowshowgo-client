@@ -4,6 +4,7 @@ KnowShowGo Python REST API Client
 Provides a Python client for the KnowShowGo REST API.
 """
 
+import copy
 import os
 import re
 import requests
@@ -335,6 +336,12 @@ class EntityProxy:
 
 
 _UNSET = object()
+
+
+def _camel(key: str) -> str:
+    """snake_case option name → the server's camelCase body key."""
+    head, *rest = key.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
 
 
 def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
@@ -955,6 +962,160 @@ class KnowShowGoClient:
     def get_inferred_proposition_stats(self) -> Dict[str, Any]:
         """CE3d counters: model propositions proposed, reused, refused, confirmed, contradicted."""
         return self._request("GET", f"{self.prototype_api_prefix}/propositions/inferred/stats")
+
+    # ===== CS1: the rest of the agent-facing routes (server capability manifest) =====
+
+    def reconcile_inferred_propositions(self, label: str) -> Dict[str, Any]:
+        """CE3d: check the model's proposals about a name against higher-tier claims."""
+        return self._request("POST", f"{self.prototype_api_prefix}/propositions/reconcile", json={"label": label})
+
+    def list_value_types(self) -> Dict[str, Any]:
+        """TB2/KV1: the closed list of property value types and external-id schemes."""
+        return self._request("GET", f"{self.prototype_api_prefix}/value-types")
+
+    def search_predicates(self, query: str = "", limit: Optional[int] = None) -> Dict[str, Any]:
+        """TB2: declared properties whose name matches ``query``."""
+        return self._request("GET", f"{self.prototype_api_prefix}/predicates", params=_without_nulls({"q": query, "limit": limit}))
+
+    def declare_predicate(
+        self,
+        name: str,
+        value_type: str,
+        cardinality: Optional[str] = None,
+        range: Optional[List[str]] = None,
+        options: Optional[List[Any]] = None,
+        description: Optional[str] = None,
+        attach_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: declare a property; an existing name is returned, not duplicated."""
+        body = _without_nulls({
+            "name": name, "valueType": value_type, "cardinality": cardinality, "range": range,
+            "options": options, "description": description, "attachTo": attach_to,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/predicates/declare", json=body)
+
+    def get_prototype_fields(self, uuid: str) -> Dict[str, Any]:
+        """TB2: a prototype's own and inherited properties (its create form)."""
+        return self._request("GET", f"{self.prototype_api_prefix}/prototypes/{uuid}/fields")
+
+    def search_articles(self, query: str = "", range: Optional[List[str]] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """TB2: topics (articles) whose title matches ``query``."""
+        params = _without_nulls({"q": query, "range": ",".join(range) if range else None, "limit": limit})
+        return self._request("GET", f"{self.prototype_api_prefix}/articles", params=params)
+
+    def get_article(self, uuid: str) -> Dict[str, Any]:
+        """TB2: one topic as an article, every version of every value with its provenance."""
+        return self._request("GET", f"{self.prototype_api_prefix}/articles/{uuid}")
+
+    def create_article(
+        self,
+        prototype_uuid: str,
+        title: str,
+        description: Optional[str] = None,
+        fields: Optional[List[Dict[str, Any]]] = None,
+        private: Optional[bool] = None,
+        allow_duplicate: Optional[bool] = None,
+        source_url: Optional[str] = None,
+        source_title: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: create a topic of a prototype with typed fields (signed-in owner only)."""
+        body = _without_nulls({
+            "prototypeUuid": prototype_uuid, "title": title, "description": description, "fields": fields,
+            "private": private, "allowDuplicate": allow_duplicate, "sourceUrl": source_url,
+            "sourceTitle": source_title, "note": note,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/articles", json=body)
+
+    def amend_article(
+        self,
+        uuid: str,
+        predicate: str,
+        value_type: Optional[str] = None,
+        value: Any = None,
+        object_uuid: Optional[str] = None,
+        unit: Optional[str] = None,
+        lang: Optional[str] = None,
+        precision: Optional[str] = None,
+        scheme: Optional[str] = None,
+        replaces_claim: Optional[str] = None,
+        source_url: Optional[str] = None,
+        source_title: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: amend a topic with one typed claim; ``replaces_claim`` versions an old value."""
+        body = _without_nulls({
+            "predicate": predicate, "valueType": value_type, "value": value, "objectUuid": object_uuid,
+            "unit": unit, "lang": lang, "precision": precision, "scheme": scheme, "replacesClaim": replaces_claim,
+            "sourceUrl": source_url, "sourceTitle": source_title, "note": note,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/articles/{uuid}/claims", json=body)
+
+    def get_taxonomy_duplicates(self) -> Dict[str, Any]:
+        """DH1: public prototype names with more than one active prototype."""
+        return self._request("GET", f"{self.prototype_api_prefix}/taxonomy/duplicates")
+
+    def resolve_concept(self, label: str, **options: Any) -> Dict[str, Any]:
+        """Resolve a label to its preferred concept without creating anything."""
+        body = _without_nulls({"label": label, **{_camel(k): v for k, v in options.items()}})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/resolve", json=body)
+
+    def find_or_create_concept(self, label: str, **options: Any) -> Dict[str, Any]:
+        """The existing concept for this label, or a new one."""
+        body = _without_nulls({"label": label, **{_camel(k): v for k, v in options.items()}})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/find-or-create", json=body)
+
+    def merge_concepts(self, survivor: str, members: List[str], score: Optional[float] = None, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Merge duplicate concepts into a survivor (reversible with ``unmerge_concept``)."""
+        body = _without_nulls({"survivor": survivor, "members": members, "score": score, "reason": reason})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/merge", json=body)
+
+    def unmerge_concept(self, uuid: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Take one member back out of a merge."""
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/{uuid}/unmerge", json=_without_nulls({"reason": reason}))
+
+    def get_concept_variants(self, uuid: str) -> Dict[str, Any]:
+        """The concepts merged into this one."""
+        return self._request("GET", f"{self.prototype_api_prefix}/concepts/{uuid}/variants")
+
+    def get_derivation(self, uuid: str) -> Dict[str, Any]:
+        """One recorded Logic IR derivation, explained."""
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/derivations/{uuid}")
+
+    def get_derivation_tree(self, uuid: str, max_depth: Optional[int] = None) -> Dict[str, Any]:
+        """The proof tree under a derivation."""
+        kwargs = {"params": {"maxDepth": max_depth}} if max_depth else {}
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/derivations/{uuid}/tree", **kwargs)
+
+    def assimilate_exemplar(self, subject: str, category: str) -> Dict[str, Any]:
+        """Add a confirmed member to a category's exemplars."""
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/assimilate", json={"subject": subject, "category": category})
+
+    def hydrate_entity(self, entity_id: str, top_k: Optional[int] = None, threshold: Optional[float] = None) -> Dict[str, Any]:
+        """The raw one-trip hydration payload for an entity."""
+        params = _without_nulls({"topK": top_k, "threshold": threshold})
+        return self._request("GET", f"{self.prototype_api_prefix}/entities/{entity_id}/hydrate", params=params)
+
+    def for_owner(
+        self,
+        auth_token: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> "KnowShowGoClient":
+        """KT1: a copy of this client that acts as one owner (its token on every call).
+
+        Without ``auth_token`` the copy keeps this client's token. This client is
+        not changed; the HTTP session is shared.
+        """
+        view = copy.copy(self)
+        if auth_token is not None:
+            view.auth_token = auth_token
+            view.token_provider = None
+        if owner_user_id is not None:
+            view.default_owner_user_id = owner_user_id
+        if agent_session_id is not None:
+            view.default_agent_session_id = agent_session_id
+        return view
 
     def resolve_slots(
         self,
@@ -1870,9 +2031,16 @@ class KnowShowGoClient:
         self,
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
-        obj: Optional[Any] = None
+        obj: Optional[Any] = None,
+        uuid: Optional[str] = None,
+        why: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Get assertions with optional filters"""
+        """Get assertions with optional filters, or one claim by ``uuid``.
+
+        ``why=True`` (WHY1) gives each claim a ``why`` block: sources with tier
+        and speaker, version chain, contested peers, model or Logic IR rule,
+        status with the reason. Another owner's private claim is simply absent.
+        """
         params = {}
         if subject:
             params["subject"] = subject
@@ -1880,8 +2048,43 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         if obj is not None:
             params["object"] = obj
+        if uuid:
+            params["uuid"] = uuid
+        if why:
+            params["why"] = "true"
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
+
+    def explain_claim(self, claim_uuid: str) -> Optional[Dict[str, Any]]:
+        """WHY1 / KSG-1: "why do we believe this?" for one claim.
+
+        Returns the claim with its ``why`` block (``sources``, ``versions``,
+        ``contested``, ``inference``, ``status``) or None when there is no such
+        claim the caller may read.
+        """
+        result = self._request("GET", "/api2.0/assertions", params={"uuid": claim_uuid, "why": "true"})
+        rows = result.get("assertions") if isinstance(result, dict) else None
+        return rows[0] if rows else None
+
+    def list_contradictions(
+        self,
+        visibility: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """WHY1 / KSG-2: the contradiction inbox.
+
+        Open contested sets the caller may read (their own private ones and
+        the public ones), each side with its source and tier, highest tier
+        first: ``{contradictions, total, truncated}``. Resolve one with
+        ``confirm_fact(side_uuid)`` or ``correct_fact(side_uuid, obj=...)``;
+        a new version supersedes every side, nothing is deleted.
+        """
+        params: Dict[str, Any] = {"contested": "true"}
+        if visibility:
+            params["visibility"] = visibility
+        if limit is not None:
+            params["limit"] = limit
+        return self._request("GET", "/api2.0/assertions", params=params)
 
     def vote_assertion(
         self,

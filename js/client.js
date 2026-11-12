@@ -21,6 +21,13 @@ export function resolveBaseUrl(explicit) {
 }
 
 /** A shallow copy without the keys whose value is null or undefined. */
+/** snake_case option keys → the server's camelCase body keys. */
+function camelKeys(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) out[k.replace(/_([a-z])/g, (_m, c) => c.toUpperCase())] = v;
+  return out;
+}
+
 function withoutNulls(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
@@ -1080,6 +1087,159 @@ export class KnowShowGoClient {
     return this._request('GET', `${this.prototypeApiPrefix}/propositions/inferred/stats`);
   }
 
+  // ===== CS1: the rest of the agent-facing routes (server capability manifest) =====
+
+  /**
+   * CE3d: compare the model's proposals about a public name with higher-tier
+   * claims about anything of that name; matches are promoted, single-valued
+   * disagreements are marked contradicted.
+   */
+  reconcile_inferred_propositions({ label } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/propositions/reconcile`, { json: { label } });
+  }
+
+  // TB2 / KV1: typed property values.
+  /** The closed list of property value types (url, uuid ref, number, date, time, …) and external-id schemes. */
+  list_value_types() {
+    return this._request('GET', `${this.prototypeApiPrefix}/value-types`);
+  }
+
+  /** Declared properties whose name matches `query`, with value type, cardinality and range. */
+  search_predicates({ query = '', limit = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/predicates`, { params: withoutNulls({ q: query, limit }) });
+  }
+
+  /**
+   * Declare a property. An existing name is returned, not duplicated (200 vs
+   * 201). `attach_to` proposes it to a prototype as a candidate field.
+   */
+  declare_predicate({ name, value_type, cardinality = null, range = null, options = null, description = null, attach_to = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/predicates/declare`, {
+      json: withoutNulls({ name, valueType: value_type, cardinality, range, options, description, attachTo: attach_to })
+    });
+  }
+
+  /** A prototype's own and inherited properties: the fields of its create form. */
+  get_prototype_fields(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/prototypes/${encodeURIComponent(uuid)}/fields`);
+  }
+
+  // TB2: topic articles and amendments.
+  /** Topics (articles) whose title matches `query`, optionally within prototype names `range`. */
+  search_articles({ query = '', range = null, limit = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/articles`, {
+      params: withoutNulls({ q: query, range: Array.isArray(range) && range.length ? range.join(',') : null, limit })
+    });
+  }
+
+  /**
+   * One topic as an article: lead, fields from its prototypes and claims, the
+   * current value and every other version with its provenance.
+   */
+  get_article(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/articles/${encodeURIComponent(uuid)}`);
+  }
+
+  /** Create a topic of a prototype with typed fields. Needs a signed-in owner (401 otherwise). */
+  create_article({ prototype_uuid, title, description = null, fields = null, private: isPrivate = null, allow_duplicate = null, source_url = null, source_title = null, note = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/articles`, {
+      json: withoutNulls({
+        prototypeUuid: prototype_uuid, title, description, fields, private: isPrivate, allowDuplicate: allow_duplicate,
+        sourceUrl: source_url, sourceTitle: source_title, note
+      })
+    });
+  }
+
+  /**
+   * Amend a topic with one typed claim. `replaces_claim` makes it the next
+   * version of that claim; the old value stays readable. Needs a signed-in owner.
+   */
+  amend_article(uuid, { predicate, value_type = null, value = undefined, object_uuid = null, unit = null, lang = null, precision = null, scheme = null, replaces_claim = null, source_url = null, source_title = null, note = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/articles/${encodeURIComponent(uuid)}/claims`, {
+      json: withoutNulls({
+        predicate, valueType: value_type, value, objectUuid: object_uuid, unit, lang, precision, scheme,
+        replacesClaim: replaces_claim, sourceUrl: source_url, sourceTitle: source_title, note
+      })
+    });
+  }
+
+  // DH1: one active prototype per name.
+  /** Public prototype names with more than one active prototype (counts and names only). */
+  get_taxonomy_duplicates() {
+    return this._request('GET', `${this.prototypeApiPrefix}/taxonomy/duplicates`);
+  }
+
+  // Concept identity.
+  /** Resolve a label to its preferred concept (and the caller's personal one) without creating anything. */
+  resolve_concept({ label, ...rest } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/resolve`, { json: withoutNulls({ label, ...camelKeys(rest) }) });
+  }
+
+  /** The identity path of concept creation: the existing concept for this label, or a new one. */
+  find_or_create_concept({ label, ...rest } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/find-or-create`, { json: withoutNulls({ label, ...camelKeys(rest) }) });
+  }
+
+  /** Merge duplicate concepts into a survivor (reversible with `unmerge_concept`). */
+  merge_concepts({ survivor, members = [], score = null, reason = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/merge`, { json: withoutNulls({ survivor, members, score, reason }) });
+  }
+
+  /** Take one member back out of a merge. */
+  unmerge_concept(uuid, { reason = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/${encodeURIComponent(uuid)}/unmerge`, { json: withoutNulls({ reason }) });
+  }
+
+  /** The concepts merged into this one (its variants). */
+  get_concept_variants(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/concepts/${encodeURIComponent(uuid)}/variants`);
+  }
+
+  // Logic IR derivations.
+  /** One recorded derivation, explained. */
+  get_derivation(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/derivations/${encodeURIComponent(uuid)}`);
+  }
+
+  /** The proof tree under a derivation: why a conclusion holds, premise by premise. */
+  get_derivation_tree(uuid, { max_depth = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/derivations/${encodeURIComponent(uuid)}/tree`, {
+      params: withoutNulls({ maxDepth: max_depth })
+    });
+  }
+
+  /** Add a confirmed member to a category's exemplars (moves the centroid, never the definition). */
+  assimilate_exemplar({ subject, category } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/assimilate`, { json: { subject, category } });
+  }
+
+  /** The raw one-trip hydration payload (`hydrate()` wraps it as a KSGObject). */
+  hydrate_entity(entityId, { top_k = null, threshold = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/entities/${encodeURIComponent(entityId)}/hydrate`, {
+      params: withoutNulls({ topK: top_k, threshold })
+    });
+  }
+
+  /**
+   * KT1: a view of this client that acts as one owner. Every method called on
+   * it sends that owner's token (and owner id), so one process can serve many
+   * owners without swapping the client's own token. Without `auth_token` the
+   * view keeps the parent's token. The parent client is not changed.
+   *
+   *   const avery = client.for_owner({ auth_token: averyToken, owner_user_id: 'avery' });
+   *   await avery.search_procedures('order lunch');
+   */
+  for_owner({ auth_token = null, owner_user_id = null, agent_session_id = null } = {}) {
+    const view = Object.create(this);
+    if (auth_token != null) {
+      view.authToken = auth_token;
+      view.tokenProvider = null;
+    }
+    if (owner_user_id != null) view.defaultOwnerUserId = owner_user_id;
+    if (agent_session_id != null) view.defaultAgentSessionId = agent_session_id;
+    return view;
+  }
+
   /**
    * Which stored field does this label name? Ranks property-definition concepts
    * over the same vector index every other search uses, filtered by node role.
@@ -1892,12 +2052,46 @@ export class KnowShowGoClient {
     });
   }
 
-  get_assertions({ subject = null, predicate = null, obj = undefined } = {}) {
+  /**
+   * Claims by subject / predicate / object, or one claim by `uuid`.
+   * `why: true` (WHY1) gives each claim a `why` block: sources with tier and
+   * speaker, version chain, contested peers, model or Logic IR rule, status
+   * with the reason. Another owner's private claim is simply absent.
+   */
+  get_assertions({ subject = null, predicate = null, obj = undefined, uuid = null, why = false } = {}) {
     const params = {};
     if (subject !== null && subject !== undefined) params.subject = subject;
     if (predicate !== null && predicate !== undefined) params.predicate = predicate;
     if (obj !== undefined) params.object = obj;
+    if (uuid) params.uuid = uuid;
+    if (why === true) params.why = 'true';
     return this._request('GET', '/api/assertions', { params }).then(r => r.assertions);
+  }
+
+  /**
+   * WHY1 / KSG-1: "why do we believe this?" for one claim. Returns the claim
+   * with its `why` block (`sources`, `versions`, `contested`, `inference`,
+   * `status: { state, stored, reason }`), or null when there is no such claim
+   * the caller may read.
+   */
+  explain_claim(claim_uuid) {
+    return this._request('GET', '/api2.0/assertions', { params: { uuid: claim_uuid, why: 'true' } })
+      .then(r => (Array.isArray(r?.assertions) && r.assertions[0]) || null);
+  }
+
+  /**
+   * WHY1 / KSG-2: the contradiction inbox — open contested sets the caller may
+   * read (their own private ones and the public ones), each side with its
+   * source and tier, highest tier first. Returns `{ contradictions, total,
+   * truncated }`. Resolve one with `confirm_fact(side_uuid)` (keep that side)
+   * or `correct_fact(side_uuid, { obj })` (another value): a new version
+   * supersedes every side; nothing is deleted.
+   */
+  list_contradictions({ visibility = null, limit = null } = {}) {
+    const params = { contested: 'true' };
+    if (visibility) params.visibility = visibility;
+    if (limit !== null && limit !== undefined) params.limit = limit;
+    return this._request('GET', '/api2.0/assertions', { params });
   }
 
   vote_assertion(assertion_id, { delta = 1 } = {}) {

@@ -1,0 +1,1452 @@
+{
+  "$comment": "CS1: the single capability manifest. Every public /api* route belongs to exactly one capability (tests/api-capabilities-manifest.test.js). It ships in the image and GET /release lists its ids. docs/API-ROUTES.md and docs/CAPABILITIES.md are generated from it (npm run docs:api). knowshowgo-client and OSLO vendor a copy and check their methods and skill docs against it.",
+  "schemaVersion": 1,
+  "audiences": {
+    "agent": "OSLO, OpenClaw and any SDK or MCP caller: every route has a client method or a stated reason in noClient",
+    "experimental": "not for agents yet; no client method required",
+    "admin": "operators with the admin secret",
+    "ops": "deploy checks only"
+  },
+  "capabilities": [
+    {
+      "id": "release",
+      "title": "Release and health",
+      "audience": "agent",
+      "since": "0.2.8",
+      "summary": "What this server is: version, prefixes, token auth, MCP, and the capability list.",
+      "whenToUse": "Read once at start (`get_release_manifest`) to learn the server version and which capabilities it has; never on every turn.",
+      "routes": [
+        "GET /release"
+      ],
+      "client": [
+        "get_release_manifest"
+      ],
+      "clientRoutes": {
+        "get_release_manifest": [
+          "GET /release"
+        ]
+      }
+    },
+    {
+      "id": "auth-tokens",
+      "title": "Owner tokens (KT1)",
+      "audience": "agent",
+      "since": "0.2.8 (tokens); 0.2.55 (gate, log-only); 0.2.56 (gate enforces)",
+      "summary": "Issue, list and revoke per-owner API tokens. With the access gate on, every other /api* call needs one.",
+      "whenToUse": "Give each owner (user) their own token and send it on every call (`set_auth_token` per client, `for_owner({ auth_token })` per owner, or `auth_token` per call). A 401 means no or a revoked token: get a new one; never retry anonymously.",
+      "tokenNote": "The gate lets these through (`open`); the handler itself needs the admin secret (`x-ksg-admin`) or the owner’s own bearer token, so a token is issued by an operator or minted from an existing one.",
+      "routes": [
+        "GET /auth/tokens",
+        "POST /auth/tokens",
+        "POST /auth/tokens/:jti/revoke"
+      ],
+      "client": [
+        "set_auth_token",
+        "for_owner",
+        "list_api_tokens",
+        "create_api_token",
+        "revoke_api_token"
+      ],
+      "clientRoutes": {
+        "list_api_tokens": [
+          "GET /auth/tokens"
+        ],
+        "create_api_token": [
+          "POST /auth/tokens"
+        ],
+        "revoke_api_token": [
+          "POST /auth/tokens/:jti/revoke"
+        ]
+      }
+    },
+    {
+      "id": "semantic-memory",
+      "title": "Semantic memory (remember / recall / ask)",
+      "audience": "agent",
+      "since": "0.2.23",
+      "summary": "Turn chat into claims with provenance and read them back as answers with evidence.",
+      "whenToUse": "Remember what the user said (`semantic_remember`), recall before answering (`semantic_recall`), `semantic_ask` for an answer that says what it rests on; `semantic_correct` when the user corrects a stored value.",
+      "routes": [
+        "GET /personal/recall",
+        "POST /personal/remember",
+        "POST /semantic/ask",
+        "POST /semantic/correct",
+        "GET /semantic/events/:uuid",
+        "POST /semantic/recall",
+        "POST /semantic/remember"
+      ],
+      "client": [
+        "personal_recall",
+        "personal_remember",
+        "semantic_ask",
+        "semantic_correct",
+        "semantic_recall",
+        "semantic_remember"
+      ],
+      "clientRoutes": {
+        "personal_recall": [
+          "GET /personal/recall"
+        ],
+        "personal_remember": [
+          "POST /personal/remember"
+        ],
+        "semantic_ask": [
+          "POST /semantic/ask"
+        ],
+        "semantic_correct": [
+          "POST /semantic/correct"
+        ],
+        "semantic_recall": [
+          "POST /semantic/recall"
+        ],
+        "semantic_remember": [
+          "POST /semantic/remember"
+        ]
+      },
+      "noClient": {
+        "GET /semantic/events/:uuid": "immutable MemoryEvent read; `semantic_recall` returns the events an answer used"
+      }
+    },
+    {
+      "id": "episodes-events",
+      "title": "Episodes and events",
+      "audience": "agent",
+      "since": "0.2.27",
+      "summary": "What happened, as typed events with roles; episodes recalled by meaning.",
+      "whenToUse": "Record a run or an occurrence as an event (`record_event`); `recall_episodes` to find similar past situations before planning.",
+      "routes": [
+        "GET /episodes/:uuid",
+        "POST /episodes/recall",
+        "GET /events",
+        "POST /events",
+        "GET /events/:uuid",
+        "POST /events/repeating"
+      ],
+      "client": [
+        "get_episode",
+        "recall_episodes",
+        "find_events",
+        "record_event",
+        "get_event",
+        "create_repeating_event"
+      ],
+      "clientRoutes": {
+        "get_episode": [
+          "GET /episodes/:uuid"
+        ],
+        "recall_episodes": [
+          "POST /episodes/recall"
+        ],
+        "find_events": [
+          "GET /events"
+        ],
+        "record_event": [
+          "POST /events"
+        ],
+        "get_event": [
+          "GET /events/:uuid"
+        ],
+        "create_repeating_event": [
+          "POST /events/repeating"
+        ]
+      }
+    },
+    {
+      "id": "facts",
+      "title": "Facts with a lifecycle",
+      "audience": "agent",
+      "since": "0.2.31",
+      "summary": "Owner facts that go candidate → verified by confirmation, corrected by a new version.",
+      "whenToUse": "Store a user statement as a fact (`add_fact`); a model guess stays a candidate until `confirm_fact`; `correct_fact` supersedes, never overwrites. On a claim in a contested set (KSG-2), confirm keeps that side and correct sets a new value: either way a new version supersedes every side (owner for a private set, admin token for a public one).",
+      "routes": [
+        "GET /facts",
+        "POST /facts",
+        "GET /facts/:id",
+        "POST /facts/:id/confirm",
+        "POST /facts/:id/correct",
+        "POST /facts/bulk",
+        "GET /facts/stats"
+      ],
+      "client": [
+        "list_facts",
+        "add_fact",
+        "store_fact",
+        "get_fact",
+        "confirm_fact",
+        "correct_fact",
+        "store_facts_bulk",
+        "get_fact_stats"
+      ],
+      "clientRoutes": {
+        "list_facts": [
+          "GET /facts"
+        ],
+        "add_fact": [
+          "POST /facts"
+        ],
+        "store_fact": [
+          "POST /facts"
+        ],
+        "get_fact": [
+          "GET /facts/:id"
+        ],
+        "confirm_fact": [
+          "POST /facts/:id/confirm"
+        ],
+        "correct_fact": [
+          "POST /facts/:id/correct"
+        ],
+        "store_facts_bulk": [
+          "POST /facts/bulk"
+        ],
+        "get_fact_stats": [
+          "GET /facts/stats"
+        ]
+      }
+    },
+    {
+      "id": "assertions",
+      "title": "Assertions and beliefs",
+      "audience": "agent",
+      "since": "0.2.8; unreleased (why and the contradiction inbox, WHY1)",
+      "summary": "Weighted claims with votes, reinforcement, contradiction and retraction; any claim returns why it is believed (sources with tier and speaker, version chain, contested peers, model or Logic IR rule, status with the reason). The contradiction inbox lists the open contested sets (KS-TIER) with both sides’ sources and tiers.",
+      "whenToUse": "Prefer propositions (KG-P1) for new claims; use assertions to reinforce, contradict or retract an existing claim with a reason. To answer \"why do we believe this?\" about one value, `explain_claim(uuid)` (GET /assertions?uuid=…&why=true). To review disagreements, `list_contradictions()` (GET /assertions?contested=true); resolve one with `confirm_fact(side)` or `correct_fact(side, {obj})`, which write a new superseding version, never a delete.",
+      "routes": [
+        "GET /assertions",
+        "POST /assertions",
+        "POST /assertions/:id/retract",
+        "POST /assertions/:id/vote",
+        "POST /assertions/contradict",
+        "POST /assertions/reinforce"
+      ],
+      "client": [
+        "get_assertions",
+        "create_assertion",
+        "retract_assertion",
+        "vote_assertion",
+        "contradict_assertion",
+        "reinforce_assertion",
+        "explain_claim",
+        "list_contradictions"
+      ],
+      "clientRoutes": {
+        "get_assertions": [
+          "GET /assertions"
+        ],
+        "create_assertion": [
+          "POST /assertions"
+        ],
+        "retract_assertion": [
+          "POST /assertions/:id/retract"
+        ],
+        "vote_assertion": [
+          "POST /assertions/:id/vote"
+        ],
+        "contradict_assertion": [
+          "POST /assertions/contradict"
+        ],
+        "reinforce_assertion": [
+          "POST /assertions/reinforce"
+        ],
+        "explain_claim": [
+          "GET /assertions"
+        ],
+        "list_contradictions": [
+          "GET /assertions"
+        ]
+      }
+    },
+    {
+      "id": "propositions",
+      "title": "Propositions (KG-P1) and proposals (CE3d)",
+      "audience": "agent",
+      "since": "0.2.45 (KG-P1); 0.2.49 (CE3d)",
+      "summary": "Claims as subject–predicate–object over three concept uuids, each with a provenance tier; model-made claims are proposals until a public source confirms them.",
+      "whenToUse": "Write a relational claim with `assert_proposition`. A model inference is sent with `source: \"llm:…\"` (tier inferred): it is a proposal, never a fact. `reconcile_inferred_propositions` checks proposals about a name against higher-tier claims; cite the tier in answers.",
+      "routes": [
+        "POST /predicates",
+        "POST /propositions",
+        "GET /propositions/inferred/stats",
+        "POST /propositions/reconcile"
+      ],
+      "client": [
+        "ensure_predicate",
+        "assert_proposition",
+        "get_inferred_proposition_stats",
+        "reconcile_inferred_propositions"
+      ],
+      "clientRoutes": {
+        "ensure_predicate": [
+          "POST /predicates"
+        ],
+        "assert_proposition": [
+          "POST /propositions"
+        ],
+        "get_inferred_proposition_stats": [
+          "GET /propositions/inferred/stats"
+        ],
+        "reconcile_inferred_propositions": [
+          "POST /propositions/reconcile"
+        ]
+      }
+    },
+    {
+      "id": "typed-properties",
+      "title": "Typed property values (TB2 / KV1)",
+      "audience": "agent",
+      "since": "0.2.56 (TB2)",
+      "summary": "A closed list of value types (url, uuid ref, number, date, time, …), declared properties with cardinality and range, a prototype’s field list.",
+      "whenToUse": "Before writing a property, read its type (`list_value_types`, `get_prototype_fields`); declare a missing one with `declare_predicate` (an existing name is returned, not duplicated).",
+      "routes": [
+        "GET /predicates",
+        "POST /predicates/declare",
+        "GET /prototypes/:uuid/fields",
+        "GET /value-types"
+      ],
+      "client": [
+        "search_predicates",
+        "declare_predicate",
+        "get_prototype_fields",
+        "list_value_types"
+      ],
+      "clientRoutes": {
+        "search_predicates": [
+          "GET /predicates"
+        ],
+        "declare_predicate": [
+          "POST /predicates/declare"
+        ],
+        "get_prototype_fields": [
+          "GET /prototypes/:uuid/fields"
+        ],
+        "list_value_types": [
+          "GET /value-types"
+        ]
+      }
+    },
+    {
+      "id": "articles",
+      "title": "Topic articles and amendments (TB2)",
+      "audience": "agent",
+      "since": "0.2.56 (TB2)",
+      "summary": "A topic read like an article: fields from its prototypes and claims, the current value and every other version with its provenance; amend by adding a claim.",
+      "whenToUse": "Read a topic for a person (`get_article`); amend with `amend_article` and `replaces_claim` to version a value (the old one stays readable). Needs a signed-in owner (401 otherwise).",
+      "routes": [
+        "GET /articles",
+        "POST /articles",
+        "GET /articles/:uuid",
+        "POST /articles/:uuid/claims"
+      ],
+      "client": [
+        "search_articles",
+        "create_article",
+        "get_article",
+        "amend_article"
+      ],
+      "clientRoutes": {
+        "search_articles": [
+          "GET /articles"
+        ],
+        "create_article": [
+          "POST /articles"
+        ],
+        "get_article": [
+          "GET /articles/:uuid"
+        ],
+        "amend_article": [
+          "POST /articles/:uuid/claims"
+        ]
+      }
+    },
+    {
+      "id": "concepts",
+      "title": "Concepts and lookup (CE3a / CE3c)",
+      "audience": "agent",
+      "since": "0.2.8; 0.2.46 (lookup writes propositions)",
+      "summary": "Find, create, resolve, merge and unmerge concepts; look an unknown term up in Wikidata (links written as propositions) and ConceptNet (`commonly_a` edges as weighted, attributed claims).",
+      "whenToUse": "Resolve a name before creating (`resolve_concept`, then `find_or_create_concept`); `lookup_concept` for a public term the graph lacks; merge duplicates with `merge_concepts` (reversible with `unmerge_concept`).",
+      "routes": [
+        "POST /concepts",
+        "GET /concepts/:uuid",
+        "POST /concepts/:uuid/unmerge",
+        "GET /concepts/:uuid/variants",
+        "POST /concepts/find-or-create",
+        "POST /concepts/lookup",
+        "POST /concepts/merge",
+        "POST /concepts/resolve",
+        "POST /concepts/search"
+      ],
+      "client": [
+        "create_concept",
+        "get_concept",
+        "unmerge_concept",
+        "get_concept_variants",
+        "find_or_create_concept",
+        "lookup_concept",
+        "merge_concepts",
+        "resolve_concept",
+        "search_concepts"
+      ],
+      "clientRoutes": {
+        "create_concept": [
+          "POST /concepts"
+        ],
+        "get_concept": [
+          "GET /concepts/:uuid"
+        ],
+        "unmerge_concept": [
+          "POST /concepts/:uuid/unmerge"
+        ],
+        "get_concept_variants": [
+          "GET /concepts/:uuid/variants"
+        ],
+        "find_or_create_concept": [
+          "POST /concepts/find-or-create"
+        ],
+        "lookup_concept": [
+          "POST /concepts/lookup"
+        ],
+        "merge_concepts": [
+          "POST /concepts/merge"
+        ],
+        "resolve_concept": [
+          "POST /concepts/resolve"
+        ],
+        "search_concepts": [
+          "POST /concepts/search"
+        ]
+      }
+    },
+    {
+      "id": "topics-tags",
+      "title": "Topics, tags and concept objects",
+      "audience": "agent",
+      "since": "0.2.21",
+      "summary": "Topics as named concept objects; tag resolution and suggestions.",
+      "whenToUse": "Resolve a free-text tag to a topic (`resolve_topic_tag`) before creating a new one; `suggest_concept_objects` for candidates.",
+      "routes": [
+        "POST /concept-objects/search",
+        "POST /concept-objects/suggest",
+        "POST /concept-objects/suggest-prototypes",
+        "POST /knodes",
+        "POST /nodes",
+        "POST /nodes/:uuid/embedding",
+        "POST /tags/resolve",
+        "POST /tags/suggest",
+        "POST /topics",
+        "GET /topics/:uuid",
+        "POST /topics/resolve-tag"
+      ],
+      "client": [
+        "search_concept_objects",
+        "suggest_concept_objects",
+        "suggest_concept_object_prototypes",
+        "create_knode",
+        "create_node_with_document",
+        "update_node_embedding",
+        "create_topic",
+        "get_topic",
+        "resolve_topic_tag"
+      ],
+      "clientRoutes": {
+        "search_concept_objects": [
+          "POST /concept-objects/search"
+        ],
+        "suggest_concept_objects": [
+          "POST /concept-objects/suggest"
+        ],
+        "suggest_concept_object_prototypes": [
+          "POST /concept-objects/suggest-prototypes"
+        ],
+        "create_knode": [
+          "POST /knodes"
+        ],
+        "create_node_with_document": [
+          "POST /nodes"
+        ],
+        "update_node_embedding": [
+          "POST /nodes/:uuid/embedding"
+        ],
+        "create_topic": [
+          "POST /topics"
+        ],
+        "get_topic": [
+          "GET /topics/:uuid"
+        ],
+        "resolve_topic_tag": [
+          "POST /topics/resolve-tag"
+        ]
+      },
+      "noClient": {
+        "POST /tags/resolve": "alias of POST /topics/resolve-tag (`resolve_topic_tag`)",
+        "POST /tags/suggest": "alias of POST /concept-objects/suggest (`suggest_concept_objects`)"
+      }
+    },
+    {
+      "id": "knowledge-search",
+      "title": "Knowledge search (KL2 vectors), query, grounding",
+      "audience": "agent",
+      "since": "0.2.34; 0.2.51 (vector reads)",
+      "summary": "Semantic search over knowledge (vector rows by default), structured query, grounding and slot resolution.",
+      "whenToUse": "Use `search_knowledge` for a fuzzy question; for a relational one prefer `bind_pattern` (exact, explainable). `ground` to tie a phrase to known concepts.",
+      "routes": [
+        "POST /ground",
+        "POST /knowledge/search",
+        "POST /query",
+        "POST /slots/resolve"
+      ],
+      "client": [
+        "ground",
+        "search_knowledge",
+        "query_graph",
+        "resolve_slots"
+      ],
+      "clientRoutes": {
+        "ground": [
+          "POST /ground"
+        ],
+        "search_knowledge": [
+          "POST /knowledge/search"
+        ],
+        "query_graph": [
+          "POST /query"
+        ],
+        "resolve_slots": [
+          "POST /slots/resolve"
+        ]
+      }
+    },
+    {
+      "id": "verification",
+      "title": "Verification",
+      "audience": "agent",
+      "since": "0.2.27",
+      "summary": "Check a claim or an answer against stored evidence; unknown beats invented.",
+      "whenToUse": "Before stating a fact as true, `verify_answer`; \"unknown\" means say you do not know.",
+      "routes": [
+        "POST /verify",
+        "POST /verify/answer"
+      ],
+      "client": [
+        "verify",
+        "verify_answer"
+      ],
+      "clientRoutes": {
+        "verify": [
+          "POST /verify"
+        ],
+        "verify_answer": [
+          "POST /verify/answer"
+        ]
+      }
+    },
+    {
+      "id": "entities",
+      "title": "Entities: beliefs, evidence, explanation",
+      "audience": "agent",
+      "since": "0.2.27",
+      "summary": "Everything known about one thing: types, properties, beliefs, evidence, explanation and a one-trip hydration.",
+      "whenToUse": "To answer \"why do you think that\" use `explain_entity` / `get_evidence`; `hydrate_entity` for a full projection in one call.",
+      "routes": [
+        "GET /entities/:id/beliefs",
+        "GET /entities/:id/evidence",
+        "GET /entities/:id/explain",
+        "GET /entities/:id/hydrate",
+        "GET /entities/:id/properties",
+        "GET /entities/:id/snapshot",
+        "GET /entities/:id/types"
+      ],
+      "client": [
+        "get_beliefs",
+        "get_evidence",
+        "explain_entity",
+        "hydrate_entity",
+        "get_entity_properties",
+        "get_snapshot",
+        "get_entity_types"
+      ],
+      "clientRoutes": {
+        "get_beliefs": [
+          "GET /entities/:id/beliefs"
+        ],
+        "get_evidence": [
+          "GET /entities/:id/evidence"
+        ],
+        "explain_entity": [
+          "GET /entities/:id/explain"
+        ],
+        "hydrate_entity": [
+          "GET /entities/:id/hydrate"
+        ],
+        "get_entity_properties": [
+          "GET /entities/:id/properties"
+        ],
+        "get_snapshot": [
+          "GET /entities/:id/snapshot"
+        ],
+        "get_entity_types": [
+          "GET /entities/:id/types"
+        ]
+      }
+    },
+    {
+      "id": "logic",
+      "title": "Logic over the graph",
+      "audience": "agent",
+      "since": "0.2.27; 0.2.43 (joins); 0.2.45 (closure)",
+      "summary": "Pattern binding, transitive closure, relational joins, rules with derivations you can read back.",
+      "whenToUse": "Prefer `bind_pattern` over free text for relational questions (\"who works at Contoso\"); `close_relation` for chains (part_of, subclass_of); `evaluate_joins` across two relations; `get_derivation_tree` to show why.",
+      "routes": [
+        "POST /logic-ir/bind",
+        "POST /logic-ir/closure",
+        "GET /logic-ir/derivations",
+        "GET /logic-ir/derivations/:uuid",
+        "GET /logic-ir/derivations/:uuid/tree",
+        "POST /logic-ir/evaluate",
+        "POST /logic-ir/fixpoint",
+        "POST /logic-ir/infer",
+        "POST /logic-ir/joins",
+        "GET /logic-ir/rules",
+        "POST /logic-ir/rules",
+        "GET /logic-ir/rules/:uuid",
+        "POST /logic-ir/rules/:uuid/apply",
+        "POST /logic-ir/rules/:uuid/enabled",
+        "POST /logic-ir/rules/check",
+        "POST /logic/syllogisms",
+        "GET /logic/syllogisms/:uuid"
+      ],
+      "client": [
+        "bind_pattern",
+        "close_relation",
+        "listDerivations",
+        "get_derivation",
+        "get_derivation_tree",
+        "evaluateLogicIr",
+        "saturate_rules",
+        "evaluateLogicInference",
+        "evaluate_joins",
+        "list_rules",
+        "create_rule",
+        "get_rule",
+        "apply_rule",
+        "set_rule_enabled",
+        "check_rules",
+        "create_syllogism",
+        "get_syllogism"
+      ],
+      "clientRoutes": {
+        "bind_pattern": [
+          "POST /logic-ir/bind"
+        ],
+        "close_relation": [
+          "POST /logic-ir/closure"
+        ],
+        "listDerivations": [
+          "GET /logic-ir/derivations"
+        ],
+        "get_derivation": [
+          "GET /logic-ir/derivations/:uuid"
+        ],
+        "get_derivation_tree": [
+          "GET /logic-ir/derivations/:uuid/tree"
+        ],
+        "evaluateLogicIr": [
+          "POST /logic-ir/evaluate"
+        ],
+        "saturate_rules": [
+          "POST /logic-ir/fixpoint"
+        ],
+        "evaluateLogicInference": [
+          "POST /logic-ir/infer"
+        ],
+        "evaluate_joins": [
+          "POST /logic-ir/joins"
+        ],
+        "list_rules": [
+          "GET /logic-ir/rules"
+        ],
+        "create_rule": [
+          "POST /logic-ir/rules"
+        ],
+        "get_rule": [
+          "GET /logic-ir/rules/:uuid"
+        ],
+        "apply_rule": [
+          "POST /logic-ir/rules/:uuid/apply"
+        ],
+        "set_rule_enabled": [
+          "POST /logic-ir/rules/:uuid/enabled"
+        ],
+        "check_rules": [
+          "POST /logic-ir/rules/check"
+        ],
+        "create_syllogism": [
+          "POST /logic/syllogisms"
+        ],
+        "get_syllogism": [
+          "GET /logic/syllogisms/:uuid"
+        ]
+      }
+    },
+    {
+      "id": "prototypes",
+      "title": "Prototypes, matching and typicality (SX1)",
+      "audience": "agent",
+      "since": "0.2.27; 0.2.50 (SX1 exemplars and centroids)",
+      "summary": "Categories as a definition plus exemplars and a centroid; match a thing to categories with graded typicality; membership with evidence.",
+      "whenToUse": "`match_prototypes` to type an unknown thing (ranked, with typicality); `check_membership` for a yes/no with evidence — typicality is not membership; `assimilate_exemplar` to add a confirmed member.",
+      "routes": [
+        "POST /prototype-matches/cast",
+        "POST /prototype-matches/evaluate",
+        "POST /prototype-matches/list",
+        "POST /prototypes",
+        "GET /prototypes/:uuid",
+        "POST /prototypes/:uuid/exemplars",
+        "POST /prototypes/assimilate",
+        "POST /prototypes/generalize",
+        "POST /prototypes/match",
+        "POST /prototypes/membership",
+        "GET /prototypes/search",
+        "POST /prototypes/search"
+      ],
+      "client": [
+        "cast_object",
+        "evaluatePrototypeMatch",
+        "evaluatePrototypeMatchList",
+        "create_prototype",
+        "get_prototype",
+        "attach_exemplar",
+        "assimilate_exemplar",
+        "generalize_from_exemplar",
+        "match_prototypes",
+        "check_membership",
+        "search_prototypes"
+      ],
+      "clientRoutes": {
+        "cast_object": [
+          "POST /prototype-matches/cast"
+        ],
+        "evaluatePrototypeMatch": [
+          "POST /prototype-matches/evaluate"
+        ],
+        "evaluatePrototypeMatchList": [
+          "POST /prototype-matches/list"
+        ],
+        "create_prototype": [
+          "POST /prototypes"
+        ],
+        "get_prototype": [
+          "GET /prototypes/:uuid"
+        ],
+        "attach_exemplar": [
+          "POST /prototypes/:uuid/exemplars"
+        ],
+        "assimilate_exemplar": [
+          "POST /prototypes/assimilate"
+        ],
+        "generalize_from_exemplar": [
+          "POST /prototypes/generalize"
+        ],
+        "match_prototypes": [
+          "POST /prototypes/match"
+        ],
+        "check_membership": [
+          "POST /prototypes/membership"
+        ],
+        "search_prototypes": [
+          "POST /prototypes/search"
+        ]
+      },
+      "noClient": {
+        "GET /prototypes/search": "same handler as POST /prototypes/search (`search_prototypes`)"
+      }
+    },
+    {
+      "id": "taxonomy",
+      "title": "Taxonomy reader (DH1 duplicates)",
+      "audience": "agent",
+      "since": "0.2.52; 0.2.57 (duplicates)",
+      "summary": "The category tree, a prototype’s definition, centroid, properties and exemplars, a node’s propositions; duplicate prototype names.",
+      "whenToUse": "`get_taxonomy` to browse; `get_taxonomy_prototype` for what a category means; `get_taxonomy_duplicates` before seeding a prototype by name.",
+      "routes": [
+        "GET /taxonomy",
+        "GET /taxonomy/duplicates",
+        "GET /taxonomy/nodes/:uuid",
+        "GET /taxonomy/prototypes/:uuid"
+      ],
+      "client": [
+        "get_taxonomy",
+        "get_taxonomy_duplicates",
+        "get_taxonomy_node",
+        "get_taxonomy_prototype"
+      ],
+      "clientRoutes": {
+        "get_taxonomy": [
+          "GET /taxonomy"
+        ],
+        "get_taxonomy_duplicates": [
+          "GET /taxonomy/duplicates"
+        ],
+        "get_taxonomy_node": [
+          "GET /taxonomy/nodes/:uuid"
+        ],
+        "get_taxonomy_prototype": [
+          "GET /taxonomy/prototypes/:uuid"
+        ]
+      }
+    },
+    {
+      "id": "objects",
+      "title": "Objects, categories, ORM and composites",
+      "audience": "agent",
+      "since": "0.2.8",
+      "summary": "Typed objects upserted by identity, object categories, ORM-style instances, composites and memory roles.",
+      "whenToUse": "Use `upsert_object` for a record with a stable identity (a company, a portal); `resolve_object` before writing.",
+      "routes": [
+        "POST /composites",
+        "GET /composites/:uuid",
+        "POST /composites/:uuid/components/:componentUuid/update",
+        "GET /memory/:uuid",
+        "POST /memory/instantiate",
+        "GET /memory/roles",
+        "GET /object-categories",
+        "POST /object-categories",
+        "GET /object-categories/:uuid",
+        "POST /object-categories/upsert",
+        "GET /objects",
+        "GET /objects/:uuid",
+        "POST /objects/generalize",
+        "POST /objects/resolve",
+        "POST /objects/upsert",
+        "GET /orm/:prototypeName/:uuid",
+        "POST /orm/:prototypeName/create",
+        "POST /orm/register"
+      ],
+      "client": [
+        "create_composite",
+        "get_composite",
+        "get_memory_object",
+        "instantiate_memory",
+        "list_memory_roles",
+        "list_object_categories",
+        "create_object_category",
+        "get_object_category",
+        "upsert_object_category",
+        "list_objects",
+        "get_object",
+        "generalize_object",
+        "resolve_object",
+        "upsert_object",
+        "get_instance",
+        "create_instance",
+        "register_prototype"
+      ],
+      "clientRoutes": {
+        "create_composite": [
+          "POST /composites"
+        ],
+        "get_composite": [
+          "GET /composites/:uuid"
+        ],
+        "get_memory_object": [
+          "GET /memory/:uuid"
+        ],
+        "instantiate_memory": [
+          "POST /memory/instantiate"
+        ],
+        "list_memory_roles": [
+          "GET /memory/roles"
+        ],
+        "list_object_categories": [
+          "GET /object-categories"
+        ],
+        "create_object_category": [
+          "POST /object-categories"
+        ],
+        "get_object_category": [
+          "GET /object-categories/:uuid"
+        ],
+        "upsert_object_category": [
+          "POST /object-categories/upsert"
+        ],
+        "list_objects": [
+          "GET /objects"
+        ],
+        "get_object": [
+          "GET /objects/:uuid"
+        ],
+        "generalize_object": [
+          "POST /objects/generalize"
+        ],
+        "resolve_object": [
+          "POST /objects/resolve"
+        ],
+        "upsert_object": [
+          "POST /objects/upsert"
+        ],
+        "get_instance": [
+          "GET /orm/:prototypeName/:uuid"
+        ],
+        "create_instance": [
+          "POST /orm/:prototypeName/create"
+        ],
+        "register_prototype": [
+          "POST /orm/register"
+        ]
+      },
+      "noClient": {
+        "POST /composites/:uuid/components/:componentUuid/update": "legacy /api only; composites are rewritten by `create_composite`"
+      }
+    },
+    {
+      "id": "procedures",
+      "title": "Procedures (KL1 search, RP1 lifecycle, versions)",
+      "audience": "agent",
+      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1)",
+      "summary": "Stored procedures with runs, versions (candidate → validated → promoted → retired) and lifecycle-safe search.",
+      "whenToUse": "Recall with `search_verified_procedures` (verified only) or `search_procedures` (verified + drafts; `include: \"retired\"|\"all\"` only to audit). Follow a retired hit’s `replacedBy`. Record every run (`record_procedure_run`) with an independent outcome signal.",
+      "routes": [
+        "GET /procedure-versions/:uuid",
+        "POST /procedure-versions/:uuid/status",
+        "GET /procedures",
+        "POST /procedures",
+        "GET /procedures/:uuid",
+        "PUT /procedures/:uuid/dag",
+        "GET /procedures/:uuid/evaluation",
+        "POST /procedures/:uuid/generalize",
+        "POST /procedures/:uuid/repair-selector",
+        "POST /procedures/:uuid/runs",
+        "POST /procedures/:uuid/steps",
+        "GET /procedures/:uuid/versions",
+        "POST /procedures/:uuid/versions",
+        "GET /procedures/:uuid/versions/:version",
+        "POST /procedures/import-json",
+        "GET /procedures/search",
+        "POST /procedures/search"
+      ],
+      "client": [
+        "get_procedure_version",
+        "transition_procedure_version",
+        "list_procedures",
+        "create_procedure",
+        "list_procedure_runs",
+        "get_procedure",
+        "put_procedure_dag",
+        "get_procedure_evaluation",
+        "generalize_procedure",
+        "repair_procedure_selector",
+        "record_procedure_run",
+        "add_procedure_step",
+        "list_procedure_versions",
+        "create_procedure_version",
+        "get_procedure_version_by_number",
+        "import_procedure_json",
+        "search_verified_procedures",
+        "search_procedures"
+      ],
+      "clientRoutes": {
+        "get_procedure_version": [
+          "GET /procedure-versions/:uuid"
+        ],
+        "transition_procedure_version": [
+          "POST /procedure-versions/:uuid/status"
+        ],
+        "list_procedures": [
+          "GET /procedures"
+        ],
+        "create_procedure": [
+          "POST /procedures"
+        ],
+        "list_procedure_runs": [
+          "GET /procedures/:uuid"
+        ],
+        "get_procedure": [
+          "GET /procedures/:uuid"
+        ],
+        "put_procedure_dag": [
+          "PUT /procedures/:uuid/dag"
+        ],
+        "get_procedure_evaluation": [
+          "GET /procedures/:uuid/evaluation"
+        ],
+        "generalize_procedure": [
+          "POST /procedures/:uuid/generalize"
+        ],
+        "repair_procedure_selector": [
+          "POST /procedures/:uuid/repair-selector"
+        ],
+        "record_procedure_run": [
+          "POST /procedures/:uuid/runs"
+        ],
+        "add_procedure_step": [
+          "POST /procedures/:uuid/steps"
+        ],
+        "list_procedure_versions": [
+          "GET /procedures/:uuid/versions"
+        ],
+        "create_procedure_version": [
+          "POST /procedures/:uuid/versions"
+        ],
+        "get_procedure_version_by_number": [
+          "GET /procedures/:uuid/versions/:version"
+        ],
+        "import_procedure_json": [
+          "POST /procedures/import-json"
+        ],
+        "search_verified_procedures": [
+          "GET /procedures/search"
+        ],
+        "search_procedures": [
+          "POST /procedures/search"
+        ]
+      }
+    },
+    {
+      "id": "social",
+      "title": "Channels, ratings, associations, market",
+      "audience": "agent",
+      "since": "0.2.21",
+      "summary": "Social layer: channel messages and feeds, ratings, associations, market matches.",
+      "whenToUse": "Only for multi-agent or marketplace flows; not needed for personal memory.",
+      "routes": [
+        "POST /associations",
+        "GET /associations/:uuid",
+        "GET /channels/feed",
+        "POST /channels/messages",
+        "POST /channels/subscribe",
+        "POST /market/matches/register",
+        "POST /market/matches/search",
+        "GET /ratings/:uuid",
+        "POST /ratings/:uuid"
+      ],
+      "client": [
+        "add_association",
+        "get_associations",
+        "get_channel_feed",
+        "post_channel_message",
+        "subscribe_channel",
+        "register_market_match",
+        "search_market_matches",
+        "get_ratings",
+        "rate_entity"
+      ],
+      "clientRoutes": {
+        "add_association": [
+          "POST /associations"
+        ],
+        "get_associations": [
+          "GET /associations/:uuid"
+        ],
+        "get_channel_feed": [
+          "GET /channels/feed"
+        ],
+        "post_channel_message": [
+          "POST /channels/messages"
+        ],
+        "subscribe_channel": [
+          "POST /channels/subscribe"
+        ],
+        "register_market_match": [
+          "POST /market/matches/register"
+        ],
+        "search_market_matches": [
+          "POST /market/matches/search"
+        ],
+        "get_ratings": [
+          "GET /ratings/:uuid"
+        ],
+        "rate_entity": [
+          "POST /ratings/:uuid"
+        ]
+      }
+    },
+    {
+      "id": "private-vaults",
+      "title": "Private payment vault",
+      "audience": "agent",
+      "since": "0.2.8",
+      "summary": "Owner-only payment records; never embedded, never returned to another owner.",
+      "whenToUse": "Only through OSLO’s vault tools with an approval gate; never put a card in a prompt.",
+      "routes": [
+        "GET /private/payment/:uuid",
+        "POST /private/payment/ingest",
+        "POST /private/payment/lookup",
+        "GET /private/payments",
+        "POST /vaults"
+      ],
+      "client": [
+        "get_private_payment",
+        "ingest_private_payment",
+        "lookup_private_payment",
+        "list_private_payments",
+        "create_vault"
+      ],
+      "clientRoutes": {
+        "get_private_payment": [
+          "GET /private/payment/:uuid"
+        ],
+        "ingest_private_payment": [
+          "POST /private/payment/ingest"
+        ],
+        "lookup_private_payment": [
+          "POST /private/payment/lookup"
+        ],
+        "list_private_payments": [
+          "GET /private/payments"
+        ],
+        "create_vault": [
+          "POST /vaults"
+        ]
+      }
+    },
+    {
+      "id": "capability-model",
+      "title": "Agent capability model (experimental)",
+      "audience": "experimental",
+      "since": "0.2.21",
+      "summary": "Provider-neutral capability declarations and the composable runtime schema.",
+      "whenToUse": "Not for agents yet; no SDK method.",
+      "routes": [
+        "GET /capabilities",
+        "POST /capabilities",
+        "GET /capabilities/:name",
+        "POST /composition/schema",
+        "POST /procedure-versions",
+        "POST /seed/capability-model"
+      ],
+      "client": []
+    },
+    {
+      "id": "feedback",
+      "title": "Feedback tickets",
+      "audience": "agent",
+      "since": "0.2.33",
+      "summary": "Bug, idea or question tickets filed by MCP callers and OSLO’s report button; listed with the admin token.",
+      "whenToUse": "File a ticket when KSG answers wrongly (MCP `feedback` tool).",
+      "routes": [
+        "GET /feedback",
+        "POST /feedback"
+      ],
+      "client": [],
+      "noClient": {
+        "GET /feedback": "admin listing (admin secret)",
+        "POST /feedback": "filed by the MCP `feedback` tool and OSLO’s report button"
+      }
+    },
+    {
+      "id": "seed",
+      "title": "Seeds (schema.org, SX1 exemplars, primitives)",
+      "audience": "admin",
+      "since": "0.2.46 (schema.org); 0.2.50 (SX1)",
+      "summary": "Idempotent seeds: schema.org prototypes, Wikidata exemplars and centroids, agent and logic primitives.",
+      "whenToUse": "Operators and boot only; agents read the result through taxonomy and prototypes.",
+      "routes": [
+        "POST /seed/logic-ir-primitives",
+        "POST /seed/openclaw-agent",
+        "POST /seed/osl-agent",
+        "POST /seed/osl-oc-agent",
+        "POST /seed/procedure-run-primitives",
+        "POST /seed/schemaorg",
+        "GET /seed/schemaorg/exemplars",
+        "POST /seed/schemaorg/exemplars",
+        "POST /seed/social-layer"
+      ],
+      "client": [
+        "seed_logic_ir_primitives",
+        "seed_openclaw_agent",
+        "seed_osl_agent",
+        "seed_osl_oc_agent",
+        "seed_procedure_run_primitives",
+        "seed_social_layer"
+      ],
+      "clientRoutes": {
+        "seed_logic_ir_primitives": [
+          "POST /seed/logic-ir-primitives"
+        ],
+        "seed_openclaw_agent": [
+          "POST /seed/openclaw-agent"
+        ],
+        "seed_osl_agent": [
+          "POST /seed/osl-agent"
+        ],
+        "seed_osl_oc_agent": [
+          "POST /seed/osl-oc-agent"
+        ],
+        "seed_procedure_run_primitives": [
+          "POST /seed/procedure-run-primitives"
+        ],
+        "seed_social_layer": [
+          "POST /seed/social-layer"
+        ]
+      }
+    },
+    {
+      "id": "admin-ops",
+      "title": "Admin and ops",
+      "audience": "admin",
+      "since": "0.2.27",
+      "summary": "Access-gate counters, graph stats, usage, search-miss ledger and lookup drain.",
+      "whenToUse": "Operators with the admin secret; not for agents.",
+      "routes": [
+        "GET /admin/access-gate",
+        "GET /admin/graph-stats",
+        "GET /admin/usage",
+        "POST /concepts/lookup/drain-misses",
+        "GET /ops/search-misses",
+        "POST /ops/search-misses/resolve"
+      ],
+      "client": [
+        "get_admin_usage"
+      ],
+      "clientRoutes": {
+        "get_admin_usage": [
+          "GET /admin/usage"
+        ]
+      },
+      "noClient": {
+        "POST /concepts/lookup/drain-misses": "admin"
+      }
+    },
+    {
+      "id": "deploy-probes",
+      "title": "Deploy probes",
+      "audience": "ops",
+      "since": "0.2.8",
+      "summary": "Echo endpoints used once by deploy checks. Flagged: candidates for removal (backlog).",
+      "whenToUse": "Never from an agent.",
+      "routes": [
+        "GET /dummy",
+        "GET /hotfix-test"
+      ],
+      "client": []
+    }
+  ],
+  "features": [
+    {
+      "id": "kg-p1",
+      "title": "Claims as propositions over concept uuids",
+      "since": "0.2.45",
+      "capability": "propositions",
+      "client": [
+        "assert_proposition",
+        "ensure_predicate"
+      ],
+      "whenToUse": "Every relational claim; the subject, predicate and object are concept uuids, not strings."
+    },
+    {
+      "id": "ce3d-proposals",
+      "title": "Model proposals confirmed by a public source",
+      "since": "0.2.49",
+      "capability": "propositions",
+      "client": [
+        "assert_proposition",
+        "reconcile_inferred_propositions",
+        "get_inferred_proposition_stats"
+      ],
+      "whenToUse": "Propose facts via proposals (tier inferred); never assert a model inference as a fact. Stats count proposals, confirmations and contradictions."
+    },
+    {
+      "id": "bind-pattern",
+      "title": "Pattern binding",
+      "since": "0.2.27",
+      "capability": "logic",
+      "client": [
+        "bind_pattern"
+      ],
+      "whenToUse": "Prefer over free-text search for any relational question."
+    },
+    {
+      "id": "close-relation",
+      "title": "Transitive closure",
+      "since": "0.2.45",
+      "capability": "logic",
+      "client": [
+        "close_relation"
+      ],
+      "whenToUse": "Chains: part_of, subclass_of, located_in."
+    },
+    {
+      "id": "evaluate-joins",
+      "title": "Relational joins",
+      "since": "0.2.43",
+      "capability": "logic",
+      "client": [
+        "evaluate_joins"
+      ],
+      "whenToUse": "A question that crosses two relations (\"employees of companies in Contoso’s region\")."
+    },
+    {
+      "id": "check-membership",
+      "title": "Membership with evidence (typicality is not membership)",
+      "since": "0.2.27",
+      "capability": "prototypes",
+      "client": [
+        "check_membership"
+      ],
+      "whenToUse": "Yes/no category membership; read `evidence`, not the score."
+    },
+    {
+      "id": "match-prototypes",
+      "title": "Prototype matching with typicality",
+      "since": "0.2.27",
+      "capability": "prototypes",
+      "client": [
+        "match_prototypes"
+      ],
+      "whenToUse": "Type an unknown thing; ranked categories with typicality."
+    },
+    {
+      "id": "sx1-exemplars",
+      "title": "Seeded exemplars and centroids (schema.org + Wikidata)",
+      "since": "0.2.50",
+      "capability": "prototypes",
+      "client": [
+        "get_taxonomy_prototype",
+        "match_prototypes"
+      ],
+      "whenToUse": "Categories start with a meaning and members; read them in `get_taxonomy_prototype`."
+    },
+    {
+      "id": "schemaorg-seed",
+      "title": "schema.org prototypes",
+      "since": "0.2.46",
+      "capability": "seed",
+      "client": [],
+      "whenToUse": "Operators seed; agents use the categories through taxonomy and prototypes."
+    },
+    {
+      "id": "taxonomy-reader",
+      "title": "Taxonomy tree, prototype and node views",
+      "since": "0.2.52",
+      "capability": "taxonomy",
+      "client": [
+        "get_taxonomy",
+        "get_taxonomy_prototype",
+        "get_taxonomy_node"
+      ],
+      "whenToUse": "Browse categories; read a node’s propositions with status, truth and provenance."
+    },
+    {
+      "id": "ce3a-wikidata",
+      "title": "Wikidata lookup writes propositions",
+      "since": "0.2.46",
+      "capability": "concepts",
+      "client": [
+        "lookup_concept"
+      ],
+      "whenToUse": "A public term the graph lacks; links come back as is_a / subclass_of / part_of claims with the source."
+    },
+    {
+      "id": "ce3c-conceptnet",
+      "title": "ConceptNet commonly_a common sense",
+      "since": "0.2.46 (on by default 0.2.48)",
+      "capability": "concepts",
+      "client": [
+        "lookup_concept"
+      ],
+      "whenToUse": "Common-sense edges (`commonly_a`) are weighted, attributed and never facts about a specific person."
+    },
+    {
+      "id": "kl1-procedure-search",
+      "title": "Procedure search scoped and indexed",
+      "since": "0.2.47",
+      "capability": "procedures",
+      "client": [
+        "search_procedures",
+        "search_verified_procedures"
+      ],
+      "whenToUse": "Recall a procedure for a goal and site."
+    },
+    {
+      "id": "rp1-retired-opt-in",
+      "title": "Retired procedures are opt-in",
+      "since": "0.2.48",
+      "capability": "procedures",
+      "client": [
+        "search_procedures"
+      ],
+      "whenToUse": "Default search leaves retired procedures out; `include: \"retired\"|\"all\"` only to audit."
+    },
+    {
+      "id": "kl2-vector-search",
+      "title": "Vector rows for concept and knowledge search",
+      "since": "0.2.50 (reads 0.2.51)",
+      "capability": "knowledge-search",
+      "client": [
+        "search_concepts",
+        "search_knowledge"
+      ],
+      "whenToUse": "Nothing to change in the call; search is faster and reads the vector rows."
+    },
+    {
+      "id": "kv1-value-types",
+      "title": "Typed property values",
+      "since": "0.2.56 (TB2)",
+      "capability": "typed-properties",
+      "client": [
+        "list_value_types",
+        "declare_predicate",
+        "get_prototype_fields"
+      ],
+      "whenToUse": "Write values in their declared type (url, uuid ref, number, date, time…); a wrong type is refused with 422."
+    },
+    {
+      "id": "tb2-versions",
+      "title": "Version chains and amendments",
+      "since": "0.2.56 (TB2)",
+      "capability": "articles",
+      "client": [
+        "get_article",
+        "amend_article"
+      ],
+      "whenToUse": "Amend, never overwrite: `replaces_claim` keeps the old value readable as a version."
+    },
+    {
+      "id": "kt1-tokens",
+      "title": "Per-owner tokens, 401 at the edge",
+      "since": "0.2.55 (log-only); 0.2.56 (enforce)",
+      "capability": "auth-tokens",
+      "client": [
+        "set_auth_token",
+        "for_owner",
+        "create_api_token",
+        "revoke_api_token"
+      ],
+      "whenToUse": "One token per owner; a 401 is a missing or revoked token, not a server fault."
+    },
+    {
+      "id": "dh1-supersede",
+      "title": "Supersede, never delete (replacedBy)",
+      "since": "0.2.57 (DH1)",
+      "capability": "taxonomy",
+      "client": [
+        "get_taxonomy_duplicates",
+        "search_procedures"
+      ],
+      "whenToUse": "A duplicate or outdated record is superseded with `replacedBy`; follow it, and never ask KSG to delete."
+    },
+    {
+      "id": "why1-derivation",
+      "title": "Why do we believe this? (KSG-1)",
+      "since": "unreleased (WHY1)",
+      "capability": "assertions",
+      "client": [
+        "explain_claim",
+        "get_assertions"
+      ],
+      "whenToUse": "Before relying on or showing a value, read its `why`: a `contested` or `candidate` status means say so, not state it as fact; cite `sources` and their tiers."
+    },
+    {
+      "id": "ksg2-contradictions",
+      "title": "Contradiction inbox (KSG-2)",
+      "since": "unreleased (WHY1)",
+      "capability": "assertions",
+      "client": [
+        "list_contradictions",
+        "confirm_fact",
+        "correct_fact"
+      ],
+      "whenToUse": "Disagreements are a review queue, not last-write-wins: list them, show both sides with their tiers, and resolve by confirm or correct (a new version); never pick a side silently."
+    }
+  ]
+}
