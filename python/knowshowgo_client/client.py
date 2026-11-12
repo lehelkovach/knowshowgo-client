@@ -358,6 +358,123 @@ LOGIC_IR_LINEAGE_PREFIX = "category:logic-ir:"
 """Lineage-key prefix every seeded Logic IR primitive category carries."""
 
 
+# ===== Object -> prototype matching (AC1); parity with js/client.js =====
+_OBJECT_NAME_KEYS = ("label", "name", "title")
+_OBJECT_META_KEYS = {"uuid", "id", "type", "types", "prototype", "prototypeIds", "instanceOf",
+                     "properties", "props", "description", "summary", *_OBJECT_NAME_KEYS}
+PROPERTY_OVERLAP_WEIGHT = 0.3
+_TAXONOMY_CACHE_S = 600
+_MATCH_EVIDENCE_WINDOW = 25
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _normalize_key(k: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", str(k if k is not None else "").lower())
+
+
+def _human_key(k: Any) -> str:
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(k))
+    return re.sub(r"[_-]+", " ", s).lower()
+
+
+def _value_text(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return ", ".join(t for t in (_value_text(x) for x in v) if t)
+    if isinstance(v, dict):
+        for key in ("label", "name", "value", "title"):
+            if v.get(key) is not None:
+                return _value_text(v[key])
+        return ""
+    s = str(v)
+    return "" if _UUID_RE.match(s) else s
+
+
+def object_properties(obj: Any) -> Dict[str, Any]:
+    """The descriptive properties of an object: ``properties``/``props``, else its own non-meta keys."""
+    if not isinstance(obj, dict):
+        return {}
+    nested = obj.get("properties", obj.get("props"))
+    if isinstance(nested, dict):
+        return nested
+    return {k: v for k, v in obj.items() if k not in _OBJECT_META_KEYS}
+
+
+def object_to_match_text(obj: Any) -> str:
+    """Text an object is embedded as: "<label>. <description>. key: value; key: value"."""
+    if obj is None:
+        return ""
+    if not isinstance(obj, dict):
+        return str(obj)
+    parts = []
+    name = next((obj[k] for k in _OBJECT_NAME_KEYS if obj.get(k) not in (None, "")), None)
+    if name:
+        parts.append(f"{_value_text(name)}.")
+    description = obj.get("description") or obj.get("summary")
+    if description:
+        parts.append(f"{_value_text(description)}.")
+    pairs = [f"{_human_key(k)}: {t}" for k, v in object_properties(obj).items() for t in [_value_text(v)] if t]
+    if pairs:
+        parts.append("; ".join(pairs))
+    return " ".join(parts).strip()
+
+
+def _property_schema_by_prototype(tree: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    nodes = {n["uuid"]: n for n in (tree or {}).get("nodes", []) if n.get("uuid")}
+    memo: Dict[str, Dict[str, Any]] = {}
+
+    def collect(uuid: str, seen: set) -> Dict[str, Any]:
+        if uuid in memo:
+            return memo[uuid]
+        if uuid in seen:
+            return {"props": {}, "lineage": []}
+        seen.add(uuid)
+        node = nodes.get(uuid) or {}
+        props: Dict[str, str] = {}
+        lineage = [node["name"]] if node.get("name") else []
+        for parent in node.get("parents") or []:
+            up = collect(parent, seen)
+            props.update(up["props"])
+            lineage.extend(n for n in up["lineage"] if n not in lineage)
+        for p in node.get("properties") or []:
+            if not p or not p.get("name"):
+                continue
+            props[_normalize_key(p["name"])] = p["name"]
+            if p.get("schemaName"):
+                props[_normalize_key(p["schemaName"])] = p["name"]
+        memo[uuid] = {"props": props, "lineage": lineage}
+        return memo[uuid]
+
+    return {uuid: collect(uuid, set()) for uuid in nodes}
+
+
+def _property_evidence(object_props: Dict[str, Any], entry: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    keys = list((object_props or {}).keys())
+    if not entry:
+        return {"schema": False, "matched": [], "missing": [], "extra": keys, "known": [], "isA": [], "overlap": None}
+    known = entry["props"]
+    matched: List[str] = []
+    extra: List[str] = []
+    for k in keys:
+        hit = known.get(_normalize_key(k))
+        if hit:
+            if hit not in matched:
+                matched.append(hit)
+        else:
+            extra.append(k)
+    names = list(dict.fromkeys(known.values()))
+    return {
+        "schema": True,
+        "matched": matched,
+        "extra": extra,
+        "missing": [n for n in names if n not in matched],
+        "known": names,
+        "isA": entry["lineage"],
+        "overlap": round(len(matched) / len(keys), 4) if keys else None,
+    }
+
+
 def _logic_ir_name_from_lineage(lineage: str) -> Optional[str]:
     """``category:logic-ir:proposition`` -> ``Proposition``, for unnamed rows."""
     slug = lineage[len(LOGIC_IR_LINEAGE_PREFIX):]
@@ -757,7 +874,9 @@ class KnowShowGoClient:
         text: str = None,
         embedding: List[float] = None,
         top_k: int = 5,
-        threshold: float = 0.0
+        threshold: float = 0.0,
+        object: Optional[Dict[str, Any]] = None,
+        evidence: Optional[bool] = None,
     ) -> List[Dict[str, Any]]:
         """Rank existing prototypes by how typical the item is of each.
 
@@ -766,15 +885,72 @@ class KnowShowGoClient:
         label names, use :meth:`search_property_definitions`: a value centroid
         drifts toward the shape of the data, so "Card number" would rank closer
         to ``cvv`` than to ``number``.
+
+        Pass ``object`` (a label plus properties) to classify a structured thing:
+        each match then carries ``typicality`` (cosine to the centroid),
+        ``evidence`` (which of the object's properties the prototype declares,
+        own or inherited, and its ``isA`` lineage) and ``rankScore``, the order
+        returned: score blended with property overlap by PROPERTY_OVERLAP_WEIGHT.
         """
+        query_text = text if text is not None else (object_to_match_text(object) if object is not None else None)
+        with_evidence = evidence if evidence is not None else object is not None
+        window = max(top_k * 4, _MATCH_EVIDENCE_WINDOW) if with_evidence else top_k
         data = {
-            "text": text,
+            "text": query_text,
             "embedding": embedding,
-            "topK": top_k,
+            "topK": window,
             "threshold": threshold,
         }
         result = self._request("POST", f"{self.prototype_api_prefix}/prototypes/match", json=data)
-        return result["matches"]
+        matches = result["matches"]
+        if not with_evidence or not isinstance(matches, list):
+            return matches
+        object_props = object_properties(object)
+        schema = self._taxonomy_schema()
+        ranked = []
+        for m in matches:
+            ev = _property_evidence(object_props, (schema or {}).get(m.get("uuid")))
+            score = float(m.get("score") or 0)
+            rank = score if ev["overlap"] is None else round((1 - PROPERTY_OVERLAP_WEIGHT) * score + PROPERTY_OVERLAP_WEIGHT * ev["overlap"], 4)
+            typicality = m.get("centroidScore") if m.get("centroidScore") is not None else m.get("score")
+            ranked.append({**m, "typicality": typicality, "evidence": ev, "rankScore": rank})
+        ranked.sort(key=lambda r: r["rankScore"], reverse=True)
+        return ranked[:top_k]
+
+    def _taxonomy_schema(self) -> Optional[Dict[str, Dict[str, Any]]]:
+        import time
+        now = time.time()
+        cache = getattr(self, "_taxonomy_cache", None)
+        if cache and now - cache["at"] < _TAXONOMY_CACHE_S:
+            return cache["schema"]
+        try:
+            self._taxonomy_cache = {"at": now, "schema": _property_schema_by_prototype(self.get_taxonomy())}
+        except Exception:  # noqa: BLE001 - a missing route degrades to scores only
+            self._taxonomy_cache = {"at": now - _TAXONOMY_CACHE_S + 30, "schema": None}
+        return self._taxonomy_cache["schema"]
+
+    def get_taxonomy(self, root: Optional[str] = None) -> Dict[str, Any]:
+        """TX1: the prototype tree under ``root`` (default Thing)."""
+        kwargs = {"params": {"root": root}} if root else {}
+        return self._request("GET", f"{self.prototype_api_prefix}/taxonomy", **kwargs)
+
+    def get_taxonomy_prototype(self, uuid: str) -> Dict[str, Any]:
+        """TX1: one prototype with centroid, properties, exemplars and instances."""
+        return self._request("GET", f"{self.prototype_api_prefix}/taxonomy/prototypes/{uuid}")
+
+    def get_taxonomy_node(self, uuid: str, history: bool = False) -> Dict[str, Any]:
+        """TX1: one node with its prototypes, typicality and propositions."""
+        kwargs = {"params": {"history": 1}} if history else {}
+        return self._request("GET", f"{self.prototype_api_prefix}/taxonomy/nodes/{uuid}", **kwargs)
+
+    def lookup_concept(self, term: str, context: Optional[str] = None, entity_type: Optional[str] = None, force: Optional[bool] = None) -> Dict[str, Any]:
+        """CE3: look a public term up (Wikidata, Wikipedia, Wiktionary) and ground it."""
+        body = _without_nulls({"term": term, "context": context, "entityType": entity_type, "force": force})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/lookup", json=body)
+
+    def get_inferred_proposition_stats(self) -> Dict[str, Any]:
+        """CE3d counters: model propositions proposed, reused, refused, confirmed, contradicted."""
+        return self._request("GET", f"{self.prototype_api_prefix}/propositions/inferred/stats")
 
     def resolve_slots(
         self,
