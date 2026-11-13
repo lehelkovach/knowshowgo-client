@@ -828,6 +828,71 @@ class TestKnowShowGoClient(unittest.TestCase):
         self.assertEqual(args[0], "POST")
         self.assertIn("/api2.0/knowledge/search", args[1])
 
+    def test_search_knowledge_without_where_sends_the_same_body(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "query": "Acme", "count": 0, "results": []})
+        )
+        out = client.search_knowledge("Acme", top_k=5)
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(
+            kwargs["json"],
+            {
+                "query": "Acme",
+                "topK": 5,
+                "similarityThreshold": 0.55,
+                "categories": None,
+                "includeConcepts": True,
+                "includeObjects": True,
+            },
+        )
+        self.assertEqual(sorted(out.keys()), ["count", "ok", "query", "results"])
+
+    def test_search_knowledge_with_where_keeps_unknown_apart(self):
+        where = {
+            "type": "Requirement",
+            "all": [{"predicate": "portal", "op": "eq", "value": "Contoso Supplier Portal"}],
+            "not": [{"predicate": "form_code", "op": "starts_with", "value": "W-8"}],
+        }
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse(
+                {
+                    "ok": True,
+                    "query": None,
+                    "count": 1,
+                    "results": [{"uuid": "r1", "title": "Contoso tax form (2026)", "match": {"truth": "true"}}],
+                    "unknown": [{"uuid": "r2", "title": "Contoso tax form (draft)", "match": {"truth": "unknown"}}],
+                    "where": {"revision": "knowledge-where@0.1.0", "outcome": "matched"},
+                }
+            )
+        )
+        out = client.search_knowledge(where=where, top_k=3)
+        args, kwargs = client.session.request.call_args
+        self.assertIn("/api2.0/knowledge/search", args[1])
+        self.assertEqual(kwargs["json"]["where"], where)
+        self.assertEqual(kwargs["json"]["topK"], 3)
+        self.assertNotIn("query", kwargs["json"])
+        self.assertNotIn("semanticFallback", kwargs["json"])
+        self.assertEqual(len(out["results"]), 1)
+        self.assertEqual(out["unknown"][0]["match"]["truth"], "unknown")
+        self.assertEqual(out["where"]["outcome"], "matched")
+
+        client.search_knowledge("tax form", where=where, semantic_fallback=True, max_candidates=50, explain=False)
+        _, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["json"]["query"], "tax form")
+        self.assertTrue(kwargs["json"]["semanticFallback"])
+        self.assertEqual(kwargs["json"]["maxCandidates"], 50)
+        self.assertFalse(kwargs["json"]["explain"])
+
+    def test_search_knowledge_with_where_defaults_unknown_to_empty(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "query": None, "count": 0, "results": [], "where": {"outcome": "none"}})
+        )
+        out = client.search_knowledge(where={"type": "Requirement"})
+        self.assertEqual(out["unknown"], [])
+
     def test_suggest_concept_object_prototypes_maps_fields(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

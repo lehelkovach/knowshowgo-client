@@ -1681,6 +1681,71 @@ test('search_knowledge posts to /api2.0/knowledge/search with owner headers', as
   );
 });
 
+test('search_knowledge without where sends the same body as before and returns the same shape', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, query: 'Acme', count: 0, results: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.search_knowledge({ query: 'Acme', top_k: 5 });
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    query: 'Acme', topK: 5, similarityThreshold: 0.55, categories: null, includeConcepts: true, includeObjects: true,
+  });
+  assert.deepEqual(Object.keys(out).sort(), ['count', 'ok', 'query', 'results']);
+});
+
+test('search_knowledge with where sends the typed constraints and keeps unknown apart from results (CM1)', async () => {
+  const calls = [];
+  const where = {
+    type: 'Requirement',
+    all: [{ predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' }, { predicate: 'status', op: 'eq', value: 'current' }],
+    not: [{ predicate: 'form_code', op: 'starts_with', value: 'W-8' }],
+  };
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      query: null,
+      count: 1,
+      results: [{ kind: 'concept', uuid: 'r1', title: 'Contoso tax form (2026)', source: 'where', score: 0.8, match: { truth: 'true', by: 'structure', matched: [], failed: [], unknown: [] } }],
+      unknown: [{ kind: 'concept', uuid: 'r2', title: 'Contoso tax form (draft)', source: 'where', score: 0.4, match: { truth: 'unknown', by: 'structure' } }],
+      where: { revision: 'knowledge-where@0.1.0', outcome: 'matched', truthValues: ['true', 'false', 'unknown'], candidates: { considered: 3, matched: 1, unknown: 1, failed: 1, bound: 200, complete: true } },
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, defaultOwnerUserId: 'slack:U1' });
+  const out = await client.search_knowledge({ where, top_k: 3 });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.where, where);
+  assert.equal(body.topK, 3);
+  assert.equal('query' in body, false, 'no query is sent when none is given');
+  assert.equal('semanticFallback' in body, false);
+  assert.equal(out.results.length, 1);
+  assert.equal(out.unknown.length, 1);
+  assert.equal(out.unknown[0].match.truth, 'unknown');
+  assert.equal(out.where.outcome, 'matched');
+  assert.equal(out.query, null);
+  assert.match(calls[0].url, /\/api2\.0\/knowledge\/search/);
+
+  await client.search_knowledge({ query: 'tax form', where, semantic_fallback: true, max_candidates: 50, explain: false });
+  const second = JSON.parse(calls[1].options.body);
+  assert.equal(second.query, 'tax form');
+  assert.equal(second.semanticFallback, true);
+  assert.equal(second.maxCandidates, 50);
+  assert.equal(second.explain, false);
+});
+
+test('search_knowledge with where answers unknown as an empty list when the server sends none', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, query: null, count: 0, results: [], where: { outcome: 'none' } });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.search_knowledge({ where: { type: 'Requirement' } });
+  assert.deepEqual(out.unknown, []);
+  assert.equal(out.where.outcome, 'none');
+});
+
 test('get_entity_properties hits /api2.0 and EntityProxy exposes winner + claims', async () => {
   const calls = [];
   const payload = {
