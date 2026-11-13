@@ -1,4 +1,5 @@
-node_modules/
+# No trailing slash: matches a real directory and a symlink alike.
+node_modules
 __pycache__/
 *.pyc
 dist/
