@@ -2288,3 +2288,95 @@ test('KSG-2: list_contradictions reads the inbox with visibility and limit and r
   assert.match(calls[0], /visibility=private/);
   assert.match(calls[0], /limit=10/);
 });
+
+// ===== PK1: knowledge packs (server after 0.2.59) =====
+
+const PACK_HEAD = { name: 'contoso-supplier-onboarding', version: '1.0.0', license: 'CC-BY-4.0' };
+
+test('PK1: export_pack posts the header and the selection, and leaves includePrivate out by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, pack: { format: 'ksg-pack/1', ...PACK_HEAD }, summary: { counts: { prototypes: 1, procedures: 1, facts: 2 }, private: 0, redactions: 0, digest: 'sha256:abc' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.export_pack({
+    ...PACK_HEAD,
+    description: 'Supplier onboarding, sample data',
+    source: { publisher: 'Contoso (example)' },
+    prototypes: ['SupplierPortal'],
+    procedures: ['p1'],
+    facts: ['f1', 'f2']
+  });
+  assert.equal(out.pack.format, 'ksg-pack/1');
+  assert.equal(out.summary.counts.facts, 2);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.match(calls[0].url, /\/api2\.0\/packs\/export$/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body, {
+    ...PACK_HEAD,
+    description: 'Supplier onboarding, sample data',
+    source: { publisher: 'Contoso (example)' },
+    select: { prototypes: ['SupplierPortal'], procedures: ['p1'], facts: ['f1', 'f2'] }
+  });
+  assert.equal('includePrivate' in body, false);
+});
+
+test('PK1: export_pack sends includePrivate only for an explicit include_private: true', async () => {
+  const bodies = [];
+  const fetchMock = async (url, options) => { bodies.push(JSON.parse(options.body)); return makeJsonResponse({ ok: true, pack: {}, summary: {} }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.export_pack({ ...PACK_HEAD, select: { procedures: ['p1'] }, include_private: true });
+  assert.equal(bodies[0].includePrivate, true);
+  assert.deepEqual(bodies[0].select, { procedures: ['p1'] });
+  // Truthy is not an opt-in; only the literal true is.
+  for (const value of [false, undefined, null, 'true', 1, 'yes']) {
+    await client.export_pack({ ...PACK_HEAD, select: { procedures: ['p1'] }, include_private: value });
+    assert.equal('includePrivate' in bodies[bodies.length - 1], false, `include_private: ${String(value)}`);
+  }
+});
+
+test('PK1: export_pack refuses a missing name, version, license or selection before any request', async () => {
+  let called = 0;
+  const fetchMock = async () => { called += 1; return makeJsonResponse({}); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const ok = { ...PACK_HEAD, procedures: ['p1'] };
+  for (const [patch, pattern] of [
+    [{ name: '' }, /name/],
+    [{ version: undefined }, /version/],
+    [{ license: null }, /license/],
+    [{ procedures: [] }, /at least one/]
+  ]) {
+    assert.throws(() => client.export_pack({ ...ok, ...patch }), pattern);
+  }
+  assert.equal(called, 0);
+});
+
+test('PK1: install_pack posts the pack, takes a pack as JSON text, and marks a dry run', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body), method: options.method });
+    return makeJsonResponse({ ok: true, dryRun: calls.length === 2, counts: { procedures: { created: 1 } } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const pack = { format: 'ksg-pack/1', ...PACK_HEAD, source: {}, contents: { procedures: [], facts: [], prototypes: [] } };
+
+  const done = await client.install_pack(pack);
+  assert.equal(done.counts.procedures.created, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.match(calls[0].url, /\/api2\.0\/packs\/install$/);
+  assert.deepEqual(calls[0].body, { pack });
+
+  const plan = await client.install_pack(JSON.stringify(pack), { dry_run: true });
+  assert.equal(plan.dryRun, true);
+  assert.deepEqual(calls[1].body, { pack, dryRun: true });
+
+  assert.throws(() => client.install_pack(null), /pack/);
+  assert.throws(() => client.install_pack('not json'), /pack/);
+  assert.throws(() => client.install_pack([pack]), /pack/);
+  assert.equal(calls.length, 2);
+});

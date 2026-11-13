@@ -33,6 +33,7 @@ the HTTP status and server message.
 - [Events & episodes](#events--episodes)
 - [Semantic memory](#semantic-memory)
 - [Procedures](#procedures)
+- [Knowledge packs (PK1)](#knowledge-packs-pk1)
 - [Logic, market, channels, events, ratings](#logic-market-channels-events-ratings)
 - [Private vault & payments](#private-vault--payments)
 - [Seeding & graph query](#seeding--graph-query)
@@ -441,6 +442,45 @@ retired`), computed from the runs of that version, with `stateBasis`
 The hand-set `status` (`draft`, `dogfood`, `tested`, `validated`, `stable`,
 `degraded`, `deprecated`) is still returned and writable; it now decides only a
 retirement by hand. `search_procedures` hits also carry `currentVersion`.
+
+---
+
+## Knowledge packs (PK1)
+
+A pack is one `ksg-pack/1` file: a versioned bundle of prototypes, procedures
+and facts with a name, a license, a source and provenance on every item.
+Format and rules: knowshowgo `docs/KNOWLEDGE-PACKS.md`. **Needs a KnowShowGo
+server newer than 0.2.59** (the routes are on server `dev`, not in a release
+yet); an older server answers 404.
+
+| Method | Signature (JS) |
+|---|---|
+| `export_pack` | `{ name, version, license, prototypes?: [uuid \| name], procedures?: [id], facts?: [id], description?, source?: { publisher?, url?, attribution? }, include_private = false }` (Python: `export_pack(name, version, license, prototypes=…, procedures=…, facts=…, include_private=False)`) → `POST /api2.0/packs/export` → `{ ok, pack, summary: { counts, private, redactions, digest } }`. Read-only. `name`, semver `version` and `license` are required; there is no default license |
+| `install_pack` | `(pack, { dry_run = false })` (Python: `install_pack(pack, dry_run=False)`); `pack` is the object or its JSON text → `POST /api2.0/packs/install` → `{ ok, dryRun, pack, previous, counts, prototypes, procedures, facts, superseded, kept, warnings, redactions }`. Needs an owner token (401 without) |
+
+**Private items are an explicit opt-in.** `include_private` is off by default.
+With it off, an export that names one of your own private items is refused
+(400, the items listed under `private`). Only the literal `true` / `True`
+sends the opt-in; pass it only when the owner has said those items may leave
+their scope. Another owner's private item is never exportable: it answers the
+same 404 as a missing id, and one such item fails the whole export.
+
+**A pack grants no trust.** After `install_pack`:
+
+- procedures are the caller's private candidates with no runs (`status: draft`,
+  `state: candidate`); `search_verified_procedures` does not return them until
+  a verified run is recorded here with `record_procedure_run`;
+- facts are third-party candidates; what the pack stated is kept under
+  `provenance.statedStatus`, `statedTier` and `stated`; only `confirm_fact`
+  makes one confirmed;
+- missing prototypes are created and existing ones reused unchanged;
+- the same pack again changes nothing; a newer version supersedes what it
+  replaces and deletes nothing, and keeps what the owner has run or confirmed;
+  the same version with other contents, or an older version, is 409.
+
+Run `install_pack(pack, { dry_run: true })` first: it returns the same plan and
+writes nothing. Secret-shaped values are redacted on export and again on
+install; that is a net, not a proof, so read a pack before publishing it.
 
 ---
 

@@ -1884,6 +1884,78 @@ export class KnowShowGoClient {
     });
   }
 
+  // ===== Knowledge packs (PK1; needs a server newer than 0.2.59) =====
+  /**
+   * Export a chosen set of prototypes (uuid or name), procedures and facts as
+   * one `ksg-pack/1`: a file with a name, a semver version, a license, a
+   * source and provenance on every item. Returns `{ ok, pack, summary }`; the
+   * `pack` is what you save or hand to `install_pack`. Read-only.
+   *
+   * `name`, `version` and `license` are required (there is no default
+   * license). Name the items as `prototypes` / `procedures` / `facts`, or
+   * pass `select: { prototypes, procedures, facts }` yourself.
+   *
+   * An item you may not read answers as a missing one (404) and fails the
+   * whole export. Your own private items are held back: the server answers
+   * 400 and lists them unless you pass `include_private: true`. That is an
+   * explicit opt-in, off by default, and only the literal `true` turns it
+   * on; use it only when the owner has said those items may leave their
+   * scope. Secret-shaped values are redacted on the way out
+   * (`summary.redactions`); read a pack before you publish it.
+   */
+  export_pack({
+    name, version, license,
+    description = null, source = null,
+    prototypes = null, procedures = null, facts = null, select = null,
+    include_private = false
+  } = {}) {
+    if (!name) throw new Error('name is required');
+    if (!version) throw new Error('version is required (semver, for example 1.0.0)');
+    if (!license) throw new Error('license is required (for example CC-BY-4.0)');
+    const chosen = withoutNulls({
+      prototypes: prototypes ?? select?.prototypes ?? null,
+      procedures: procedures ?? select?.procedures ?? null,
+      facts: facts ?? select?.facts ?? null
+    });
+    if (!Object.values(chosen).some((list) => Array.isArray(list) && list.length > 0)) {
+      throw new Error('name at least one prototype, procedure or fact to export');
+    }
+    return this._request('POST', '/api2.0/packs/export', {
+      json: {
+        ...withoutNulls({ name, version, license, description, source }),
+        select: chosen,
+        ...(include_private === true ? { includePrivate: true } : {})
+      }
+    });
+  }
+
+  /**
+   * Install a `ksg-pack/1` (the object `export_pack` returned as `pack`, or
+   * the file's JSON text) into the caller's own scope. Needs an owner token.
+   * `dry_run: true` returns the plan and writes nothing; run it first.
+   *
+   * A pack grants no trust. Installed procedures are your private candidates
+   * with no runs: do not recall them as trusted until a verified run is
+   * recorded. Installed facts are third-party candidates that keep what the
+   * pack stated under `provenance`; only `confirm_fact` makes one confirmed.
+   * The same pack again changes nothing; a newer version supersedes what it
+   * replaces and deletes nothing; the same version with other contents, or
+   * an older version, is 409. Returns `{ ok, dryRun, pack, previous, counts,
+   * prototypes, procedures, facts, superseded, kept, warnings, redactions }`.
+   */
+  install_pack(pack, { dry_run = false } = {}) {
+    let body = pack;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = null; }
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('pack is required: a ksg-pack/1 object or its JSON text');
+    }
+    return this._request('POST', '/api2.0/packs/install', {
+      json: { pack: body, ...(dry_run === true ? { dryRun: true } : {}) }
+    });
+  }
+
   // ===== Nodes with Documents =====
   /**
    * Create a node with an attached document.
