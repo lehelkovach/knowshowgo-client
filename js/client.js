@@ -2898,6 +2898,25 @@ export class KnowShowGoClient {
    * Unified knowledge search over concepts (incl. episodic chunks) + typed
    * objects (Document / Idea / …). Canonical path `/api2.0/knowledge/search`
    * with `/api` alias. Pass owner identity so private docs are visible.
+   *
+   * CM1: with `where`, a typed question instead of a fuzzy one — the instances
+   * of a category whose stored claims satisfy constraints:
+   *
+   *   search_knowledge({ where: { type: 'Requirement',
+   *     all: [{ predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' }],
+   *     not: [{ predicate: 'form_code', op: 'starts_with', value: 'W-8' }] } })
+   *
+   * Operators: eq, in, starts_with, contains, gt, gte, lt, lte, exists; groups
+   * all / any / not / knownNot / excludeKnown nest. Each constraint is true,
+   * false or unknown per candidate (not(unknown) is unknown; a candidate or
+   * model-inferred claim never matches). `results` holds only candidates known
+   * to satisfy every constraint, each with `match` (constraints, claim ids,
+   * tiers, a ranking score that is not a probability). Candidates that are
+   * unknown on a constraint come back apart in `unknown`: never report those,
+   * or the nearest text hit, as a match. `where.outcome` is `matched`,
+   * `unknown_only` or `none`. With `where`, `query` is optional and only ranks;
+   * `semantic_fallback: true` also proposes what resembles the query, flagged.
+   * Without `where` the call and its result are unchanged.
    */
   search_knowledge({
     query,
@@ -2909,8 +2928,34 @@ export class KnowShowGoClient {
     owner_user_id = null,
     agent_session_id = null,
     knowledgeApiPrefix = null,
+    where = null,
+    semantic_fallback = false,
+    max_candidates = null,
+    explain = true,
   } = {}) {
     const prefix = knowledgeApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    if (where && typeof where === 'object') {
+      return this._request('POST', `${prefix}/knowledge/search`, {
+        json: {
+          ...(query !== undefined && query !== null ? { query } : {}),
+          topK: top_k,
+          similarityThreshold: similarity_threshold,
+          where,
+          ...(semantic_fallback === true ? { semanticFallback: true } : {}),
+          ...(max_candidates != null ? { maxCandidates: max_candidates } : {}),
+          ...(explain === false ? { explain: false } : {}),
+        },
+        owner_user_id,
+        agent_session_id,
+      }).then((r) => ({
+        ok: r.ok !== false,
+        query: r.query ?? query ?? null,
+        count: r.count ?? (r.results || []).length,
+        results: r.results || [],
+        unknown: r.unknown || [],
+        where: r.where || null,
+      }));
+    }
     return this._request('POST', `${prefix}/knowledge/search`, {
       json: {
         query,

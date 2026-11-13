@@ -484,11 +484,11 @@
     },
     {
       "id": "knowledge-search",
-      "title": "Knowledge search (KL2 vectors), query, grounding",
+      "title": "Knowledge search (KL2 vectors, CM1 where), query, grounding",
       "audience": "agent",
-      "since": "0.2.34; 0.2.51 (vector reads)",
-      "summary": "Semantic search over knowledge (vector rows by default), structured query, grounding and slot resolution.",
-      "whenToUse": "Use `search_knowledge` for a fuzzy question; for a relational one prefer `bind_pattern` (exact, explainable). `ground` to tie a phrase to known concepts.",
+      "since": "0.2.34; 0.2.51 (vector reads); unreleased, after 0.2.60 (CM1: where)",
+      "summary": "Semantic search over knowledge (vector rows by default), typed constraints over instances (`where`), structured query, grounding and slot resolution.",
+      "whenToUse": "Use `search_knowledge` for a fuzzy question. For a typed one (\"the current requirement for this portal\", \"dogs with black ears whose name starts with H, not German Shepherds\") pass `where: { type, all, any, not }`: `results` holds only instances whose every constraint is known to hold on stated claims, each with the claim ids, tiers and statuses behind it; instances that are unknown on a constraint come back apart under `unknown` and must never be reported as matches. For joins across several things prefer `bind_pattern`. `ground` to tie a phrase to known concepts.",
       "routes": [
         "POST /ground",
         "POST /knowledge/search",
@@ -1005,7 +1005,7 @@
       "id": "packs",
       "title": "Knowledge packs (PK1)",
       "audience": "agent",
-      "since": "unreleased, after 0.2.59 (PK1: export and install)",
+      "since": "0.2.60 (PK1: export and install)",
       "summary": "A versioned bundle of prototypes, procedures and facts as one `ksg-pack/1` file with a name, semver version, license, source and per-item provenance.",
       "whenToUse": "Export a chosen set to hand a workflow to another store (`export_pack`); install a pack to receive one (`install_pack`, with `dry_run: true` first to see the plan; it writes nothing). Export is read-only: an item you may not read answers as a missing one, your own private items leave only with the explicit opt-in `include_private: true` (off by default), and secret-shaped values are redacted. A pack grants no trust: installed procedures are your private candidates with no runs (never recall them as trusted until a verified run), installed facts are third-party candidates until you confirm them, and a newer version supersedes, never deletes.",
       "routes": [
@@ -1471,6 +1471,16 @@
         "correct_fact"
       ],
       "whenToUse": "Disagreements are a review queue, not last-write-wins: list them, show both sides with their tiers, and resolve by confirm or correct (a new version); never pick a side silently."
+    },
+    {
+      "id": "cm1-where",
+      "title": "Typed constraints in knowledge search (CM1)",
+      "since": "unreleased, after 0.2.60 (CM1)",
+      "capability": "knowledge-search",
+      "client": [
+        "search_knowledge"
+      ],
+      "whenToUse": "Add `where` to `search_knowledge` when the question names a type and property values. Constraints are true / false / unknown per instance; `not` of unknown is unknown; a candidate or model-inferred claim is never a match. Report `results` as matches, `unknown` as \"not established\", and an empty `results` as \"no verified match\", never the nearest text hit."
     }
   ]
 }

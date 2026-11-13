@@ -3148,7 +3148,7 @@ class KnowShowGoClient:
 
     def search_knowledge(
         self,
-        query: str,
+        query: Optional[str] = None,
         top_k: int = 10,
         similarity_threshold: float = 0.55,
         categories: Optional[List[str]] = None,
@@ -3157,9 +3157,61 @@ class KnowShowGoClient:
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
         knowledge_api_prefix: Optional[str] = None,
+        where: Optional[Dict[str, Any]] = None,
+        semantic_fallback: bool = False,
+        max_candidates: Optional[int] = None,
+        explain: bool = True,
     ) -> Dict[str, Any]:
-        """Unified search over concepts (incl. episodic) + Document/typed objects."""
+        """Unified search over concepts (incl. episodic) + Document/typed objects.
+
+        CM1: with ``where``, a typed question instead of a fuzzy one — the
+        instances of a category whose stored claims satisfy constraints::
+
+            search_knowledge(where={"type": "Requirement",
+                "all": [{"predicate": "portal", "op": "eq", "value": "Contoso Supplier Portal"}],
+                "not": [{"predicate": "form_code", "op": "starts_with", "value": "W-8"}]})
+
+        Operators: eq, in, starts_with, contains, gt, gte, lt, lte, exists;
+        groups all / any / not / knownNot / excludeKnown nest. Each constraint
+        is true, false or unknown per candidate (not(unknown) is unknown; a
+        candidate or model-inferred claim never matches). ``results`` holds
+        only candidates known to satisfy every constraint, each with ``match``
+        (constraints, claim ids, tiers, a ranking score that is not a
+        probability). Candidates that are unknown on a constraint come back
+        apart in ``unknown``: never report those, or the nearest text hit, as
+        a match. With ``where``, ``query`` is optional and only ranks. Without
+        ``where`` the call and its result are unchanged.
+        """
         prefix = knowledge_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        if isinstance(where, dict) and where:
+            data: Dict[str, Any] = {
+                "topK": top_k,
+                "similarityThreshold": similarity_threshold,
+                "where": where,
+            }
+            if query is not None:
+                data["query"] = query
+            if semantic_fallback is True:
+                data["semanticFallback"] = True
+            if max_candidates is not None:
+                data["maxCandidates"] = max_candidates
+            if explain is False:
+                data["explain"] = False
+            result = self._request(
+                "POST",
+                f"{prefix}/knowledge/search",
+                json=data,
+                owner_user_id=owner_user_id,
+                agent_session_id=agent_session_id,
+            )
+            return {
+                "ok": result.get("ok", True),
+                "query": result.get("query", query),
+                "count": result.get("count", len(result.get("results") or [])),
+                "results": result.get("results") or [],
+                "unknown": result.get("unknown") or [],
+                "where": result.get("where"),
+            }
         data = {
             "query": query,
             "topK": top_k,

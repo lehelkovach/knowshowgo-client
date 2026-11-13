@@ -251,13 +251,46 @@ visible under read ACL.
 
 | Method | Signature (JS) |
 |---|---|
-| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix? }` |
+| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix?, where?, semantic_fallback?, max_candidates?, explain? }` |
 
 Returns `{ ok, query, count, results }` where each result has
 `kind` (`concept` \| `object` \| `episode`), `score`, `uuid`, `title`,
 `summary`, optional `category` / `topics` / `excerpt` / `sourceUrl`.
 
-Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None)`.
+Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None, where=None, semantic_fallback=False, max_candidates=None, explain=True)`.
+
+**Typed constraints (`where`, CM1; server after 0.2.60).** Pass `where` to ask a typed
+question instead of a fuzzy one: the instances of a category whose stored claims
+satisfy constraints.
+
+```js
+const out = await client.search_knowledge({
+  where: {
+    type: 'Requirement',
+    all: [
+      { predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' },
+      { predicate: 'document_kind', op: 'eq', value: 'tax form' },
+    ],
+    not: [{ predicate: 'status', op: 'eq', value: 'superseded' }],
+  },
+});
+// out.results  matches: every constraint known to hold, each with match.matched[].evidence
+// out.unknown  candidates not established on a constraint (never report these as matches)
+// out.where    { outcome: 'matched' | 'unknown_only' | 'none', candidates, diagnostics, … }
+```
+
+- Operators: `eq`, `in`, `starts_with`, `contains`, `gt`, `gte`, `lt`, `lte`, `exists`.
+  Groups `all`, `any`, `not`, `knownNot`, `excludeKnown` nest (32 constraints, 4 levels).
+- Each constraint is true, false or unknown per candidate. True only on a live stated
+  claim, never on a `candidate` or model-`inferred` one. False only on a known negative: a
+  stored denial, or another value of a property declared `single`. Otherwise unknown.
+  `not` of unknown is unknown; `knownNot` requires a known negative; `excludeKnown` drops
+  only known matches and names what passed on unknown in `match.passedOnUnknown`.
+- `match.score` is a ranking score, not a probability.
+- With `where`, `query` is optional and only ranks; `semantic_fallback: true` also
+  proposes what resembles the query, flagged `match.by: 'semantic'`.
+- The result adds `unknown` and `where`; without `where` the call and its result are
+  unchanged. Contract: knowshowgo `docs/COMPOSITIONAL-RECALL.md`.
 
 ---
 
