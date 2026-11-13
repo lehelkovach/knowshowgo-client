@@ -1845,6 +1845,83 @@ class KnowShowGoClient:
         body = _without_nulls({"object": obj, "provenance": provenance})
         return self._request("POST", f"{self.prototype_api_prefix}/facts/{fact_id}/correct", json=body)
 
+    # ===== Knowledge packs (PK1; needs a server newer than 0.2.59) =====
+
+    def export_pack(
+        self,
+        name: str,
+        version: str,
+        license: str,
+        prototypes: Optional[List[str]] = None,
+        procedures: Optional[List[str]] = None,
+        facts: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        source: Optional[Dict[str, Any]] = None,
+        include_private: bool = False,
+    ) -> Dict[str, Any]:
+        """Export a chosen set as one ``ksg-pack/1``: ``{ok, pack, summary}``.
+
+        ``prototypes`` are uuids or names; ``procedures`` and ``facts`` are
+        ids. ``name``, ``version`` (semver) and ``license`` are required;
+        there is no default license. Read-only.
+
+        An item you may not read answers as a missing one (404) and fails the
+        whole export. Your own private items are held back: the server answers
+        400 and lists them unless ``include_private=True``. That is an
+        explicit opt-in, off by default, and only the literal ``True`` turns
+        it on; use it only when the owner has said those items may leave their
+        scope. Secret-shaped values are redacted (``summary["redactions"]``);
+        read a pack before you publish it.
+        """
+        if not name:
+            raise ValueError("name is required")
+        if not version:
+            raise ValueError("version is required (semver, for example 1.0.0)")
+        if not license:
+            raise ValueError("license is required (for example CC-BY-4.0)")
+        select = _without_nulls({"prototypes": prototypes, "procedures": procedures, "facts": facts})
+        if not any(isinstance(items, list) and items for items in select.values()):
+            raise ValueError("name at least one prototype, procedure or fact to export")
+        body = _without_nulls({
+            "name": name,
+            "version": version,
+            "license": license,
+            "description": description,
+            "source": source,
+        })
+        body["select"] = select
+        if include_private is True:
+            body["includePrivate"] = True
+        return self._request("POST", "/api2.0/packs/export", json=body)
+
+    def install_pack(self, pack: Any, dry_run: bool = False) -> Dict[str, Any]:
+        """Install a ``ksg-pack/1`` (a dict, or the file's JSON text) into the caller's own scope.
+
+        Needs an owner token. ``dry_run=True`` returns the plan and writes
+        nothing; run it first.
+
+        A pack grants no trust. Installed procedures are your private
+        candidates with no runs: do not recall them as trusted until a
+        verified run is recorded. Installed facts are third-party candidates
+        that keep what the pack stated under ``provenance``; only
+        ``confirm_fact`` makes one confirmed. The same pack again changes
+        nothing; a newer version supersedes what it replaces and deletes
+        nothing; the same version with other contents, or an older version,
+        is 409.
+        """
+        body = pack
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except ValueError:
+                body = None
+        if not isinstance(body, dict) or not body:
+            raise ValueError("pack is required: a ksg-pack/1 dict or its JSON text")
+        payload: Dict[str, Any] = {"pack": body}
+        if dry_run is True:
+            payload["dryRun"] = True
+        return self._request("POST", "/api2.0/packs/install", json=payload)
+
     # camelCase aliases: the JS client exposes both spellings, and agents port
     # call sites between the two SDKs. Parity is cheaper than a translation table.
     evaluatePrototypeMatch = evaluate_prototype_match

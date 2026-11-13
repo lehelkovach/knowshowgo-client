@@ -1847,5 +1847,76 @@ class TestWhy1(unittest.TestCase):
         self.assertEqual(kwargs["params"], {"contested": "true", "visibility": "public", "limit": 5})
 
 
+
+class TestKnowledgePacks(unittest.TestCase):
+    """PK1: knowledge packs, export and install (server after 0.2.59)."""
+
+    HEAD = {"name": "contoso-supplier-onboarding", "version": "1.0.0", "license": "CC-BY-4.0"}
+
+    def _client(self, payload):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse(payload))
+        return client
+
+    def test_export_pack_posts_header_and_selection_without_include_private(self):
+        client = self._client({"ok": True, "pack": {"format": "ksg-pack/1"}, "summary": {"counts": {"facts": 2}}})
+        out = client.export_pack(
+            "contoso-supplier-onboarding", "1.0.0", "CC-BY-4.0",
+            prototypes=["SupplierPortal"], procedures=["p1"], facts=["f1", "f2"],
+            description="Supplier onboarding, sample data", source={"publisher": "Contoso (example)"},
+        )
+        self.assertEqual(out["pack"]["format"], "ksg-pack/1")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/packs/export")
+        self.assertEqual(kwargs["json"], {
+            **self.HEAD,
+            "description": "Supplier onboarding, sample data",
+            "source": {"publisher": "Contoso (example)"},
+            "select": {"prototypes": ["SupplierPortal"], "procedures": ["p1"], "facts": ["f1", "f2"]},
+        })
+        self.assertNotIn("includePrivate", kwargs["json"])
+
+    def test_export_pack_include_private_is_an_explicit_true_only(self):
+        client = self._client({"ok": True, "pack": {}, "summary": {}})
+        client.export_pack(**self.HEAD, procedures=["p1"], include_private=True)
+        self.assertIs(client.session.request.call_args[1]["json"]["includePrivate"], True)
+        self.assertEqual(client.session.request.call_args[1]["json"]["select"], {"procedures": ["p1"]})
+        for value in (False, None, "true", 1, "yes"):
+            client.export_pack(**self.HEAD, procedures=["p1"], include_private=value)
+            self.assertNotIn("includePrivate", client.session.request.call_args[1]["json"], repr(value))
+
+    def test_export_pack_refuses_missing_header_or_selection_before_any_request(self):
+        client = self._client({})
+        with self.assertRaisesRegex(ValueError, "name"):
+            client.export_pack("", "1.0.0", "CC-BY-4.0", procedures=["p1"])
+        with self.assertRaisesRegex(ValueError, "version"):
+            client.export_pack("a-pack", "", "CC-BY-4.0", procedures=["p1"])
+        with self.assertRaisesRegex(ValueError, "license"):
+            client.export_pack("a-pack", "1.0.0", "", procedures=["p1"])
+        with self.assertRaisesRegex(ValueError, "at least one"):
+            client.export_pack("a-pack", "1.0.0", "CC-BY-4.0")
+        client.session.request.assert_not_called()
+
+    def test_install_pack_posts_the_pack_and_marks_a_dry_run(self):
+        import json as _json
+        pack = {"format": "ksg-pack/1", **self.HEAD, "source": {}, "contents": {"procedures": [], "facts": [], "prototypes": []}}
+        client = self._client({"ok": True, "dryRun": False, "counts": {"procedures": {"created": 1}}})
+        done = client.install_pack(pack)
+        self.assertEqual(done["counts"]["procedures"]["created"], 1)
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertEqual(args[1], "https://example.test/api2.0/packs/install")
+        self.assertEqual(kwargs["json"], {"pack": pack})
+
+        client.install_pack(_json.dumps(pack), dry_run=True)
+        self.assertEqual(client.session.request.call_args[1]["json"], {"pack": pack, "dryRun": True})
+
+        calls = client.session.request.call_count
+        for bad in (None, "not json", [pack]):
+            with self.assertRaisesRegex(ValueError, "pack"):
+                client.install_pack(bad)
+        self.assertEqual(client.session.request.call_count, calls)
+
 if __name__ == "__main__":
     unittest.main()

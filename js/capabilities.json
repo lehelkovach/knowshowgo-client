@@ -208,7 +208,7 @@
       "id": "assertions",
       "title": "Assertions and beliefs",
       "audience": "agent",
-      "since": "0.2.8; unreleased (why and the contradiction inbox, WHY1)",
+      "since": "0.2.8; 0.2.59 (why and the contradiction inbox, WHY1)",
       "summary": "Weighted claims with votes, reinforcement, contradiction and retraction; any claim returns why it is believed (sources with tier and speaker, version chain, contested peers, model or Logic IR rule, status with the reason). The contradiction inbox lists the open contested sets (KS-TIER) with both sides’ sources and tiers.",
       "whenToUse": "Prefer propositions (KG-P1) for new claims; use assertions to reinforce, contradict or retract an existing claim with a reason. To answer \"why do we believe this?\" about one value, `explain_claim(uuid)` (GET /assertions?uuid=…&why=true). To review disagreements, `list_contradictions()` (GET /assertions?contested=true); resolve one with `confirm_fact(side)` or `correct_fact(side, {obj})`, which write a new superseding version, never a delete.",
       "routes": [
@@ -1002,6 +1002,30 @@
       }
     },
     {
+      "id": "packs",
+      "title": "Knowledge packs (PK1)",
+      "audience": "agent",
+      "since": "unreleased, after 0.2.59 (PK1: export and install)",
+      "summary": "A versioned bundle of prototypes, procedures and facts as one `ksg-pack/1` file with a name, semver version, license, source and per-item provenance.",
+      "whenToUse": "Export a chosen set to hand a workflow to another store (`export_pack`); install a pack to receive one (`install_pack`, with `dry_run: true` first to see the plan; it writes nothing). Export is read-only: an item you may not read answers as a missing one, your own private items leave only with the explicit opt-in `include_private: true` (off by default), and secret-shaped values are redacted. A pack grants no trust: installed procedures are your private candidates with no runs (never recall them as trusted until a verified run), installed facts are third-party candidates until you confirm them, and a newer version supersedes, never deletes.",
+      "routes": [
+        "POST /packs/export",
+        "POST /packs/install"
+      ],
+      "client": [
+        "export_pack",
+        "install_pack"
+      ],
+      "clientRoutes": {
+        "export_pack": [
+          "POST /packs/export"
+        ],
+        "install_pack": [
+          "POST /packs/install"
+        ]
+      }
+    },
+    {
       "id": "social",
       "title": "Channels, ratings, associations, market",
       "audience": "agent",
@@ -1428,7 +1452,7 @@
     {
       "id": "why1-derivation",
       "title": "Why do we believe this? (KSG-1)",
-      "since": "unreleased (WHY1)",
+      "since": "0.2.59 (WHY1)",
       "capability": "assertions",
       "client": [
         "explain_claim",
@@ -1439,7 +1463,7 @@
     {
       "id": "ksg2-contradictions",
       "title": "Contradiction inbox (KSG-2)",
-      "since": "unreleased (WHY1)",
+      "since": "0.2.59 (WHY1)",
       "capability": "assertions",
       "client": [
         "list_contradictions",
