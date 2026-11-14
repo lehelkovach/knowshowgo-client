@@ -3361,6 +3361,7 @@ class KnowShowGoClient:
         margin: Optional[float] = None,
         targets: Optional[str] = None,
         items: Optional[List[Dict[str, Any]]] = None,
+        floor: Optional[float] = None,
     ) -> Dict[str, Any]:
         """R6a (server 0.2.62+): ``method="centroid"`` answers the top-k candidates with
         similarity and the top-1/top-2 margin (``ambiguous`` below the threshold); ``items``
@@ -3387,7 +3388,7 @@ class KnowShowGoClient:
         if method is not None:
             body["method"] = method
         if method == "centroid":
-            body.update(_without_nulls({"k": k, "margin": margin, "targets": targets}))
+            body.update(_without_nulls({"k": k, "margin": margin, "targets": targets, "floor": floor}))
             if items is not None:
                 body["items"] = list(items)
         if mentions is not None:

@@ -1490,7 +1490,7 @@
       "client": [
         "ground"
       ],
-      "whenToUse": "Ground a token by `ground({ method: 'centroid', term })`: the top candidates among readable prototypes (definition + running centroid) and concepts, each with its similarity, and the margin between the first two. Below the threshold (`margin`, else `KSG_CENTROID_MARGIN`, else 0.05) the answer is `ambiguous`: ask the person or learn the word; never pick silently. `items: [{ term, expect? }]` runs a labelled list (top-k, margins, rank of the expected answer) for threshold experiments. Read-only."
+      "whenToUse": "Ground a token by `ground({ method: 'centroid', term })`: the top candidates among readable prototypes (definition + running centroid) and concepts, each with its similarity, and the margin between the first two. Below the threshold (`margin`, else `KSG_CENTROID_MARGIN`, else 0.05) the answer is `ambiguous`: ask the person or learn the word; never pick silently. With a score floor (`floor`, else `KSG_CENTROID_FLOOR`; none by default, it is embedder-specific: E1 chose 0.345 for text-embedding-3-small) a top-1 below it is `none`: no concept fits. Per E1, ground the sentence (put it in `term`) against `targets: 'prototypes'`. `items: [{ term, expect? }]` runs a labelled list (top-k, margins, rank of the expected answer) for threshold experiments. Read-only."
     },
     {
       "id": "cm1-where",
