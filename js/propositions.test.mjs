@@ -124,3 +124,9 @@ test('R6: ground by centroid (single and E1 batch) and assimilate_exemplar with 
   assert.deepEqual(calls[4].body, { subject: U(1), category: U(2) });
 });
 
+test('R6c: ground by centroid sends floor', async () => {
+  const { client, calls } = await recordingClient(() => ({ ok: true }));
+  await client.ground({ term: 'The lab rat learned the maze', method: 'centroid', targets: 'prototypes', floor: 0.345, margin: 0.044 });
+  assert.deepEqual(calls[0].body, { term: 'The lab rat learned the maze', method: 'centroid', margin: 0.044, targets: 'prototypes', floor: 0.345, ownerUserId: null });
+});
+

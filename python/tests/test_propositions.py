@@ -114,5 +114,11 @@ class LogicForAgentsTest(unittest.TestCase):
         self.assertEqual(self.last(client)[2], {"subject": "s1", "category": "c1"})
 
 
+    def test_r6c_ground_floor(self):
+        client = make_client()
+        client.ground(term="The lab rat learned the maze", method="centroid", targets="prototypes", floor=0.345, margin=0.044)
+        self.assertEqual(self.last(client)[2], {"ownerUserId": None, "term": "The lab rat learned the maze", "method": "centroid", "margin": 0.044, "targets": "prototypes", "floor": 0.345})
+
+
 if __name__ == "__main__":
     unittest.main()

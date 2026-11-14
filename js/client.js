@@ -3134,6 +3134,7 @@ export class KnowShowGoClient {
     margin = undefined,
     targets = undefined,
     items = undefined,
+    floor = undefined,
     owner_user_id = null,
     agent_session_id = null,
     semanticApiPrefix = null,
@@ -3141,12 +3142,13 @@ export class KnowShowGoClient {
     // R6a (server 0.2.62+): `method: 'centroid'` answers the top-k candidates
     // with similarity and the top-1/top-2 margin (`ambiguous` below the
     // threshold); `items: [{ term, expect? }]` grounds a labelled list (E1).
+    // R6c (server 0.2.63+): `floor` — top-1 below it answers `none`.
     // Reads only.
     if (items !== undefined && method !== 'centroid') throw new Error("items needs method: 'centroid'");
     if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term');
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
     const centroid = method === 'centroid'
-      ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, ...(items !== undefined ? { items } : {}) })
+      ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, floor: floor ?? null, ...(items !== undefined ? { items } : {}) })
       : (method !== undefined ? { method } : {});
     return this._request('POST', `${prefix}/ground`, {
       json: {
