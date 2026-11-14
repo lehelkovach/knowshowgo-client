@@ -1473,6 +1473,26 @@
       "whenToUse": "Disagreements are a review queue, not last-write-wins: list them, show both sides with their tiers, and resolve by confirm or correct (a new version); never pick a side silently."
     },
     {
+      "id": "r6b-centroid-versions",
+      "title": "Centroid moves: confirmed, versioned, isolated (R6b)",
+      "since": "0.2.62 (R6b)",
+      "capability": "prototypes",
+      "client": [
+        "assimilate_exemplar"
+      ],
+      "whenToUse": "Fold a confirmed member into a category with `assimilate_exemplar` and say what confirmed it (`evidence: { kind: owner_confirmed | verified_run | validated_assimilation, ref }`). A membership resting on a candidate or model-inferred claim is refused (409 M006); a private exemplar never moves a shared centroid (409 M007). Every move keeps the state it replaced as a version (`taxonomy` prototype view → `centroid.history`)."
+    },
+    {
+      "id": "r6a-centroid-ground",
+      "title": "Grounding by centroid, with a margin (R6a)",
+      "since": "0.2.62 (R6a)",
+      "capability": "knowledge-search",
+      "client": [
+        "ground"
+      ],
+      "whenToUse": "Ground a token by `ground({ method: 'centroid', term })`: the top candidates among readable prototypes (definition + running centroid) and concepts, each with its similarity, and the margin between the first two. Below the threshold (`margin`, else `KSG_CENTROID_MARGIN`, else 0.05) the answer is `ambiguous`: ask the person or learn the word; never pick silently. `items: [{ term, expect? }]` runs a labelled list (top-k, margins, rank of the expected answer) for threshold experiments. Read-only."
+    },
+    {
       "id": "cm1-where",
       "title": "Typed constraints in knowledge search (CM1)",
       "since": "0.2.61 (CM1)",

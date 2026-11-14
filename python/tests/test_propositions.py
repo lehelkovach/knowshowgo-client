@@ -97,5 +97,22 @@ class LogicForAgentsTest(unittest.TestCase):
             client.close_relation("supplies", exclude_claims="c1")
 
 
+    def test_r6_ground_by_centroid_and_assimilate_evidence(self):
+        client = make_client()
+        client.ground(term="tin", method="centroid", k=3, margin=0.08, targets="prototypes")
+        self.assertEqual(self.last(client)[2], {"ownerUserId": None, "term": "tin", "method": "centroid", "k": 3, "margin": 0.08, "targets": "prototypes"})
+        items = [{"term": "tin", "expect": "Metal"}]
+        client.ground(method="centroid", items=items)
+        self.assertEqual(self.last(client)[2], {"ownerUserId": None, "method": "centroid", "items": items})
+        with self.assertRaises(ValueError):
+            client.ground(items=items)
+        client.ground(term="tin")
+        self.assertEqual(self.last(client)[2], {"ownerUserId": None, "term": "tin"})
+        client.assimilate_exemplar("s1", "c1", evidence={"kind": "verified_run", "ref": "run:1"})
+        self.assertEqual(self.last(client)[2], {"subject": "s1", "category": "c1", "evidence": {"kind": "verified_run", "ref": "run:1"}})
+        client.assimilate_exemplar("s1", "c1")
+        self.assertEqual(self.last(client)[2], {"subject": "s1", "category": "c1"})
+
+
 if __name__ == "__main__":
     unittest.main()

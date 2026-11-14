@@ -321,7 +321,7 @@ feature; the client exposes the endpoints.
 | `lookup_concept` | `{ term, context?, entity_type?, force? }` CE3 public lookup (Wikidata, Wikipedia, Wiktionary) |
 | `get_inferred_proposition_stats` | `()` CE3d counters: proposed, reused, refused, confirmed, contradicted |
 | `check_membership` | `{ subject, category, candidate_threshold? }` yes/no category membership **with evidence** (the edge, chain or claim). Typicality is not membership: a penguin is a bird at low typicality |
-| `assimilate_exemplar` | `{ subject, category }` add a confirmed member to a category's exemplars (moves the centroid, never the definition) |
+| `assimilate_exemplar` | `{ subject, category, evidence? }` add a confirmed member to a category's exemplars (moves the centroid, never the definition). R6b (server 0.2.62+): `evidence: { kind, ref }` (owner_confirmed, verified_run, validated_assimilation) is kept with the change; a candidate or inferred membership is refused (409 M006); a private exemplar never moves a shared centroid (409 M007); every move keeps the replaced state as a version |
 | `get_taxonomy_duplicates` | `()` DH1: public prototype names with more than one active prototype. Duplicates are superseded (`replacedBy`), never deleted |
 
 ---
@@ -438,7 +438,7 @@ event, extracted claims are linked back to it.
 | `semantic_recall` | `{ query, top_k = 8, expand_depth = 1, similarity_threshold = 0.15 }` → `{ seeds[], hits[] }` |
 | `semantic_ask` | `{ subject, predicate, object? }` or `{ pattern }` → belief state `supported \| refuted \| conflicted \| unknown` with evidence |
 | `verify_answer` | `{ claims:[{subject, predicate, object}], text?, argument?, record?, agent? }` (Python: `verify_answer(claims, text=…, record=…)`) → `POST /api2.0/verify/answer` (knowshowgo >= 0.2.23): a status per claim, `supported \| contradicted \| disputed \| competing` (stored values named) `\| unknown`, with evidence, plus a `verdict` for the answer; `record: true` keeps only what the graph did not speak against, at the `inferred` tier. Server docs: `knowshowgo/docs/TRUTH-EVAL.md` |
-| `ground` | `{ claim:{subject, predicate, object} }` or `{ term, role? }`, `mentions?` (Python: `ground(claim=…)` / `ground(term=…, role=…)`) → `POST /api2.0/ground` (knowshowgo >= 0.2.24): per term `resolved` (uuid, `definedness`) `\| ambiguous` (`candidates[]`, ask which) `\| undefined` (nothing created) `\| literal`; the predicate in canonical form. Server docs: `knowshowgo/docs/CLAIM-GROUNDING.md` |
+| `ground` | `{ claim:{subject, predicate, object} }` or `{ term, role? }`, `mentions?` (Python: `ground(claim=…)` / `ground(term=…, role=…)`) → `POST /api2.0/ground` (knowshowgo >= 0.2.24): per term `resolved` (uuid, `definedness`) `\| ambiguous` (`candidates[]`, ask which) `\| undefined` (nothing created) `\| literal`; the predicate in canonical form. R6a (server 0.2.62+): `method: 'centroid'` with `term` (and `k?`, `margin?`, `targets?: prototypes|concepts|both`) → the top-k candidates with similarity, the top-1/top-2 `margin`, `status` resolved / ambiguous (below the threshold) / undefined, provenance `{ method: 'centroid', score, margin, threshold }`; `items: [{ term, expect? }]` grounds a labelled list (E1: per item top-k, margin, rank of the expected answer; writes nothing). Server docs: `knowshowgo/docs/CLAIM-GROUNDING.md` |
 
 ---
 

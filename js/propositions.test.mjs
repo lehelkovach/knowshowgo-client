@@ -106,3 +106,21 @@ test('KA4b: close_relation and evaluate_joins send exclude_claims and describe',
   assert.deepEqual(calls[3].body, { rules, excludeClaims: [] });
   assert.throws(() => client.close_relation({ predicate: 'supplies', exclude_claims: 'c1' }), /exclude_claims must be an array/);
 });
+
+test('R6: ground by centroid (single and E1 batch) and assimilate_exemplar with evidence send their bodies', async () => {
+  const { client, calls } = await recordingClient(() => ({ ok: true }));
+  await client.ground({ term: 'tin', method: 'centroid', k: 3, margin: 0.08, targets: 'prototypes' });
+  assert.equal(calls[0].url, 'https://ksg.example.test/api2.0/ground');
+  assert.deepEqual(calls[0].body, { term: 'tin', method: 'centroid', k: 3, margin: 0.08, targets: 'prototypes', ownerUserId: null });
+  const items = [{ term: 'tin', expect: 'Metal' }];
+  await client.ground({ method: 'centroid', items });
+  assert.deepEqual(calls[1].body, { method: 'centroid', items, ownerUserId: null });
+  assert.throws(() => client.ground({ items }), /items needs method: 'centroid'/);
+  await client.ground({ term: 'tin' });
+  assert.deepEqual(calls[2].body, { term: 'tin', ownerUserId: null }, 'the label method body is unchanged');
+  await client.assimilate_exemplar({ subject: U(1), category: U(2), evidence: { kind: 'owner_confirmed', ref: 'chat:1' } });
+  assert.deepEqual(calls[3].body, { subject: U(1), category: U(2), evidence: { kind: 'owner_confirmed', ref: 'chat:1' } });
+  await client.assimilate_exemplar({ subject: U(1), category: U(2) });
+  assert.deepEqual(calls[4].body, { subject: U(1), category: U(2) });
+});
+
