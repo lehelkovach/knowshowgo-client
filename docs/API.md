@@ -389,8 +389,8 @@ and answers three-valued. Explained in [Procedures and logic](PROCEDURES-AND-LOG
 | `listDerivations` / `list_derivations` | `{ conclusionUuid }` → every derivation that derives that conclusion |
 | `create_syllogism` / `get_syllogism` | `{ title, premises, conclusion }` simple predicate-logic DAG |
 | `bind_pattern` | `{ pattern, limit?, describe? }` a conjunction of `{ subject, predicate, object }` triples with `?variables` over stored claims → bindings. **Prefer this over free-text search for relational questions** ("who works at Contoso") |
-| `close_relation` | `{ predicate, as?, include_alleged?, max_facts?, max_rounds?, edge_limit? }` transitive closure (part_of, subclass_of, located_in) with a derivation per inferred edge |
-| `evaluate_joins` | `{ rules, include_alleged?, max_facts?, max_rounds?, edge_limit? }` join rules across two relations, to a fixpoint |
+| `close_relation` | `{ predicate, as?, include_alleged?, max_facts?, max_rounds?, edge_limit?, exclude_claims?, describe? }` transitive closure (part_of, subclass_of, located_in) with a derivation per inferred edge; each step names its rule (`closure.base` / `closure.extend`). KA4b (server 0.2.61+): `exclude_claims: [uuid]` re-runs with those claims read as absent (`excluded.dropped`); `describe: true` adds `claimsById` (tier, support, status, source, provenance, validity) and entity `labels`; an edge with a live opposing claim is `contested: true` with `opposing[]` |
+| `evaluate_joins` | `{ rules, include_alleged?, max_facts?, max_rounds?, edge_limit?, exclude_claims?, describe? }` join rules across two relations, to a fixpoint; `exclude_claims` and `describe` as on `close_relation` (KA4b) |
 | `get_derivation` | `(uuid)` one recorded derivation, explained |
 | `get_derivation_tree` | `(uuid, { max_depth? })` the proof tree under a derivation, premise by premise |
 

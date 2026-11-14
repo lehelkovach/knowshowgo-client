@@ -349,6 +349,19 @@ def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in body.items() if v is not None}
 
 
+def _proof_view_fields(exclude_claims: Optional[List[str]], describe: bool) -> Dict[str, Any]:
+    """KA4b: the proof-view fields of close_relation / evaluate_joins, absent unless asked for;
+    ``describe`` only when it is the literal True."""
+    out: Dict[str, Any] = {}
+    if exclude_claims is not None:
+        if isinstance(exclude_claims, (str, bytes)) or not isinstance(exclude_claims, (list, tuple)):
+            raise ValueError("exclude_claims must be a list of claim uuids")
+        out["excludeClaims"] = [str(c) for c in exclude_claims]
+    if describe is True:
+        out["describe"] = True
+    return out
+
+
 def matches_route(template: str, actual: str) -> bool:
     """Segment-wise match of `/api/objects/:uuid` templates to concrete paths."""
     expected = str(template or "").split("/")
@@ -1461,22 +1474,32 @@ class KnowShowGoClient:
 
     def close_relation(self, predicate: str, as_: Optional[str] = None, include_alleged: bool = False,
                        max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
-                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
-        """KA4: transitive closure of one relation; each fact names the claims on its path."""
+                       edge_limit: Optional[int] = None, exclude_claims: Optional[List[str]] = None,
+                       describe: bool = False) -> Dict[str, Any]:
+        """KA4: transitive closure of one relation; each fact names the claims on its path and
+        (KA4b) its rule (``closure.base`` / ``closure.extend``).
+
+        KA4b (server 0.2.61+): ``exclude_claims`` re-runs with those claims read as absent
+        (``excluded.dropped``); ``describe=True`` adds ``claimsById`` and entity ``labels``.
+        An edge with a live opposing claim is ``contested`` with ``opposing``."""
         if not predicate:
             raise ValueError("predicate is required")
         body = _without_nulls({"predicate": predicate, "as": as_, "includeAlleged": True if include_alleged else None,
-                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit,
+                               **_proof_view_fields(exclude_claims, describe)})
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/closure", json=body)
 
     def evaluate_joins(self, rules: List[Dict[str, Any]], include_alleged: bool = False,
                        max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
-                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
-        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written."""
+                       edge_limit: Optional[int] = None, exclude_claims: Optional[List[str]] = None,
+                       describe: bool = False) -> Dict[str, Any]:
+        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written.
+        KA4b: ``exclude_claims`` and ``describe`` as on :meth:`close_relation`."""
         if not rules:
             raise ValueError("rules is required")
         body = _without_nulls({"rules": list(rules), "includeAlleged": True if include_alleged else None,
-                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit,
+                               **_proof_view_fields(exclude_claims, describe)})
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/joins", json=body)
 
     def ensure_predicate(self, name: str, create: bool = True) -> Dict[str, Any]:

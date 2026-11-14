@@ -91,3 +91,18 @@ test('KG-P2: bind_pattern, close_relation, evaluate_joins, ensure_predicate, che
   await client.check_membership({ subject: U(1), category: U(2) });
   assert.deepEqual([calls[4].url, calls[4].body], ['https://ksg.example.test/api2.0/prototypes/membership', { subject: U(1), category: U(2) }]);
 });
+
+test('KA4b: close_relation and evaluate_joins send exclude_claims and describe', async () => {
+  const { client, calls } = await recordingClient(() => ({ ok: true }));
+  await client.close_relation({ predicate: 'supplies', exclude_claims: [U(7)], describe: true });
+  assert.deepEqual(calls[0].body, { predicate: 'supplies', excludeClaims: [U(7)], describe: true });
+  const rules = [{ name: 'tier2', ir: { kind: 'ForAll' } }];
+  await client.evaluate_joins({ rules, exclude_claims: [U(8), U(9)], describe: true });
+  assert.deepEqual(calls[1].body, { rules, excludeClaims: [U(8), U(9)], describe: true });
+  // Without the new fields the bodies are unchanged; describe only on the literal true.
+  await client.close_relation({ predicate: 'supplies', describe: 'yes' });
+  assert.deepEqual(calls[2].body, { predicate: 'supplies' });
+  await client.evaluate_joins({ rules, exclude_claims: [] });
+  assert.deepEqual(calls[3].body, { rules, excludeClaims: [] });
+  assert.throws(() => client.close_relation({ predicate: 'supplies', exclude_claims: 'c1' }), /exclude_claims must be an array/);
+});
