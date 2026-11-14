@@ -1100,9 +1100,14 @@ class KnowShowGoClient:
         kwargs = {"params": {"maxDepth": max_depth}} if max_depth else {}
         return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/derivations/{uuid}/tree", **kwargs)
 
-    def assimilate_exemplar(self, subject: str, category: str) -> Dict[str, Any]:
-        """Add a confirmed member to a category's exemplars."""
-        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/assimilate", json={"subject": subject, "category": category})
+    def assimilate_exemplar(self, subject: str, category: str, evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Add a confirmed member to a category's exemplars. R6b (server 0.2.62+): ``evidence``
+        ({"kind", "ref"}) names what confirmed it; candidate or inferred membership is refused
+        (409 M006), a private exemplar never moves a shared centroid (409 M007)."""
+        body: Dict[str, Any] = {"subject": subject, "category": category}
+        if evidence:
+            body["evidence"] = evidence
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/assimilate", json=body)
 
     def hydrate_entity(self, entity_id: str, top_k: Optional[int] = None, threshold: Optional[float] = None) -> Dict[str, Any]:
         """The raw one-trip hydration payload for an entity."""
@@ -3351,23 +3356,40 @@ class KnowShowGoClient:
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
         semantic_api_prefix: Optional[str] = None,
+        method: Optional[str] = None,
+        k: Optional[int] = None,
+        margin: Optional[float] = None,
+        targets: Optional[str] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
+        """R6a (server 0.2.62+): ``method="centroid"`` answers the top-k candidates with
+        similarity and the top-1/top-2 margin (``ambiguous`` below the threshold); ``items``
+        grounds a labelled list (E1). Reads only.
+
+        Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
         knowshowgo >= 0.2.24). Pass ``claim={"subject", "predicate", "object"}`` or
         ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
         ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
         ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
         ``mentions`` are concept uuids already in the conversation. Reads only."""
-        if not claim and not term:
+        if items is not None and method != "centroid":
+            raise ValueError("items needs method='centroid'")
+        if not claim and not term and items is None:
             raise ValueError("ground requires claim {subject, predicate, object} or term")
         prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
         body: Dict[str, Any] = {"ownerUserId": owner_user_id}
         if claim:
             body["claim"] = claim
-        else:
+        elif term is not None:
             body["term"] = term
             if role is not None:
                 body["role"] = role
+        if method is not None:
+            body["method"] = method
+        if method == "centroid":
+            body.update(_without_nulls({"k": k, "margin": margin, "targets": targets}))
+            if items is not None:
+                body["items"] = list(items)
         if mentions is not None:
             body["mentions"] = mentions
         return self._request(

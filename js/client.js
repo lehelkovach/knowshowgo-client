@@ -1222,8 +1222,15 @@ export class KnowShowGoClient {
   }
 
   /** Add a confirmed member to a category's exemplars (moves the centroid, never the definition). */
-  assimilate_exemplar({ subject, category } = {}) {
-    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/assimilate`, { json: { subject, category } });
+  /**
+   * Fold a confirmed member into a category's centroid. R6b (server 0.2.62+):
+   * `evidence: { kind, ref }` names what confirmed it (owner_confirmed,
+   * verified_run, validated_assimilation); a membership resting on a candidate
+   * or inferred claim is refused (409 M006), a private exemplar never moves a
+   * shared centroid (409 M007).
+   */
+  assimilate_exemplar({ subject, category, evidence = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/assimilate`, { json: { subject, category, ...(evidence ? { evidence } : {}) } });
   }
 
   /** The raw one-trip hydration payload (`hydrate()` wraps it as a KSGObject). */
@@ -3122,15 +3129,29 @@ export class KnowShowGoClient {
     term = undefined,
     role = undefined,
     mentions = undefined,
+    method = undefined,
+    k = undefined,
+    margin = undefined,
+    targets = undefined,
+    items = undefined,
     owner_user_id = null,
     agent_session_id = null,
     semanticApiPrefix = null,
   } = {}) {
-    if (!claim && !term) throw new Error('ground requires claim {subject, predicate, object} or term');
+    // R6a (server 0.2.62+): `method: 'centroid'` answers the top-k candidates
+    // with similarity and the top-1/top-2 margin (`ambiguous` below the
+    // threshold); `items: [{ term, expect? }]` grounds a labelled list (E1).
+    // Reads only.
+    if (items !== undefined && method !== 'centroid') throw new Error("items needs method: 'centroid'");
+    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term');
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    const centroid = method === 'centroid'
+      ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, ...(items !== undefined ? { items } : {}) })
+      : (method !== undefined ? { method } : {});
     return this._request('POST', `${prefix}/ground`, {
       json: {
-        ...(claim ? { claim } : { term, ...(role ? { role } : {}) }),
+        ...(claim ? { claim } : term !== undefined ? { term, ...(role ? { role } : {}) } : {}),
+        ...centroid,
         ...(mentions !== undefined ? { mentions } : {}),
         ownerUserId: owner_user_id,
       },
