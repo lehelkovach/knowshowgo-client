@@ -486,7 +486,7 @@
       "id": "knowledge-search",
       "title": "Knowledge search (KL2 vectors, CM1 where), query, grounding",
       "audience": "agent",
-      "since": "0.2.34; 0.2.51 (vector reads); unreleased, after 0.2.60 (CM1: where)",
+      "since": "0.2.34; 0.2.51 (vector reads); 0.2.61 (CM1: where)",
       "summary": "Semantic search over knowledge (vector rows by default), typed constraints over instances (`where`), structured query, grounding and slot resolution.",
       "whenToUse": "Use `search_knowledge` for a fuzzy question. For a typed one (\"the current requirement for this portal\", \"dogs with black ears whose name starts with H, not German Shepherds\") pass `where: { type, all, any, not }`: `results` holds only instances whose every constraint is known to hold on stated claims, each with the claim ids, tiers and statuses behind it; instances that are unknown on a constraint come back apart under `unknown` and must never be reported as matches. For joins across several things prefer `bind_pattern`. `ground` to tie a phrase to known concepts.",
       "routes": [
@@ -593,7 +593,7 @@
       "id": "logic",
       "title": "Logic over the graph",
       "audience": "agent",
-      "since": "0.2.27; 0.2.43 (joins); 0.2.45 (closure)",
+      "since": "0.2.27; 0.2.43 (joins); 0.2.45 (closure); 0.2.61 (KA4b: rule names, excludeClaims, contested, describe)",
       "summary": "Pattern binding, transitive closure, relational joins, rules with derivations you can read back.",
       "whenToUse": "Prefer `bind_pattern` over free text for relational questions (\"who works at Contoso\"); `close_relation` for chains (part_of, subclass_of); `evaluate_joins` across two relations; `get_derivation_tree` to show why.",
       "routes": [
@@ -1475,7 +1475,7 @@
     {
       "id": "cm1-where",
       "title": "Typed constraints in knowledge search (CM1)",
-      "since": "unreleased, after 0.2.60 (CM1)",
+      "since": "0.2.61 (CM1)",
       "capability": "knowledge-search",
       "client": [
         "search_knowledge"

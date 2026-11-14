@@ -36,6 +36,19 @@ function withoutNulls(obj) {
   return out;
 }
 
+// KA4b: the proof-view fields of close_relation / evaluate_joins. Absent when
+// not asked for, so the request body is unchanged for existing callers;
+// `describe` only on the literal true.
+function proofViewFields(excludeClaims, describe) {
+  const out = {};
+  if (excludeClaims !== null && excludeClaims !== undefined) {
+    if (!Array.isArray(excludeClaims)) throw new Error('exclude_claims must be an array of claim uuids');
+    out.excludeClaims = excludeClaims.map(String);
+  }
+  if (describe === true) out.describe = true;
+  return out;
+}
+
 /**
  * `{ securityClass }` for an assertion write, or `{}` when neither
  * `security_class` nor its alias `scope` was given. The value is not checked
@@ -1582,25 +1595,32 @@ export class KnowShowGoClient {
 
   /**
    * KA4 / KG-P2: the transitive closure of one relation over the caller's
-   * visible claims. Each fact names the claims on its path. Resolves to
+   * visible claims. Each fact names the claims on its path and (KA4b) its rule
+   * (`closure.base` / `closure.extend`). Resolves to
    * `{ ok, edges, facts, conflicts, complete, excluded, ... }`.
+   *
+   * KA4b (server 0.2.61+): `exclude_claims: [uuid]` re-runs with those claims
+   * read as absent ("what would change this"; `excluded.dropped` counts them);
+   * `describe: true` adds `claimsById` (tier, support, status, source,
+   * provenance, validity) and entity `labels`. An edge with a live opposing
+   * claim comes back `contested: true` with `opposing: [uuid]`.
    */
-  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null, exclude_claims = null, describe = false } = {}) {
     if (!predicate) throw new Error('predicate is required');
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/closure`, {
-      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit, ...proofViewFields(exclude_claims, describe) })
     });
   }
 
   /**
    * KA4 / KG-P2: rules over binary relations with joins (`[{ name, ir }]`),
    * run to a fixpoint in memory; nothing is written. Conclusions explain back
-   * to claim uuids.
+   * to claim uuids. KA4b: `exclude_claims` and `describe` as on `close_relation`.
    */
-  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null, exclude_claims = null, describe = false } = {}) {
     if (!Array.isArray(rules) || !rules.length) throw new Error('rules is required');
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/joins`, {
-      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit, ...proofViewFields(exclude_claims, describe) })
     });
   }
 

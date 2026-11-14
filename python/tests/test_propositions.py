@@ -80,5 +80,22 @@ class LogicForAgentsTest(unittest.TestCase):
         self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/prototypes/membership", {"subject": "s1", "category": "c1"}))
 
 
+    def test_ka4b_exclude_claims_and_describe(self):
+        client = make_client()
+        client.close_relation("supplies", exclude_claims=["c7"], describe=True)
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/logic-ir/closure",
+                                             {"predicate": "supplies", "excludeClaims": ["c7"], "describe": True}))
+        rules = [{"name": "tier2", "ir": {"kind": "ForAll"}}]
+        client.evaluate_joins(rules, exclude_claims=["c8", "c9"], describe=True)
+        self.assertEqual(self.last(client), ("POST", f"{BASE}/api2.0/logic-ir/joins",
+                                             {"rules": rules, "excludeClaims": ["c8", "c9"], "describe": True}))
+        client.close_relation("supplies")
+        self.assertEqual(self.last(client)[2], {"predicate": "supplies"})
+        client.evaluate_joins(rules, exclude_claims=[])
+        self.assertEqual(self.last(client)[2], {"rules": rules, "excludeClaims": []})
+        with self.assertRaises(ValueError):
+            client.close_relation("supplies", exclude_claims="c1")
+
+
 if __name__ == "__main__":
     unittest.main()
