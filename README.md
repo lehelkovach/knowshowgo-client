@@ -110,7 +110,10 @@ fake data. `c` is a client; `avery` is `c.for_owner({ auth_token: averyToken })`
 | Feedback (`feedback`) | File a ticket when KSG answers wrongly (MCP `feedback` tool) | — |
 
 Operator-only capabilities (seeds including `schemaorg-seed`, admin and ops)
-have no client methods; the server's `docs/CAPABILITIES.md` lists them.
+mostly have no client methods; the server's `docs/CAPABILITIES.md` lists them.
+One that does: `act1-action-concepts`, the action vocabulary (one concept per
+verb meaning, with roles), seeded with `seed_action_concepts({ dry_run: true })`
+first, which reports what a run would write and writes nothing.
 
 ## Install
 

@@ -3349,6 +3349,26 @@ export class KnowShowGoClient {
     return this._request('POST', `${prefix}/seed/social-layer`, { json: {} });
   }
 
+  /**
+   * ACT1: seed the action vocabulary: one concept per verb MEANING
+   * (`order (action)`, keyed by `senseKey: "action:<id>"`, with `verbForms`
+   * and `is_a` parents), the role predicates (agent, patient, …) and the link
+   * predicates `takes_role`, `achieves`, `acts_on`, `performs`. Operators
+   * only; a write. Idempotent: a second run writes nothing.
+   *
+   * `dry_run: true` returns the report of what a run would write
+   * (`report.writes`, `report.preflight.lemmasAlreadyNamed`) and writes
+   * nothing; run it first. When more than one active `Action` prototype
+   * exists the server refuses, dry run or not: the call throws with
+   * `status` 409 and the report in `err.body.report.refused`.
+   */
+  seed_action_concepts({ dry_run = false, dryRun = false, api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/action-concepts`, {
+      json: dry_run === true || dryRun === true ? { dryRun: true } : {}
+    });
+  }
+
   seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {
     const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
     return this._request('POST', `${prefix}/seed/logic-ir-primitives`, { json: {} });

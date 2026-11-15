@@ -3769,6 +3769,27 @@ class KnowShowGoClient:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/social-layer", json={})
 
+    def seed_action_concepts(self, dry_run: bool = False, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        """ACT1: seed the action vocabulary (operators only; a write).
+
+        One concept per verb MEANING (``order (action)``, keyed by
+        ``senseKey: "action:<id>"``, with ``verbForms`` and ``is_a`` parents),
+        the role predicates (agent, patient, ...) and the link predicates
+        ``takes_role``, ``achieves``, ``acts_on``, ``performs``. Idempotent: a
+        second run writes nothing.
+
+        ``dry_run=True`` returns the report of what a run would write
+        (``report["writes"]``, ``report["preflight"]["lemmasAlreadyNamed"]``)
+        and writes nothing; run it first. When more than one active ``Action``
+        prototype exists the server refuses (409), dry run or not.
+        """
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/seed/action-concepts",
+            json={"dryRun": True} if dry_run is True else {},
+        )
+
     def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/logic-ir-primitives", json={})

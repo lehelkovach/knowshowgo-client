@@ -1462,6 +1462,34 @@ class TestKnowShowGoClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.list_derivations("")
 
+    def test_seed_action_concepts_posts_to_api2_and_dry_run_is_explicit(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "report": {"dryRun": False, "writes": 0}})
+        )
+        result = client.seed_action_concepts()
+        self.assertTrue(result["ok"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/action-concepts",
+            json={},
+        )
+        client.session.request.reset_mock()
+        client.seed_action_concepts(dry_run=True, api_prefix="/api")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/seed/action-concepts",
+            json={"dryRun": True},
+        )
+        client.session.request.reset_mock()
+        # Only the literal True is a dry run.
+        client.seed_action_concepts(dry_run="yes")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/action-concepts",
+            json={},
+        )
+
     def test_seed_logic_ir_primitives_posts_to_api2(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
         client.session.request = MagicMock(
