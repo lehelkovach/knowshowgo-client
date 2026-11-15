@@ -2006,6 +2006,24 @@ class KnowShowGoClient:
         """Update/recompute node embedding"""
         self._request("POST", f"/api/nodes/{uuid}/embedding")
 
+    def supersede_node(
+        self,
+        uuid: str,
+        reason: Optional[str] = None,
+        order: Optional[str] = None,
+        superseded_by: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """NODE-SUPERSEDE1: retire one of the caller's own private nodes by versioning."""
+        data: Dict[str, Any] = {}
+        if reason is not None:
+            data["reason"] = reason
+        if order is not None:
+            data["order"] = order
+        if superseded_by is not None:
+            data["supersededBy"] = superseded_by
+        return self._request("POST", f"/api/nodes/{uuid}/supersede", json=data, owner_user_id=owner_user_id)
+
     # ===== ORM Methods =====
 
     def register_prototype(

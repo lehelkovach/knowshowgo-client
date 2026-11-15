@@ -431,6 +431,7 @@
         "POST /knodes",
         "POST /nodes",
         "POST /nodes/:uuid/embedding",
+        "POST /nodes/:uuid/supersede",
         "POST /tags/resolve",
         "POST /tags/suggest",
         "POST /topics",
@@ -444,6 +445,7 @@
         "create_knode",
         "create_node_with_document",
         "update_node_embedding",
+        "supersede_node",
         "create_topic",
         "get_topic",
         "resolve_topic_tag"
@@ -466,6 +468,9 @@
         ],
         "update_node_embedding": [
           "POST /nodes/:uuid/embedding"
+        ],
+        "supersede_node": [
+          "POST /nodes/:uuid/supersede"
         ],
         "create_topic": [
           "POST /topics"

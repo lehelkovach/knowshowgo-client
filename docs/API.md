@@ -184,6 +184,7 @@ supported).
 | `get_associations` | `(uuid, { direction = 'both' })` |
 | `create_node_with_document` | `{ ... }` |
 | `update_node_embedding` | `(uuid)` |
+| `supersede_node` | `(uuid, { reason?, order?, superseded_by? })` — retire one of the caller's own private nodes by versioning (KSG NODE-SUPERSEDE1) |
 | `resolve_concept` | `{ label, ...options }` → the preferred concept (and the caller's personal one) without creating anything. Options go to the server camelCased (`prototype_name` → `prototypeName`) |
 | `find_or_create_concept` | `{ label, ...options }` the identity path: the existing concept for this label, or a new one |
 | `merge_concepts` | `{ survivor, members, score?, reason? }` merge duplicates into a survivor; reversible |

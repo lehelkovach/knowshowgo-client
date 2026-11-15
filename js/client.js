@@ -2029,6 +2029,18 @@ export class KnowShowGoClient {
     return this._request('POST', `/api/nodes/${encodeURIComponent(uuid)}/embedding`);
   }
 
+  /**
+   * NODE-SUPERSEDE1: retire one of the caller's own private nodes (and its
+   * document mirror) by versioning: retired, unsearchable, kept. Another
+   * owner's, ownerless or public node answers 404.
+   */
+  supersede_node(uuid, { reason = null, order = null, superseded_by = null, owner_user_id = null } = {}) {
+    return this._request('POST', `/api/nodes/${encodeURIComponent(uuid)}/supersede`, {
+      json: withoutNulls({ reason, order, supersededBy: superseded_by }),
+      owner_user_id
+    });
+  }
+
   // ===== ORM =====
   register_prototype(prototype_name, options = {}) {
     return this._request('POST', '/api/orm/register', {
