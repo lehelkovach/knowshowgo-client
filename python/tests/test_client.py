@@ -82,6 +82,33 @@ class TestKnowShowGoClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.ground()
 
+    def test_ground_utterance_posts_the_text_alone(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "ok": True, "revision": "action-reader@0.1.0", "writes": 0, "unread": [],
+                "frames": [{"kind": "command", "action": {"term": "order", "status": "resolved", "uuid": "a-order"}, "roles": {}, "unassigned": []}],
+            })
+        )
+        out = client.ground(utterance="order a pizza from Domino's", owner_user_id="u1")
+        self.assertEqual(out["frames"][0]["kind"], "command")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/ground"))
+        self.assertEqual(kwargs["json"], {"utterance": "order a pizza from Domino's", "ownerUserId": "u1"})
+        for bad in ("", "   ", 42):
+            with self.assertRaises(ValueError):
+                client.ground(utterance=bad)
+        with self.assertRaises(ValueError):
+            client.ground(utterance="pay", term="pay")
+        with self.assertRaises(ValueError):
+            client.ground(utterance="pay", method="centroid")
+        self.assertEqual(client.session.request.call_count, 1)
+        # ACT2: role action is sent as given; the term body is unchanged.
+        client.ground(term="ordered", role="action")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["json"], {"ownerUserId": None, "term": "ordered", "role": "action"})
+
     def test_reinforce_assertion_posts_claim_and_speaker(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(

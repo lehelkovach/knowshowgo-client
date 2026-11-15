@@ -3138,11 +3138,27 @@ export class KnowShowGoClient {
    * names it; nothing is created) or `literal`; the predicate in canonical
    * form (`is a` → `is_a`). `mentions` are concept uuids already in the
    * conversation, a discourse cue. Reads only.
+   *
+   * ACT2 (server after 0.2.65): `role: 'action'` grounds a verb form
+   * ("ordered", "log in") to its action concept; `entity` and `class` never
+   * return one.
+   *
+   * ACT3a (server after 0.2.65): `utterance` reads text into
+   * `{ frames, unread }`. Each frame has a `kind` (`command` | `report` |
+   * `rule`), the `action` with its grounding status, `roles` (each slot
+   * `resolved` | `ambiguous` | `undefined` | `literal`), `unassigned` slots
+   * with their role candidates, `values`, and a `pattern` whose `triples` go
+   * to `bind_pattern`. Rules and the action lexicon only: no model, no
+   * vector, nothing written. A `rule` frame is returned, not compiled or
+   * stored. Treat `undefined` and `unassigned` as questions to ask, never as
+   * answers. `utterance` is read on its own: it is not combined with
+   * `claim`, `term`, `method` or `items`.
    */
   ground({
     claim = undefined,
     term = undefined,
     role = undefined,
+    utterance = undefined,
     mentions = undefined,
     method = undefined,
     k = undefined,
@@ -3160,8 +3176,19 @@ export class KnowShowGoClient {
     // R6c (server 0.2.63+): `floor` — top-1 below it answers `none`.
     // Reads only.
     if (items !== undefined && method !== 'centroid') throw new Error("items needs method: 'centroid'");
-    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term');
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    if (utterance !== undefined) {
+      if (typeof utterance !== 'string' || !utterance.trim()) throw new Error('utterance must be a non-empty string');
+      if (claim || term !== undefined || items !== undefined || method !== undefined) {
+        throw new Error('utterance is read on its own: do not combine it with claim, term, method or items');
+      }
+      return this._request('POST', `${prefix}/ground`, {
+        json: { utterance, ownerUserId: owner_user_id },
+        owner_user_id,
+        agent_session_id,
+      });
+    }
+    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term (or utterance)');
     const centroid = method === 'centroid'
       ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, floor: floor ?? null, ...(items !== undefined ? { items } : {}) })
       : (method !== undefined ? { method } : {});

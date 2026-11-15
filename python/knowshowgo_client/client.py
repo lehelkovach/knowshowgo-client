@@ -3393,6 +3393,7 @@ class KnowShowGoClient:
         targets: Optional[str] = None,
         items: Optional[List[Dict[str, Any]]] = None,
         floor: Optional[float] = None,
+        utterance: Optional[str] = None,
     ) -> Dict[str, Any]:
         """R6a (server 0.2.62+): ``method="centroid"`` answers the top-k candidates with
         similarity and the top-1/top-2 margin (``ambiguous`` below the threshold); ``items``
@@ -3403,12 +3404,36 @@ class KnowShowGoClient:
         ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
         ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
         ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
-        ``mentions`` are concept uuids already in the conversation. Reads only."""
+        ``mentions`` are concept uuids already in the conversation. Reads only.
+
+        ACT2 (server after 0.2.65): ``role="action"`` grounds a verb form ("ordered",
+        "log in") to its action concept; ``entity`` and ``class`` never return one.
+
+        ACT3a (server after 0.2.65): ``utterance`` reads text into ``{"frames", "unread"}``.
+        Each frame has a ``kind`` (``command`` | ``report`` | ``rule``), the ``action`` with
+        its grounding status, ``roles`` (each slot ``resolved`` | ``ambiguous`` |
+        ``undefined`` | ``literal``), ``unassigned`` slots with their role candidates,
+        ``values`` and a ``pattern`` whose ``triples`` go to ``bind_pattern``. Rules and the
+        action lexicon only: no model, no vector, nothing written. A ``rule`` frame is
+        returned, not compiled or stored. Treat ``undefined`` and ``unassigned`` as questions
+        to ask, never as answers. ``utterance`` is read on its own."""
         if items is not None and method != "centroid":
             raise ValueError("items needs method='centroid'")
-        if not claim and not term and items is None:
-            raise ValueError("ground requires claim {subject, predicate, object} or term")
         prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        if utterance is not None:
+            if not isinstance(utterance, str) or not utterance.strip():
+                raise ValueError("utterance must be a non-empty string")
+            if claim or term is not None or items is not None or method is not None:
+                raise ValueError("utterance is read on its own: do not combine it with claim, term, method or items")
+            return self._request(
+                "POST",
+                f"{prefix}/ground",
+                json={"utterance": utterance, "ownerUserId": owner_user_id},
+                owner_user_id=owner_user_id,
+                agent_session_id=agent_session_id,
+            )
+        if not claim and not term and items is None:
+            raise ValueError("ground requires claim {subject, predicate, object} or term (or utterance)")
         body: Dict[str, Any] = {"ownerUserId": owner_user_id}
         if claim:
             body["claim"] = claim
