@@ -3,6 +3,7 @@
 **Updated:** 2026-10-06 · Agents: read this at session start; keep it short.
 
 ## Now
+- **2026-11-15 — Release 0.2.37 (paired with KSG 0.2.65):** `supersede_node` (#132, NODE-SUPERSEDE1) and procedure `visibility` (#131, KSG 0.2.64). To `main` and the release bundle only; not published to npm or PyPI.
 - **2026-11-15 — `supersede_node` (crew P, branch `supersede-node`), JS and Python: KSG NODE-SUPERSEDE1 (`POST /api/nodes/:uuid/supersede`, knowshowgo branch `node-supersede1`).** For OSLO RESIDUE1 (the Captain: "1 yes"): retire a test owner's episodes by versioning. Ships with the next KSG release.
 
 - **2026-11-15 — KSG 0.2.64 `visibility` param, JS and Python:** `create_procedure`, `import_procedure_json` and `generalize_procedure` send `visibility` (`'public'` for a commons procedure; with an owner the server's default is private). Sent only when given; earlier releases dropped it. Not published.
