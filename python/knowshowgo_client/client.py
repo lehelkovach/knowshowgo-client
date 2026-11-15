@@ -1702,6 +1702,7 @@ class KnowShowGoClient:
         site: Optional[str] = None,
         include: Optional[Union[str, List[str]]] = None,
         limit: Optional[int] = None,
+        achieves: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Verified procedural recall: semantic on ``goal``, exact on ``site``.
 
@@ -1710,11 +1711,24 @@ class KnowShowGoClient:
         ``state`` and, when the procedure has versions, ``currentVersion``.
         Returns ``{ ok, query, results, excluded, scanned }``. Distinct from
         ``search_procedures`` (POST, by meaning only).
+
+        ACT5a (server after 0.2.65): ``achieves`` is an action concept's uuid
+        (``ground(term=..., role="action")`` finds one). Only procedures linked
+        to that action, or to one under it, are returned: a procedure linked to
+        ``order`` is found under ``acquire``. A link is a proposition:
+        ``assert_proposition(subject_uuid=procedure, predicate="achieves",
+        object_uuid=action)``. With ``goal`` the link filters the ranked pool;
+        ``achieves`` alone (or with ``site``) enumerates the linked procedures.
+        The lifecycle filter applies either way. The answer then adds
+        ``query.achieves``, ``results[].achieves``, ``excluded.otherAction``
+        and ``unlinked`` (procedures in the pool with no live link; ``None``
+        without a goal): a procedure with no link is not absent, so search
+        without ``achieves`` before concluding there is none. Sent only when given.
         """
-        if not goal and not site:
-            raise ValueError("goal or site is required")
+        if not goal and not site and not achieves:
+            raise ValueError("goal or site is required (or achieves)")
         inc = ",".join(include) if isinstance(include, (list, tuple)) else include
-        params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit})
+        params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit, "achieves": achieves or None})
         return self._request("GET", f"{self.prototype_api_prefix}/procedures/search", params=params)
 
     # ===== Procedure versions (capability model) =====

@@ -1513,6 +1513,17 @@
       "whenToUse": "Add `where` to `search_knowledge` when the question names a type and property values. Constraints are true / false / unknown per instance; `not` of unknown is unknown; a candidate or model-inferred claim is never a match. Report `results` as matches, `unknown` as \"not established\", and an empty `results` as \"no verified match\", never the nearest text hit."
     },
     {
+      "id": "act5a-achieves-filter",
+      "title": "Find procedures by the action they accomplish (ACT5a)",
+      "since": "unreleased (ACT5a)",
+      "capability": "procedures",
+      "client": [
+        "search_verified_procedures",
+        "assert_proposition"
+      ],
+      "whenToUse": "Link a procedure to what it accomplishes with `assert_proposition({ subject_uuid: procedure, predicate: 'achieves', object_uuid: action })`, then recall with `search_verified_procedures({ achieves: action, goal? })`: procedures linked to that action or to one under it (a procedure linked to `order` is found under `acquire`), lifecycle-filtered as always. Without `goal` they are enumerated from the links. `unlinked` and `excluded.otherAction` say how many procedures the filter could not see: a procedure with no link is not absent, so search without `achieves` before concluding there is none. A model's candidate link is not a link."
+    },
+    {
       "id": "act3a-read-utterance",
       "title": "Read an utterance into frames (ACT3a)",
       "since": "unreleased (ACT3a)",

@@ -276,6 +276,20 @@ class TestProcedureRunsAndVersions(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "goal or site is required"):
             client.search_verified_procedures()
 
+    # ACT5a: GET /procedures/search?achieves=<action uuid> (service.js searchProcedures, _achievesLinks).
+    def test_search_verified_procedures_by_action(self):
+        reply = {"ok": True, "query": {"achieves": {"uuid": U(40), "label": "acquire (action)", "actions": 5}}, "results": [], "excluded": {"otherAction": 1}, "unlinked": None, "scanned": 3}
+        client = make_client(reply)
+        self.assertEqual(client.search_verified_procedures(achieves=U(40)), reply)
+        method, url, kwargs = last_call(client)
+        self.assertEqual((method, url), ("GET", f"{BASE}/api2.0/procedures/search"))
+        self.assertEqual(kwargs["params"], {"achieves": U(40)})
+        client.search_verified_procedures(goal="order a pizza", achieves=U(40), include="all", limit=10)
+        self.assertEqual(last_call(client)[2]["params"], {"goal": "order a pizza", "include": "all", "limit": 10, "achieves": U(40)})
+        # Without achieves the query is what it was.
+        client.search_verified_procedures(goal="order a pizza")
+        self.assertEqual(last_call(client)[2]["params"], {"goal": "order a pizza"})
+
     # POST /api/procedures/search hits carry currentVersion (rest-api.js:11584).
     def test_search_procedures_passes_current_version(self):
         current = {"uuid": U(31), "version": 2, "state": "validated", "stateBasis": "runs"}

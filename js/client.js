@@ -1797,12 +1797,25 @@ export class KnowShowGoClient {
    * list). Each result carries `status`, `state` and, when the procedure has
    * versions, `currentVersion`. Resolves to `{ ok, query, results, excluded,
    * scanned }`. Distinct from `search_procedures` (POST, by meaning only).
+   *
+   * ACT5a (server after 0.2.65): `achieves` is an action concept's uuid
+   * (`ground({ term, role: 'action' })` finds one). Only procedures linked to
+   * that action, or to one under it, are returned: a procedure linked to
+   * `order` is found under `acquire`. A link is a proposition:
+   * `assert_proposition({ subject_uuid: procedure, predicate: 'achieves',
+   * object_uuid: action })`. With `goal` the link filters the ranked pool;
+   * `achieves` alone (or with `site`) enumerates the linked procedures. The
+   * lifecycle filter applies either way. The answer then adds
+   * `query.achieves`, `results[].achieves`, `excluded.otherAction` and
+   * `unlinked` (procedures in the pool with no live link; `null` without a
+   * goal): a procedure with no link is not absent, so search without
+   * `achieves` before concluding there is none. Sent only when given.
    */
-  search_verified_procedures({ goal, site, include, limit } = {}) {
-    if (!goal && !site) throw new Error('goal or site is required');
+  search_verified_procedures({ goal, site, include, limit, achieves } = {}) {
+    if (!goal && !site && !achieves) throw new Error('goal or site is required (or achieves)');
     const inc = Array.isArray(include) ? include.join(',') : include;
     return this._request('GET', `${this.prototypeApiPrefix}/procedures/search`, {
-      params: { goal, site, include: inc, limit }
+      params: { goal, site, include: inc, limit, ...(achieves ? { achieves } : {}) }
     });
   }
 
