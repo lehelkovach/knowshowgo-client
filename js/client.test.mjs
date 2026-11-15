@@ -2445,3 +2445,23 @@ test('PK1: install_pack posts the pack, takes a pack as JSON text, and marks a d
   assert.throws(() => client.install_pack([pack]), /pack/);
   assert.equal(calls.length, 2);
 });
+
+test('procedure create, import and generalize pass visibility through only when given (KSG 0.2.64)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return makeJsonResponse({ ok: true, procedure_uuid: 'proc-1' });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  await client.create_procedure({ title: 'Commons', visibility: 'public' });
+  await client.import_procedure_json({ procedure: { title: 'Commons' }, visibility: 'public' });
+  await client.generalize_procedure('proc-1', { title: 'Commons', visibility: 'private' });
+  await client.create_procedure({ title: 'Mine' });
+  await client.import_procedure_json({ procedure: { title: 'Mine' } });
+  await client.generalize_procedure('proc-1', { title: 'Mine' });
+
+  assert.deepEqual(calls.map((c) => c.body.visibility), ['public', 'public', 'private', undefined, undefined, undefined]);
+  for (const c of calls.slice(3)) assert.equal(Object.hasOwn(c.body, 'visibility'), false);
+});

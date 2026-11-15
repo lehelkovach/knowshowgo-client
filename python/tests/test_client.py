@@ -771,6 +771,36 @@ class TestKnowShowGoClient(unittest.TestCase):
             },
         )
 
+    def test_supersede_node_posts_reason_order_successor(self):
+        """NODE-SUPERSEDE1: the owner retires its own node by versioning."""
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(return_value=FakeResponse({"ok": True, "uuid": "n-1"}))
+        client.supersede_node("n-1", reason="residue", order="1 yes", superseded_by="n-2")
+        call = client.session.request.call_args_list[-1]
+        self.assertEqual(call.args[0], "POST")
+        self.assertTrue(call.args[1].endswith("/api/nodes/n-1/supersede"))
+        body = {k: v for k, v in call.kwargs["json"].items() if k != "ownerUserId"}
+        self.assertEqual(body, {"reason": "residue", "order": "1 yes", "supersededBy": "n-2"})
+
+    def test_procedure_writes_pass_visibility_only_when_given(self):
+        """KSG 0.2.64: visibility='public' makes a commons procedure; absent, the body is unchanged."""
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "procedure_uuid": "proc-1"})
+        )
+
+        client.create_procedure(title="Commons", visibility="public")
+        client.import_procedure_json(procedure={"title": "Commons"}, visibility="public")
+        client.generalize_procedure("proc-1", title="Commons", visibility="private")
+        client.create_procedure(title="Mine")
+        client.import_procedure_json(procedure={"title": "Mine"})
+        client.generalize_procedure("proc-1", title="Mine")
+
+        bodies = [c.kwargs["json"] for c in client.session.request.call_args_list]
+        self.assertEqual([b.get("visibility") for b in bodies[:3]], ["public", "public", "private"])
+        for b in bodies[3:]:
+            self.assertNotIn("visibility", b)
+
     # ===== Concept Objects =====
 
     def test_suggest_concept_objects_maps_fields(self):

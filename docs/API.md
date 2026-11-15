@@ -184,6 +184,7 @@ supported).
 | `get_associations` | `(uuid, { direction = 'both' })` |
 | `create_node_with_document` | `{ ... }` |
 | `update_node_embedding` | `(uuid)` |
+| `supersede_node` | `(uuid, { reason?, order?, superseded_by? })` — retire one of the caller's own private nodes by versioning (KSG NODE-SUPERSEDE1) |
 | `resolve_concept` | `{ label, ...options }` → the preferred concept (and the caller's personal one) without creating anything. Options go to the server camelCased (`prototype_name` → `prototypeName`) |
 | `find_or_create_concept` | `{ label, ...options }` the identity path: the existing concept for this label, or a new one |
 | `merge_concepts` | `{ survivor, members, score?, reason? }` merge duplicates into a survivor; reversible |
@@ -448,16 +449,16 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 
 | Method | Signature (JS) |
 |---|---|
-| `create_procedure` | `{ title, description?, steps?, dependencies?, guards?, extra_props? }` |
+| `create_procedure` | `{ title, description?, steps?, dependencies?, guards?, extra_props?, dag_json?, visibility? }` |
 | `get_procedure` | `(uuid)` — compiles and returns the DAG |
 | `add_procedure_step` | `(procedureUuid, { ... })` |
-| `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance? })` |
+| `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance?, visibility? })` |
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
 | `put_procedure_dag` | `(uuid, { dag_json, rematerialize = true, provenance? })` replace a procedure's step graph |
 | `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5, include = 'verified' })` by meaning. Only verified (replayable) procedures unless `include` is `'drafts'`, `'retired'`, `'all'` or a list; each hit carries `status` (KSG-L1, server ≥ the release that ships it) |
-| `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
+| `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance?, visibility? }` |
 | `record_procedure_run` | `(procedureUuid, { ok, verified_by?: 'page'\|'person'\|'tool'\|'oracle'\|'email'\|'api', failure?, site?, evidence?, version_uuid?, version?, held_out? })` → `{ ok, run, status, state, previousStatus, retired, revived, procedure }`. `state` is the IR-S1 state (`candidate \| validated \| promoted \| retired`). `version_uuid` / `version` name the version that ran (default: the current one; another procedure's version is a 400); `held_out: true` marks a held-out validation case. Owner only |
 | `list_procedure_runs` | `(procedureUuid)` → `{ procedureId, status, state, currentVersion: { uuid, version, state, stateBasis } \| null, lifecycle, runs }`, read from `GET /procedures/:uuid` (the server has no separate runs route) |
 | `get_procedure_evaluation` | `(procedureUuid)` → `GET /procedures/:uuid/evaluation`: per version (newest first) `stats` (runs, verifiedSuccesses from oracle/email/api/person only, failures, successRate, Wilson 95% `interval`), `regression` against the previous version (one-sided Fisher exact, flagged at p < 0.05; `tested: false` when either side has no runs), `state`, `stateBasis`; plus `procedure`, `unattributed`, `method` |

@@ -3,7 +3,10 @@
 **Updated:** 2026-10-06 · Agents: read this at session start; keep it short.
 
 ## Now
+- **2026-11-15 — Release 0.2.37 (paired with KSG 0.2.65):** `supersede_node` (#132, NODE-SUPERSEDE1) and procedure `visibility` (#131, KSG 0.2.64). To `main` and the release bundle only; not published to npm or PyPI.
+- **2026-11-15 — `supersede_node` (crew P, branch `supersede-node`), JS and Python: KSG NODE-SUPERSEDE1 (`POST /api/nodes/:uuid/supersede`, knowshowgo branch `node-supersede1`).** For OSLO RESIDUE1 (the Captain: "1 yes"): retire a test owner's episodes by versioning. Ships with the next KSG release.
 
+- **2026-11-15 — KSG 0.2.64 `visibility` param, JS and Python:** `create_procedure`, `import_procedure_json` and `generalize_procedure` send `visibility` (`'public'` for a commons procedure; with an owner the server's default is private). Sent only when given; earlier releases dropped it. Not published.
 - **2026-11-15 — release 0.2.36 to main (CLIENT-SKEW1):** dev → main with CS1, WHY1, PK1, CM1 rung 2, KA4b, R6 and R6c, so prod OSLO stops falling back on NS1, R3–R6 and CL8 grounding (the box ran 0.2.35). Bundle to the release store; not published to npm or PyPI (that needs the Captain's word). Supersedes the stale #123.
 - **2026-11-14 — R6c client param, JS and Python:** `ground({ method: 'centroid', floor })`: below the floor the server (0.2.63+) answers `none`. Sent only when given. Not published.
 - **2026-11-14 — R6 client params, JS and Python:** `ground({ method: 'centroid', term | items, k, margin, targets })`, which grounds by centroid with the top-1/top-2 margin, or runs a labelled list for E1. `assimilate_exemplar({ subject, category, evidence })`. The fields are sent only when given, and the label-method body is unchanged. They need server 0.2.62+. Not published, no version bump.

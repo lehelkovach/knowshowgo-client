@@ -2029,6 +2029,18 @@ export class KnowShowGoClient {
     return this._request('POST', `/api/nodes/${encodeURIComponent(uuid)}/embedding`);
   }
 
+  /**
+   * NODE-SUPERSEDE1: retire one of the caller's own private nodes (and its
+   * document mirror) by versioning: retired, unsearchable, kept. Another
+   * owner's, ownerless or public node answers 404.
+   */
+  supersede_node(uuid, { reason = null, order = null, superseded_by = null, owner_user_id = null } = {}) {
+    return this._request('POST', `/api/nodes/${encodeURIComponent(uuid)}/supersede`, {
+      json: withoutNulls({ reason, order, supersededBy: superseded_by }),
+      owner_user_id
+    });
+  }
+
   // ===== ORM =====
   register_prototype(prototype_name, options = {}) {
     return this._request('POST', '/api/orm/register', {
@@ -2787,7 +2799,7 @@ export class KnowShowGoClient {
     }).then((r) => ({ procedures: r.procedures || [], total: r.total ?? (r.procedures || []).length, truncated: r.truncated === true }));
   }
 
-  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json } = {}) {
+  create_procedure({ title, description = '', steps = [], dependencies = [], guards, extra_props, dag_json, visibility } = {}) {
     return this._request('POST', '/api/procedures', {
       json: {
         title,
@@ -2796,7 +2808,9 @@ export class KnowShowGoClient {
         dependencies,
         guards,
         extraProps: extra_props,
-        ...(dag_json != null ? { dagJson: dag_json } : {})
+        ...(dag_json != null ? { dagJson: dag_json } : {}),
+        // KSG 0.2.64: with an owner a new procedure is private; 'public' makes a commons one.
+        ...(visibility != null ? { visibility } : {})
       }
     });
   }
@@ -2857,9 +2871,9 @@ export class KnowShowGoClient {
     });
   }
 
-  generalize_procedure(procedure_uuid, { title, description = '', mode = 'schema_only', provenance = null } = {}) {
+  generalize_procedure(procedure_uuid, { title, description = '', mode = 'schema_only', provenance = null, visibility } = {}) {
     return this._request('POST', `/api/procedures/${encodeURIComponent(procedure_uuid)}/generalize`, {
-      json: { title, description, mode, provenance }
+      json: { title, description, mode, provenance, ...(visibility != null ? { visibility } : {}) }
     });
   }
 
@@ -2891,12 +2905,13 @@ export class KnowShowGoClient {
     }).then(r => r.results);
   }
 
-  import_procedure_json({ procedure, form_element_category_prototype_uuid = null, provenance = null } = {}) {
+  import_procedure_json({ procedure, form_element_category_prototype_uuid = null, provenance = null, visibility } = {}) {
     return this._request('POST', '/api/procedures/import-json', {
       json: {
         procedure,
         formElementCategoryPrototypeUuid: form_element_category_prototype_uuid,
-        provenance
+        provenance,
+        ...(visibility != null ? { visibility } : {})
       }
     });
   }

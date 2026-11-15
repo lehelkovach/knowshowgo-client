@@ -131,6 +131,8 @@ const hits = await client.search_procedures('file my expenses', { top_k: 5 });
 await client.import_procedure_json({ procedure: { title, steps: [...] } });
 ```
 
+With an owner (KSG 0.2.64+), a new procedure is private to that owner: its steps, versions and claims too. To share a commons procedure, pass `visibility: 'public'` to `create_procedure`, `import_procedure_json` or `generalize_procedure`. With no owner, a procedure is public, as before.
+
 ---
 
 ## Part 2: logic
