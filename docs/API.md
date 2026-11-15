@@ -549,6 +549,7 @@ through `upsert_object` with `sensitivity` / `private` set; see
 | Method | Purpose |
 |---|---|
 | `seed_osl_agent` / `seed_openclaw_agent` / `seed_social_layer` / `seed_procedure_run_primitives` | Seed ontology prototypes on a fresh server |
+| `seed_action_concepts` | `({ dry_run? })` seed the action vocabulary (ACT1): one concept per verb meaning (`order (action)`, `senseKey: "action:<id>"`, `verbForms`, `is_a` parents), role predicates and `takes_role` / `achieves` / `acts_on` / `performs`. Operators only. `dry_run: true` reports what a run would write and writes nothing; more than one active `Action` prototype is a 409 |
 | `query_graph` | `{ search: { text, topK }, traverse: { edgeTypes, depth }, match_prototypes? }` seed + traverse in one call |
 | `create_api_token` / `list_api_tokens` / `revoke_api_token` | Mint (value returned once), list records, revoke by `jti` |
 | `create_knode` | Legacy knode create (Python; deprecated) |

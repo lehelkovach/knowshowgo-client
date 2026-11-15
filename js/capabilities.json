@@ -421,7 +421,7 @@
       "id": "topics-tags",
       "title": "Topics, tags and concept objects",
       "audience": "agent",
-      "since": "0.2.21",
+      "since": "0.2.21; 0.2.65 (supersede_node)",
       "summary": "Topics as named concept objects; tag resolution and suggestions.",
       "whenToUse": "Resolve a free-text tag to a topic (`resolve_topic_tag`) before creating a new one; `suggest_concept_objects` for candidates.",
       "routes": [
@@ -907,8 +907,8 @@
       "id": "procedures",
       "title": "Procedures (KL1 search, RP1 lifecycle, versions)",
       "audience": "agent",
-      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1)",
-      "summary": "Stored procedures with runs, versions (candidate → validated → promoted → retired) and lifecycle-safe search.",
+      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1); 0.2.64 (owner-private)",
+      "summary": "Stored procedures with runs, versions (candidate → validated → promoted → retired) and lifecycle-safe search. A procedure created with an owner is private to that owner, with its steps, versions and claims; a commons one is public only when marked `visibility: \"public\"`.",
       "whenToUse": "Recall with `search_verified_procedures` (verified only) or `search_procedures` (verified + drafts; `include: \"retired\"|\"all\"` only to audit). Follow a retired hit’s `replacedBy`. Record every run (`record_procedure_run`) with an independent outcome signal.",
       "routes": [
         "GET /procedure-versions/:uuid",
@@ -1164,12 +1164,13 @@
     },
     {
       "id": "seed",
-      "title": "Seeds (schema.org, SX1 exemplars, primitives)",
+      "title": "Seeds (schema.org, SX1 exemplars, primitives, action concepts)",
       "audience": "admin",
-      "since": "0.2.46 (schema.org); 0.2.50 (SX1)",
-      "summary": "Idempotent seeds: schema.org prototypes, Wikidata exemplars and centroids, agent and logic primitives.",
-      "whenToUse": "Operators and boot only; agents read the result through taxonomy and prototypes.",
+      "since": "0.2.46 (schema.org); 0.2.50 (SX1); unreleased (ACT1 action concepts)",
+      "summary": "Idempotent seeds: schema.org prototypes, Wikidata exemplars and centroids, agent and logic primitives, and the action vocabulary (one concept per verb meaning, with roles).",
+      "whenToUse": "Operators and boot only; agents read the result through taxonomy and prototypes. `seed_action_concepts({ dry_run: true })` reports what a run would write and refuses when more than one active `Action` prototype exists.",
       "routes": [
+        "POST /seed/action-concepts",
         "POST /seed/logic-ir-primitives",
         "POST /seed/openclaw-agent",
         "POST /seed/osl-agent",
@@ -1181,6 +1182,7 @@
         "POST /seed/social-layer"
       ],
       "client": [
+        "seed_action_concepts",
         "seed_logic_ir_primitives",
         "seed_openclaw_agent",
         "seed_osl_agent",
@@ -1189,6 +1191,9 @@
         "seed_social_layer"
       ],
       "clientRoutes": {
+        "seed_action_concepts": [
+          "POST /seed/action-concepts"
+        ],
         "seed_logic_ir_primitives": [
           "POST /seed/logic-ir-primitives"
         ],
@@ -1490,7 +1495,7 @@
     {
       "id": "r6a-centroid-ground",
       "title": "Grounding by centroid, with a margin (R6a)",
-      "since": "0.2.62 (R6a)",
+      "since": "0.2.62 (R6a); 0.2.63 (R6c floor)",
       "capability": "knowledge-search",
       "client": [
         "ground"
@@ -1506,6 +1511,16 @@
         "search_knowledge"
       ],
       "whenToUse": "Add `where` to `search_knowledge` when the question names a type and property values. Constraints are true / false / unknown per instance; `not` of unknown is unknown; a candidate or model-inferred claim is never a match. Report `results` as matches, `unknown` as \"not established\", and an empty `results` as \"no verified match\", never the nearest text hit."
+    },
+    {
+      "id": "act1-action-concepts",
+      "title": "Action concepts: one concept per verb meaning, with roles (ACT1)",
+      "since": "unreleased (ACT1)",
+      "capability": "seed",
+      "client": [
+        "seed_action_concepts"
+      ],
+      "whenToUse": "Operators seed the action vocabulary with `seed_action_concepts` (`{ dry_run: true }` first: it reports what a run would write and writes nothing). Each action is a concept labelled like `order (action)`, keyed by `senseKey: \"action:<id>\"`, with `is_a` parents (order, purchase, acquire) and `takes_role` propositions; its words live in `verbForms`, so grounding a noun answers as before. Link a procedure to what it accomplishes with the `achieves` predicate."
     }
   ]
 }
