@@ -2225,6 +2225,40 @@ test('ground posts a claim or a term to /api2.0/ground and returns the grounding
   assert.throws(() => client.ground({}), /claim .* or term/);
 });
 
+test('ground({ utterance }) posts the text alone and returns frames; role action passes through', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return makeJsonResponse({
+      ok: true,
+      revision: 'action-reader@0.1.0',
+      writes: 0,
+      frames: [{ kind: 'command', action: { term: 'order', status: 'resolved', uuid: 'a-order' }, roles: { patient: { term: 'pizza', status: 'undefined' } }, unassigned: [], values: [], pattern: { ok: true, triples: [] } }],
+      unread: [],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.ground({ utterance: "order a pizza from Domino's", owner_user_id: 'u1' });
+  assert.match(calls[0].url, /\/api2\.0\/ground(\?|$)/);
+  assert.deepEqual(calls[0].body, { utterance: "order a pizza from Domino's", ownerUserId: 'u1' });
+  assert.equal(out.frames[0].kind, 'command');
+  assert.equal(out.frames[0].roles.patient.status, 'undefined');
+  assert.equal(out.writes, 0);
+
+  // An utterance is read on its own, and must be text.
+  assert.throws(() => client.ground({ utterance: '' }), /non-empty string/);
+  assert.throws(() => client.ground({ utterance: 42 }), /non-empty string/);
+  assert.throws(() => client.ground({ utterance: 'pay', term: 'pay' }), /on its own/);
+  assert.throws(() => client.ground({ utterance: 'pay', method: 'centroid' }), /on its own/);
+  assert.equal(calls.length, 1);
+
+  // ACT2: role action is sent as given; the term body is unchanged.
+  await client.ground({ term: 'ordered', role: 'action' });
+  assert.deepEqual(calls[1].body, { term: 'ordered', role: 'action', ownerUserId: null });
+});
+
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {

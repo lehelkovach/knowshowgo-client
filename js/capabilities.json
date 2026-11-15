@@ -1513,6 +1513,26 @@
       "whenToUse": "Add `where` to `search_knowledge` when the question names a type and property values. Constraints are true / false / unknown per instance; `not` of unknown is unknown; a candidate or model-inferred claim is never a match. Report `results` as matches, `unknown` as \"not established\", and an empty `results` as \"no verified match\", never the nearest text hit."
     },
     {
+      "id": "act3a-read-utterance",
+      "title": "Read an utterance into frames (ACT3a)",
+      "since": "unreleased (ACT3a)",
+      "capability": "knowledge-search",
+      "client": [
+        "ground"
+      ],
+      "whenToUse": "`ground({ utterance: \"order a pizza from Domino's\" })` reads text into `frames`: `kind` (`command`, `report` or `rule`), the `action` with its grounding status, `roles` (each slot `resolved`, `ambiguous`, `undefined` or `literal`), `unassigned` slots with their role candidates, `values`, and a `pattern` to pass to `bind_pattern`. Rules and the action lexicon only: no model, no vector, nothing written. Treat `undefined` and `unassigned` as questions to ask, never as answers; a `rule` frame is returned, not compiled or stored; what could not be read is under `unread` with the reason."
+    },
+    {
+      "id": "act2-ground-action",
+      "title": "Ground a verb to its action concept (ACT2)",
+      "since": "unreleased (ACT2)",
+      "capability": "knowledge-search",
+      "client": [
+        "ground"
+      ],
+      "whenToUse": "`ground({ term: 'ordered', role: 'action' })` resolves a verb form (any inflection, multi-word forms such as `log in`) to its action concept, once the action vocabulary is seeded. A word with two meanings resolves to the one it names first and lists the other under `candidates`; two equal readings are `ambiguous`; a verb the vocabulary lacks is `undefined` (nothing is created, nothing is guessed). The `entity` and `class` roles never return an action, so grounding the noun \"order\" is unchanged."
+    },
+    {
       "id": "act1-action-concepts",
       "title": "Action concepts: one concept per verb meaning, with roles (ACT1)",
       "since": "unreleased (ACT1)",
