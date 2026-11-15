@@ -4,6 +4,7 @@
 
 ## Now
 
+- **2026-11-15 — release 0.2.36 to main (CLIENT-SKEW1):** dev → main with CS1, WHY1, PK1, CM1 rung 2, KA4b, R6 and R6c, so prod OSLO stops falling back on NS1, R3–R6 and CL8 grounding (the box ran 0.2.35). Bundle to the release store; not published to npm or PyPI (that needs the Captain's word). Supersedes the stale #123.
 - **2026-11-14 — R6c client param, JS and Python:** `ground({ method: 'centroid', floor })`: below the floor the server (0.2.63+) answers `none`. Sent only when given. Not published.
 - **2026-11-14 — R6 client params, JS and Python:** `ground({ method: 'centroid', term | items, k, margin, targets })`, which grounds by centroid with the top-1/top-2 margin, or runs a labelled list for E1. `assimilate_exemplar({ subject, category, evidence })`. The fields are sent only when given, and the label-method body is unchanged. They need server 0.2.62+. Not published, no version bump.
 - **2026-11-14 — KA4b proof-view params, JS and Python:** `close_relation` and `evaluate_joins` take `exclude_claims` (a list of claim uuids, sent as `excludeClaims`; re-run with those claims read as absent) and `describe` (only the literal true; adds `claimsById` and entity `labels`). Absent when not given, so existing request bodies are unchanged; a non-list `exclude_claims` throws before any request. Server 0.2.61+ reads them (older servers ignore them). Not published, no version bump (npm/PyPI wait on the Captain).
