@@ -1,5 +1,7 @@
 # KnowShowGo client SDK assessment (filed 2026-08)
 
+> **Superseded (2026-11-12).** A dated review. Order now comes from the Sprint queue in osl-oc-agent [`docs/IDEAS-BACKLOG.md`](https://github.com/lehelkovach/osl-oc-agent/blob/dev/docs/IDEAS-BACKLOG.md); the current method list is [`API.md`](API.md).
+
 > Consideration note for `knowshowgo-client` updates. Not a committed roadmap —
 > a durable dump of an external review so packaging / auth / ORM work does not
 > get rediscovered from scratch. Prefer landing fixes in ordered PRs below.

@@ -17,7 +17,7 @@ the HTTP status and server message.
 
 ## Contents
 
-- [Construction & connection](#construction--connection)
+- [Construction & connection](#construction--connection) (and [tokens per owner](#tokens-per-owner-kt1))
 - [Health & release](#health--release)
 - [Assertions & entities](#assertions--entities)
 - [Facts (verification helpers)](#facts-verification-helpers)
@@ -27,11 +27,13 @@ the HTTP status and server message.
 - [Concept objects](#concept-objects)
 - [Composites](#composites)
 - [Prototypes (centroid theory)](#prototypes-centroid-theory)
+- [Propositions, typed values and articles](#propositions-typed-values-and-articles-kg-p1-ce3d-tb2)
 - [Revision-pinned matching and casting](#revision-pinned-matching-and-casting)
 - [Logic IR](#logic-ir)
 - [Events & episodes](#events--episodes)
 - [Semantic memory](#semantic-memory)
 - [Procedures](#procedures)
+- [Knowledge packs (PK1)](#knowledge-packs-pk1)
 - [Logic, market, channels, events, ratings](#logic-market-channels-events-ratings)
 - [Private vault & payments](#private-vault--payments)
 - [Seeding & graph query](#seeding--graph-query)
@@ -74,6 +76,17 @@ Reads the release manifest and validates it.
 Exported constants: `PUBLIC_API_BASE_URL`, `LOCAL_API_BASE_URL`, and the helper
 `resolveBaseUrl(explicit)` (JS).
 
+### Tokens per owner (KT1)
+
+With the server's access gate enforcing, every `/api*` call except `/release`
+and `/auth/tokens` needs a bearer token; an anonymous call gets **401**
+(`err.status === 401`). Never retry anonymously: get or rotate a token.
+
+| Method | Signature (JS) |
+|---|---|
+| `set_auth_token` | `(token)` swap the token on this client (after minting or rotating one) |
+| `for_owner` | `({ auth_token?, owner_user_id?, agent_session_id? })` → a view of this client that sends that owner's token and id on **every** method; the parent client is unchanged. One process, many owners: `client.for_owner({ auth_token: tokenFor('avery') }).search_procedures('order lunch')`. Without `auth_token` the view keeps the parent's token |
+
 ---
 
 ## Health & release
@@ -82,6 +95,11 @@ Exported constants: `PUBLIC_API_BASE_URL`, `LOCAL_API_BASE_URL`, and the helper
 |---|---|
 | `health_check()` | Liveness + build metadata (`GET /health`) |
 | `get_release_manifest()` | Full release manifest (`GET /api/release`) |
+
+`manifest.capabilities` (server with CS1) lists the capability and feature ids
+the server has; this client carries the same list with routes, methods and
+when-to-use text in [`js/capabilities.json`](../js/capabilities.json). The
+capability-by-capability guide is [What KnowShowGo can do](../README.md#what-knowshowgo-can-do).
 
 ---
 
@@ -93,7 +111,9 @@ resolved into current snapshots.
 | Method | Signature (JS) |
 |---|---|
 | `create_assertion` | `{ subject, predicate, obj, source?, truth?, provenance?, security_class?, ... }`. `security_class: 'private'` (alias `scope`) stores the claim under the caller's owner identity so only that owner reads it back (server ≥ 0.2.35); sent only when given |
-| `get_assertions` | `{ subject?, predicate?, obj? }` |
+| `get_assertions` | `{ subject?, predicate?, obj?, uuid?, why? }`; `why: true` adds each claim's `why` block (WHY1) |
+| `explain_claim` | `(claimUuid)` → the claim with `why`: `sources` (tier, speaker, document/model), `versions`, `contested`, `inference`, `status: { state, stored, reason }`; null when absent or another owner's private claim (WHY1 / KSG-1) |
+| `list_contradictions` | `({ visibility?: 'private'\|'public', limit? })` → `{ contradictions: [{ id, subject, predicate, visibility, openedAt, sides[] }], total, truncated }`; resolve with `confirm_fact` / `correct_fact` on a side (WHY1 / KSG-2) |
 | `vote_assertion` | `(assertionId, { delta = 1 })` |
 | `get_snapshot` | `(entityId)` |
 | `get_evidence` | `(entityId, { predicate? })` |
@@ -101,6 +121,7 @@ resolved into current snapshots.
 | `get_entity_properties` | `(entityId, { predicate?, entityApiPrefix? })` → ranked `{ value, confidence, contested, claims[] }` map (`/api2.0`) |
 | `get_entity_types` | `(entityId, { top_k?, persist?, entityApiPrefix? })` → ranked prototype matches (fuzzy duck typing) |
 | `get_entity_snapshot` / `entity` | `(entityId, …)` → `EntityProxy` (`.middleName` → winner; `.getType()` → prototypes) |
+| `hydrate_entity` | `(entityId, { top_k?, threshold? })` the raw one-trip payload that `hydrate()` wraps |
 | `hydrate` | `(entityId, { topK?, threshold? })` → `KSGObject` in **one** request: synchronous members, `type()`, `typesNow()`, `explain(name)`, `cell(name)`, `claims(name)`, `isContested(name)`, `as(prototype)`. See [The duck-typed ORM](DUCK-TYPED-ORM.md) |
 | `get_beliefs` | `(entityId, { predicate? })` → winner + alternatives + speakers (`belief-v0.1`) |
 | `reinforce_assertion` | `{ subject, predicate, obj, speaker?, delta?, truth?, security_class? }` same claim, another speaker; a private reinforce bumps the caller's own private claim, never another owner's |
@@ -142,8 +163,8 @@ keyword arguments (`add_fact(subject, predicate, obj, ...)`).
 | `add_fact` | `{ subject, predicate, obj, status = 'candidate', provenance?, visibility?, confidence? }` → `POST /api2.0/facts` → `{ ok, fact }` |
 | `list_facts` | `{ subject?, predicate?, include?, limit? }` → `{ ok, facts, total, truncated, include }`; no subject lists the caller's own |
 | `get_fact` | `(factId)` → `{ ok, fact }` with provenance and history |
-| `confirm_fact` | `(factId, { by?, provenance? })` → `{ ok, fact }`; 409 when the fact was corrected, 403 when not the owner |
-| `correct_fact` | `(factId, { obj, provenance? })` → `{ ok, fact, corrected }` |
+| `confirm_fact` | `(factId, { by?, provenance? })` → `{ ok, fact }`; 409 when the fact was corrected, 403 when not the owner. On a contested claim (KSG-2): `{ ok, fact, resolution }`, a new version keeping this side supersedes every side |
+| `correct_fact` | `(factId, { obj, provenance? })` → `{ ok, fact, corrected }`. On a contested claim (KSG-2) also `resolution`: the new value supersedes every side |
 
 ---
 
@@ -163,6 +184,11 @@ supported).
 | `get_associations` | `(uuid, { direction = 'both' })` |
 | `create_node_with_document` | `{ ... }` |
 | `update_node_embedding` | `(uuid)` |
+| `resolve_concept` | `{ label, ...options }` → the preferred concept (and the caller's personal one) without creating anything. Options go to the server camelCased (`prototype_name` → `prototypeName`) |
+| `find_or_create_concept` | `{ label, ...options }` the identity path: the existing concept for this label, or a new one |
+| `merge_concepts` | `{ survivor, members, score?, reason? }` merge duplicates into a survivor; reversible |
+| `unmerge_concept` | `(uuid, { reason? })` take one member back out of a merge |
+| `get_concept_variants` | `(uuid)` → the concepts merged into this one |
 
 ---
 
@@ -225,13 +251,46 @@ visible under read ACL.
 
 | Method | Signature (JS) |
 |---|---|
-| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix? }` |
+| `search_knowledge` | `{ query, top_k?, similarity_threshold?, categories?, include_concepts?, include_objects?, owner_user_id?, agent_session_id?, knowledgeApiPrefix?, where?, semantic_fallback?, max_candidates?, explain? }` |
 
 Returns `{ ok, query, count, results }` where each result has
 `kind` (`concept` \| `object` \| `episode`), `score`, `uuid`, `title`,
 `summary`, optional `category` / `topics` / `excerpt` / `sourceUrl`.
 
-Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None)`.
+Python: `search_knowledge(query, top_k=10, …, knowledge_api_prefix=None, where=None, semantic_fallback=False, max_candidates=None, explain=True)`.
+
+**Typed constraints (`where`, CM1; server after 0.2.60).** Pass `where` to ask a typed
+question instead of a fuzzy one: the instances of a category whose stored claims
+satisfy constraints.
+
+```js
+const out = await client.search_knowledge({
+  where: {
+    type: 'Requirement',
+    all: [
+      { predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' },
+      { predicate: 'document_kind', op: 'eq', value: 'tax form' },
+    ],
+    not: [{ predicate: 'status', op: 'eq', value: 'superseded' }],
+  },
+});
+// out.results  matches: every constraint known to hold, each with match.matched[].evidence
+// out.unknown  candidates not established on a constraint (never report these as matches)
+// out.where    { outcome: 'matched' | 'unknown_only' | 'none', candidates, diagnostics, … }
+```
+
+- Operators: `eq`, `in`, `starts_with`, `contains`, `gt`, `gte`, `lt`, `lte`, `exists`.
+  Groups `all`, `any`, `not`, `knownNot`, `excludeKnown` nest (32 constraints, 4 levels).
+- Each constraint is true, false or unknown per candidate. True only on a live stated
+  claim, never on a `candidate` or model-`inferred` one. False only on a known negative: a
+  stored denial, or another value of a property declared `single`. Otherwise unknown.
+  `not` of unknown is unknown; `knownNot` requires a known negative; `excludeKnown` drops
+  only known matches and names what passed on unknown in `match.passedOnUnknown`.
+- `match.score` is a ranking score, not a probability.
+- With `where`, `query` is optional and only ranks; `semantic_fallback: true` also
+  proposes what resembles the query, flagged `match.by: 'semantic'`.
+- The result adds `unknown` and `where`; without `where` the call and its result are
+  unchanged. Contract: knowshowgo `docs/COMPOSITIONAL-RECALL.md`.
 
 ---
 
@@ -261,6 +320,33 @@ feature; the client exposes the endpoints.
 | `get_taxonomy_node` | `(uuid, { history? })` one node: prototypes with typicality, propositions with provenance |
 | `lookup_concept` | `{ term, context?, entity_type?, force? }` CE3 public lookup (Wikidata, Wikipedia, Wiktionary) |
 | `get_inferred_proposition_stats` | `()` CE3d counters: proposed, reused, refused, confirmed, contradicted |
+| `check_membership` | `{ subject, category, candidate_threshold? }` yes/no category membership **with evidence** (the edge, chain or claim). Typicality is not membership: a penguin is a bird at low typicality |
+| `assimilate_exemplar` | `{ subject, category, evidence? }` add a confirmed member to a category's exemplars (moves the centroid, never the definition). R6b (server 0.2.62+): `evidence: { kind, ref }` (owner_confirmed, verified_run, validated_assimilation) is kept with the change; a candidate or inferred membership is refused (409 M006); a private exemplar never moves a shared centroid (409 M007); every move keeps the replaced state as a version |
+| `get_taxonomy_duplicates` | `()` DH1: public prototype names with more than one active prototype. Duplicates are superseded (`replacedBy`), never deleted |
+
+---
+
+## Propositions, typed values and articles (KG-P1, CE3d, TB2)
+
+A claim is a proposition over three concept uuids (subject, predicate, object or
+a typed value), with a provenance tier. A model inference is a **proposal**
+(`source: 'llm:…'`, tier `inferred`): it stays a candidate until a public source
+confirms it. Values are typed from a closed list; a topic reads as an article
+whose values are versioned, not overwritten.
+
+| Method | Signature (JS) |
+|---|---|
+| `ensure_predicate` | `{ name, create? }` the predicate concept for a name (created unless `create: false`) |
+| `assert_proposition` | `{ subject \| subject_uuid, subject_prototype?, predicate \| predicate_uuid, object \| object_uuid \| value, value_prototype?, truth?, source?, provenance?, replace?, security_class \| scope? }` → `{ claim }` |
+| `reconcile_inferred_propositions` | `{ label }` CE3d: proposals about a public name compared with higher-tier claims; matches promoted, single-valued disagreements contradicted |
+| `list_value_types` | `()` → `{ valueTypes, externalIdSchemes }`: url, uuid ref to another concept, number, date, time, … |
+| `search_predicates` | `{ query?, limit? }` declared properties with value type, cardinality and range |
+| `declare_predicate` | `{ name, value_type, cardinality?, range?, options?, description?, attach_to? }` an existing name is returned (200), a new one created (201); `attach_to` proposes it to a prototype as a candidate field |
+| `get_prototype_fields` | `(uuid)` a prototype's own and inherited properties (the create form) |
+| `search_articles` | `{ query?, range?, limit? }` topics by title, optionally within prototype names |
+| `get_article` | `(uuid)` lead, fields from prototypes and claims, the current value and every other version with its provenance |
+| `create_article` | `{ prototype_uuid, title, description?, fields?, private?, allow_duplicate?, source_url?, source_title?, note? }` needs a signed-in owner (401 otherwise) |
+| `amend_article` | `(uuid, { predicate, value_type?, value \| object_uuid, unit?, lang?, precision?, scheme?, replaces_claim?, source_url?, source_title?, note? })` one typed claim; `replaces_claim` makes it the next version (the old one stays readable). A wrong type is refused with 422 |
 | `search_prototypes` | `{ query?, top_k? }` label autocomplete |
 | `attach_exemplar` | `(prototypeUuid, conceptUuid)` |
 | `create_prototype` | `{ ... }` (legacy create) |
@@ -302,6 +388,11 @@ and answers three-valued. Explained in [Procedures and logic](PROCEDURES-AND-LOG
 | `explainDerivation` / `explain_derivation` | `(derivationUuid)` → `{ derivation, rule: { name, engineRevision }, premises[], conclusion }` |
 | `listDerivations` / `list_derivations` | `{ conclusionUuid }` → every derivation that derives that conclusion |
 | `create_syllogism` / `get_syllogism` | `{ title, premises, conclusion }` simple predicate-logic DAG |
+| `bind_pattern` | `{ pattern, limit?, describe? }` a conjunction of `{ subject, predicate, object }` triples with `?variables` over stored claims → bindings. **Prefer this over free-text search for relational questions** ("who works at Contoso") |
+| `close_relation` | `{ predicate, as?, include_alleged?, max_facts?, max_rounds?, edge_limit?, exclude_claims?, describe? }` transitive closure (part_of, subclass_of, located_in) with a derivation per inferred edge; each step names its rule (`closure.base` / `closure.extend`). KA4b (server 0.2.61+): `exclude_claims: [uuid]` re-runs with those claims read as absent (`excluded.dropped`); `describe: true` adds `claimsById` (tier, support, status, source, provenance, validity) and entity `labels`; an edge with a live opposing claim is `contested: true` with `opposing[]` |
+| `evaluate_joins` | `{ rules, include_alleged?, max_facts?, max_rounds?, edge_limit?, exclude_claims?, describe? }` join rules across two relations, to a fixpoint; `exclude_claims` and `describe` as on `close_relation` (KA4b) |
+| `get_derivation` | `(uuid)` one recorded derivation, explained |
+| `get_derivation_tree` | `(uuid, { max_depth? })` the proof tree under a derivation, premise by premise |
 
 Rules (KG3 / KG5 / KG21) are graph objects; every change is a new version and
 every derivation names the rule version it used. Refusals carry `err.body.code`
@@ -347,7 +438,7 @@ event, extracted claims are linked back to it.
 | `semantic_recall` | `{ query, top_k = 8, expand_depth = 1, similarity_threshold = 0.15 }` → `{ seeds[], hits[] }` |
 | `semantic_ask` | `{ subject, predicate, object? }` or `{ pattern }` → belief state `supported \| refuted \| conflicted \| unknown` with evidence |
 | `verify_answer` | `{ claims:[{subject, predicate, object}], text?, argument?, record?, agent? }` (Python: `verify_answer(claims, text=…, record=…)`) → `POST /api2.0/verify/answer` (knowshowgo >= 0.2.23): a status per claim, `supported \| contradicted \| disputed \| competing` (stored values named) `\| unknown`, with evidence, plus a `verdict` for the answer; `record: true` keeps only what the graph did not speak against, at the `inferred` tier. Server docs: `knowshowgo/docs/TRUTH-EVAL.md` |
-| `ground` | `{ claim:{subject, predicate, object} }` or `{ term, role? }`, `mentions?` (Python: `ground(claim=…)` / `ground(term=…, role=…)`) → `POST /api2.0/ground` (knowshowgo >= 0.2.24): per term `resolved` (uuid, `definedness`) `\| ambiguous` (`candidates[]`, ask which) `\| undefined` (nothing created) `\| literal`; the predicate in canonical form. Server docs: `knowshowgo/docs/CLAIM-GROUNDING.md` |
+| `ground` | `{ claim:{subject, predicate, object} }` or `{ term, role? }`, `mentions?` (Python: `ground(claim=…)` / `ground(term=…, role=…)`) → `POST /api2.0/ground` (knowshowgo >= 0.2.24): per term `resolved` (uuid, `definedness`) `\| ambiguous` (`candidates[]`, ask which) `\| undefined` (nothing created) `\| literal`; the predicate in canonical form. R6a (server 0.2.62+): `method: 'centroid'` with `term` (and `k?`, `margin?`, `targets?: prototypes|concepts|both`) → the top-k candidates with similarity, the top-1/top-2 `margin`, `status` resolved / ambiguous (below the threshold) / undefined, provenance `{ method: 'centroid', score, margin, threshold }`; `items: [{ term, expect? }]` grounds a labelled list (E1: per item top-k, margin, rank of the expected answer; writes nothing). R6c (server 0.2.63+): `floor` — a top-1 below it answers `none` (no concept fits; E1's value for text-embedding-3-small is 0.345). Per E1, ground the sentence (in `term`) against `targets: 'prototypes'`. Server docs: `knowshowgo/docs/CLAIM-GROUNDING.md` |
 
 ---
 
@@ -363,6 +454,7 @@ Executable workflow DAGs with steps, dependencies, and selector repair.
 | `generalize_procedure` | `(procedureUuid, { title, description?, mode?, provenance? })` |
 | `repair_procedure_selector` | `(procedureUuid, { ... })` |
 | `repair_selector` | alias |
+| `put_procedure_dag` | `(uuid, { dag_json, rematerialize = true, provenance? })` replace a procedure's step graph |
 | `list_procedures` | `({ limit = 100 })` every procedure the caller may read, newest first: `{ procedures, total, truncated }`. A complete listing, unlike `search_procedures` |
 | `search_procedures` | `(query, { top_k = 5, include = 'verified' })` by meaning. Only verified (replayable) procedures unless `include` is `'drafts'`, `'retired'`, `'all'` or a list; each hit carries `status` (KSG-L1, server ≥ the release that ships it) |
 | `import_procedure_json` | `{ procedure, form_element_category_prototype_uuid?, provenance? }` |
@@ -383,6 +475,45 @@ retired`), computed from the runs of that version, with `stateBasis`
 The hand-set `status` (`draft`, `dogfood`, `tested`, `validated`, `stable`,
 `degraded`, `deprecated`) is still returned and writable; it now decides only a
 retirement by hand. `search_procedures` hits also carry `currentVersion`.
+
+---
+
+## Knowledge packs (PK1)
+
+A pack is one `ksg-pack/1` file: a versioned bundle of prototypes, procedures
+and facts with a name, a license, a source and provenance on every item.
+Format and rules: knowshowgo `docs/KNOWLEDGE-PACKS.md`. **Needs a KnowShowGo
+server newer than 0.2.59** (the routes are on server `dev`, not in a release
+yet); an older server answers 404.
+
+| Method | Signature (JS) |
+|---|---|
+| `export_pack` | `{ name, version, license, prototypes?: [uuid \| name], procedures?: [id], facts?: [id], description?, source?: { publisher?, url?, attribution? }, include_private = false }` (Python: `export_pack(name, version, license, prototypes=…, procedures=…, facts=…, include_private=False)`) → `POST /api2.0/packs/export` → `{ ok, pack, summary: { counts, private, redactions, digest } }`. Read-only. `name`, semver `version` and `license` are required; there is no default license |
+| `install_pack` | `(pack, { dry_run = false })` (Python: `install_pack(pack, dry_run=False)`); `pack` is the object or its JSON text → `POST /api2.0/packs/install` → `{ ok, dryRun, pack, previous, counts, prototypes, procedures, facts, superseded, kept, warnings, redactions }`. Needs an owner token (401 without) |
+
+**Private items are an explicit opt-in.** `include_private` is off by default.
+With it off, an export that names one of your own private items is refused
+(400, the items listed under `private`). Only the literal `true` / `True`
+sends the opt-in; pass it only when the owner has said those items may leave
+their scope. Another owner's private item is never exportable: it answers the
+same 404 as a missing id, and one such item fails the whole export.
+
+**A pack grants no trust.** After `install_pack`:
+
+- procedures are the caller's private candidates with no runs (`status: draft`,
+  `state: candidate`); `search_verified_procedures` does not return them until
+  a verified run is recorded here with `record_procedure_run`;
+- facts are third-party candidates; what the pack stated is kept under
+  `provenance.statedStatus`, `statedTier` and `stated`; only `confirm_fact`
+  makes one confirmed;
+- missing prototypes are created and existing ones reused unchanged;
+- the same pack again changes nothing; a newer version supersedes what it
+  replaces and deletes nothing, and keeps what the owner has run or confirmed;
+  the same version with other contents, or an older version, is 409.
+
+Run `install_pack(pack, { dry_run: true })` first: it returns the same plan and
+writes nothing. Secret-shaped values are redacted on export and again on
+install; that is a net, not a proof, so read a pack before publishing it.
 
 ---
 

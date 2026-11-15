@@ -14,26 +14,42 @@ reads back here, and the other way round.
 
 Tokens come from <https://knowshowgo.com/developers>. The transport is
 Streamable HTTP in stateless mode: one JSON response per request, no sessions.
+The server speaks MCP revision `2026-07-28` (no handshake, `server/discover`)
+and the earlier revisions back to `2024-11-05` on the same URL, so any current
+client connects.
 
 ## Tools
 
-| Tool | Writes | What it does |
-|------|--------|--------------|
-| `remember` | yes | Store text plus the claims it states (`claims: [{subject, predicate, object}]`); every claim is versioned with provenance |
-| `correct` | yes | Store a correction; the earlier claim is kept next to it, not overwritten |
-| `ask` | no | One fact: `subject` + `predicate` → the believed value, the evidence and who said it; `state: "conflicted"` when sources disagree |
-| `recall` | no | Memories near a query |
-| `search_knowledge` | no | Concepts and objects near a query |
-| `upsert_object` / `get_object` | yes / no | Typed records (the same objects as `client.objects` here) |
-| `search_procedures` | no | Verified procedures, with their steps and `status`; drafts or retired only with `include` |
-| `resolve_topic` | no | A topic by tag, never creating one |
-| `feedback` | yes | File a bug, idea or question with the operators; returns a `ref` to quote later |
+34 tools. A `read` token sees the 19 that write nothing; a `write` token sees
+all of them.
+
+| Group | Tools |
+|-------|-------|
+| Memory | `remember` (store text plus the claims it states, versioned with provenance), `correct` (a correction kept next to the earlier claim), `ask` (one fact: the believed value, the evidence and who said it; `conflicted` when sources disagree), `recall`, `search_knowledge`, `resolve_topic` |
+| Checking answers | `verify_answer` (a verdict per claim), `ground_claim` (which concept each term is about, or ambiguous, or undefined), `check_membership`, `assimilate_exemplar`, `merge_concepts`, `unmerge_concept`, `assert_proposition` |
+| Reasoning with receipts | `evaluate`, `derive`, `explain`, `add_rule`, `list_rules`, `set_rule_enabled`, `apply_rule`, `check_rules`, `saturate`, `bind_pattern`, `close_relation`, `join_rules` |
+| Events and episodes | `remember_event`, `find_events`, `recall_episodes`, `describe_event` |
+| Objects and procedures | `upsert_object` / `get_object` (the same objects as `client.objects` here), `search_procedures` (verified only unless `include` asks for drafts or retired), `procedure_evaluation` |
+| Feedback | `feedback` (a bug, idea or question for the operators; returns a `ref` to quote later) |
 
 The server runs no LLM, so the calling model passes the facts it read as
-`claims`. The full contract, metering and the auth table are in the server's
+`claims`. The full contract, each tool's REST route, metering and the auth
+table are in the server's
 [`docs/MCP.md`](https://github.com/lehelkovach/knowshowgo/blob/main/docs/MCP.md).
 
 ## Connect
+
+claude.ai and Claude Desktop (custom connector, signs in with OAuth):
+
+1. Mint a token at <https://knowshowgo.com/developers>.
+2. Customize → Connectors → Add custom connector. URL
+   `https://api.knowshowgo.com/mcp`.
+3. On the consent page, paste the `ksg_…` token and approve. The connector
+   holds a one-hour access token and renews it for 30 days.
+
+ChatGPT and other OAuth-capable clients connect the same way: the server
+advertises its authorization server, accepts client ID metadata documents and
+dynamic registration, and requires PKCE.
 
 Claude Code:
 
@@ -54,9 +70,6 @@ Cursor, Windsurf and other clients that read `mcp.json`:
   }
 }
 ```
-
-The claude.ai connector UI needs OAuth for remote servers, which the endpoint
-does not offer yet; use Claude Code or a desktop client that takes a header.
 
 ## Discovery
 

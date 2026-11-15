@@ -57,7 +57,7 @@ from knowshowgo_client import KnowShowGoClient
 
 | Option | Base URL | Needs a token? | Good for |
 |---|---|---|---|
-| **Hosted API** | `https://api.knowshowgo.com` | Yes, for writes | Real use, shared memory across machines |
+| **Hosted API** | `https://api.knowshowgo.com` | Yes (writes today; every `/api*` call from server 0.2.56) | Real use, shared memory across machines |
 | **Local, in-memory** | `http://127.0.0.1:3000` | No | Trying things, tests. Forgets on restart; text-match search instead of embeddings |
 | **Local, persistent** | `http://127.0.0.1:3000` | No | Development with real embeddings and a database |
 
@@ -83,8 +83,8 @@ client = KnowShowGoClient.public_api(
 )
 ```
 
-Reads of public concepts work without a token. Writes, and reads of your own
-private data, need one.
+On server 0.2.55 (live), reads of public concepts work without a token; writes,
+and reads of your own private data, need one. From server **0.2.56** (cut, not deployed yet) the hosted API also answers `401` to any `/api*` call without a token, reads included; on **0.2.55** (live) such calls still work and are counted. Get a token now so nothing breaks when 0.2.56 deploys.
 
 The same token also opens the server's MCP endpoint (`POST /mcp`) for Claude
 Code, Cursor and other MCP clients, with no SDK in between. See
@@ -174,7 +174,7 @@ server that has not moved yet.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `401` on a write | hosted API requires a bearer token for writes | pass `authToken` |
+| `401` on a write (or, from server 0.2.56, on any call) | hosted API requires a bearer token | pass `authToken` |
 | `401` with a token | token malformed, expired or revoked | mint a new one at the portal |
 | Search returns nothing | server has no embedding model, so search is text match | use a word that appears in what you stored; or run a persistent local server |
 | Private objects not visible | reading under a different owner than you wrote with | same `defaultOwnerUserId`, or the token for that owner |

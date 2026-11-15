@@ -47,6 +47,12 @@ npm run build                                      # esbuild -> dist/index.cjs
 KSG_LIVE_URL=http://127.0.0.1:3000 node --test js/ksg_object_live.test.mjs
 ```
 
+**Capability contract (CS1).** `js/capabilities.json` is a copy of knowshowgo
+`src/capabilities.json`, the server's one list of capabilities, routes and
+client methods. After a server route change: `npm run sync:capabilities`
+(reads `../knowshowgo` or a path argument), then `node --test js/capabilities_contract.test.mjs`
+says which method, `docs/API.md` line, Python method or README row is missing.
+
 `node --test js/` does **not** pick up every file in that directory. It reported
 one passing test while looking like it ran the suite. Name the files.
 

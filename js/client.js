@@ -21,11 +21,31 @@ export function resolveBaseUrl(explicit) {
 }
 
 /** A shallow copy without the keys whose value is null or undefined. */
+/** snake_case option keys → the server's camelCase body keys. */
+function camelKeys(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj || {})) out[k.replace(/_([a-z])/g, (_m, c) => c.toUpperCase())] = v;
+  return out;
+}
+
 function withoutNulls(obj) {
   const out = {};
   for (const [k, v] of Object.entries(obj || {})) {
     if (v !== null && v !== undefined) out[k] = v;
   }
+  return out;
+}
+
+// KA4b: the proof-view fields of close_relation / evaluate_joins. Absent when
+// not asked for, so the request body is unchanged for existing callers;
+// `describe` only on the literal true.
+function proofViewFields(excludeClaims, describe) {
+  const out = {};
+  if (excludeClaims !== null && excludeClaims !== undefined) {
+    if (!Array.isArray(excludeClaims)) throw new Error('exclude_claims must be an array of claim uuids');
+    out.excludeClaims = excludeClaims.map(String);
+  }
+  if (describe === true) out.describe = true;
   return out;
 }
 
@@ -1080,6 +1100,166 @@ export class KnowShowGoClient {
     return this._request('GET', `${this.prototypeApiPrefix}/propositions/inferred/stats`);
   }
 
+  // ===== CS1: the rest of the agent-facing routes (server capability manifest) =====
+
+  /**
+   * CE3d: compare the model's proposals about a public name with higher-tier
+   * claims about anything of that name; matches are promoted, single-valued
+   * disagreements are marked contradicted.
+   */
+  reconcile_inferred_propositions({ label } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/propositions/reconcile`, { json: { label } });
+  }
+
+  // TB2 / KV1: typed property values.
+  /** The closed list of property value types (url, uuid ref, number, date, time, …) and external-id schemes. */
+  list_value_types() {
+    return this._request('GET', `${this.prototypeApiPrefix}/value-types`);
+  }
+
+  /** Declared properties whose name matches `query`, with value type, cardinality and range. */
+  search_predicates({ query = '', limit = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/predicates`, { params: withoutNulls({ q: query, limit }) });
+  }
+
+  /**
+   * Declare a property. An existing name is returned, not duplicated (200 vs
+   * 201). `attach_to` proposes it to a prototype as a candidate field.
+   */
+  declare_predicate({ name, value_type, cardinality = null, range = null, options = null, description = null, attach_to = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/predicates/declare`, {
+      json: withoutNulls({ name, valueType: value_type, cardinality, range, options, description, attachTo: attach_to })
+    });
+  }
+
+  /** A prototype's own and inherited properties: the fields of its create form. */
+  get_prototype_fields(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/prototypes/${encodeURIComponent(uuid)}/fields`);
+  }
+
+  // TB2: topic articles and amendments.
+  /** Topics (articles) whose title matches `query`, optionally within prototype names `range`. */
+  search_articles({ query = '', range = null, limit = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/articles`, {
+      params: withoutNulls({ q: query, range: Array.isArray(range) && range.length ? range.join(',') : null, limit })
+    });
+  }
+
+  /**
+   * One topic as an article: lead, fields from its prototypes and claims, the
+   * current value and every other version with its provenance.
+   */
+  get_article(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/articles/${encodeURIComponent(uuid)}`);
+  }
+
+  /** Create a topic of a prototype with typed fields. Needs a signed-in owner (401 otherwise). */
+  create_article({ prototype_uuid, title, description = null, fields = null, private: isPrivate = null, allow_duplicate = null, source_url = null, source_title = null, note = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/articles`, {
+      json: withoutNulls({
+        prototypeUuid: prototype_uuid, title, description, fields, private: isPrivate, allowDuplicate: allow_duplicate,
+        sourceUrl: source_url, sourceTitle: source_title, note
+      })
+    });
+  }
+
+  /**
+   * Amend a topic with one typed claim. `replaces_claim` makes it the next
+   * version of that claim; the old value stays readable. Needs a signed-in owner.
+   */
+  amend_article(uuid, { predicate, value_type = null, value = undefined, object_uuid = null, unit = null, lang = null, precision = null, scheme = null, replaces_claim = null, source_url = null, source_title = null, note = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/articles/${encodeURIComponent(uuid)}/claims`, {
+      json: withoutNulls({
+        predicate, valueType: value_type, value, objectUuid: object_uuid, unit, lang, precision, scheme,
+        replacesClaim: replaces_claim, sourceUrl: source_url, sourceTitle: source_title, note
+      })
+    });
+  }
+
+  // DH1: one active prototype per name.
+  /** Public prototype names with more than one active prototype (counts and names only). */
+  get_taxonomy_duplicates() {
+    return this._request('GET', `${this.prototypeApiPrefix}/taxonomy/duplicates`);
+  }
+
+  // Concept identity.
+  /** Resolve a label to its preferred concept (and the caller's personal one) without creating anything. */
+  resolve_concept({ label, ...rest } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/resolve`, { json: withoutNulls({ label, ...camelKeys(rest) }) });
+  }
+
+  /** The identity path of concept creation: the existing concept for this label, or a new one. */
+  find_or_create_concept({ label, ...rest } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/find-or-create`, { json: withoutNulls({ label, ...camelKeys(rest) }) });
+  }
+
+  /** Merge duplicate concepts into a survivor (reversible with `unmerge_concept`). */
+  merge_concepts({ survivor, members = [], score = null, reason = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/merge`, { json: withoutNulls({ survivor, members, score, reason }) });
+  }
+
+  /** Take one member back out of a merge. */
+  unmerge_concept(uuid, { reason = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/concepts/${encodeURIComponent(uuid)}/unmerge`, { json: withoutNulls({ reason }) });
+  }
+
+  /** The concepts merged into this one (its variants). */
+  get_concept_variants(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/concepts/${encodeURIComponent(uuid)}/variants`);
+  }
+
+  // Logic IR derivations.
+  /** One recorded derivation, explained. */
+  get_derivation(uuid) {
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/derivations/${encodeURIComponent(uuid)}`);
+  }
+
+  /** The proof tree under a derivation: why a conclusion holds, premise by premise. */
+  get_derivation_tree(uuid, { max_depth = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/logic-ir/derivations/${encodeURIComponent(uuid)}/tree`, {
+      params: withoutNulls({ maxDepth: max_depth })
+    });
+  }
+
+  /** Add a confirmed member to a category's exemplars (moves the centroid, never the definition). */
+  /**
+   * Fold a confirmed member into a category's centroid. R6b (server 0.2.62+):
+   * `evidence: { kind, ref }` names what confirmed it (owner_confirmed,
+   * verified_run, validated_assimilation); a membership resting on a candidate
+   * or inferred claim is refused (409 M006), a private exemplar never moves a
+   * shared centroid (409 M007).
+   */
+  assimilate_exemplar({ subject, category, evidence = null } = {}) {
+    return this._request('POST', `${this.prototypeApiPrefix}/prototypes/assimilate`, { json: { subject, category, ...(evidence ? { evidence } : {}) } });
+  }
+
+  /** The raw one-trip hydration payload (`hydrate()` wraps it as a KSGObject). */
+  hydrate_entity(entityId, { top_k = null, threshold = null } = {}) {
+    return this._request('GET', `${this.prototypeApiPrefix}/entities/${encodeURIComponent(entityId)}/hydrate`, {
+      params: withoutNulls({ topK: top_k, threshold })
+    });
+  }
+
+  /**
+   * KT1: a view of this client that acts as one owner. Every method called on
+   * it sends that owner's token (and owner id), so one process can serve many
+   * owners without swapping the client's own token. Without `auth_token` the
+   * view keeps the parent's token. The parent client is not changed.
+   *
+   *   const avery = client.for_owner({ auth_token: averyToken, owner_user_id: 'avery' });
+   *   await avery.search_procedures('order lunch');
+   */
+  for_owner({ auth_token = null, owner_user_id = null, agent_session_id = null } = {}) {
+    const view = Object.create(this);
+    if (auth_token != null) {
+      view.authToken = auth_token;
+      view.tokenProvider = null;
+    }
+    if (owner_user_id != null) view.defaultOwnerUserId = owner_user_id;
+    if (agent_session_id != null) view.defaultAgentSessionId = agent_session_id;
+    return view;
+  }
+
   /**
    * Which stored field does this label name? Ranks property-definition concepts
    * over the same vector index every other search uses, filtered by node role.
@@ -1422,25 +1602,32 @@ export class KnowShowGoClient {
 
   /**
    * KA4 / KG-P2: the transitive closure of one relation over the caller's
-   * visible claims. Each fact names the claims on its path. Resolves to
+   * visible claims. Each fact names the claims on its path and (KA4b) its rule
+   * (`closure.base` / `closure.extend`). Resolves to
    * `{ ok, edges, facts, conflicts, complete, excluded, ... }`.
+   *
+   * KA4b (server 0.2.61+): `exclude_claims: [uuid]` re-runs with those claims
+   * read as absent ("what would change this"; `excluded.dropped` counts them);
+   * `describe: true` adds `claimsById` (tier, support, status, source,
+   * provenance, validity) and entity `labels`. An edge with a live opposing
+   * claim comes back `contested: true` with `opposing: [uuid]`.
    */
-  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+  close_relation({ predicate, as = null, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null, exclude_claims = null, describe = false } = {}) {
     if (!predicate) throw new Error('predicate is required');
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/closure`, {
-      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+      json: withoutNulls({ predicate, as, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit, ...proofViewFields(exclude_claims, describe) })
     });
   }
 
   /**
    * KA4 / KG-P2: rules over binary relations with joins (`[{ name, ir }]`),
    * run to a fixpoint in memory; nothing is written. Conclusions explain back
-   * to claim uuids.
+   * to claim uuids. KA4b: `exclude_claims` and `describe` as on `close_relation`.
    */
-  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null } = {}) {
+  evaluate_joins({ rules, include_alleged = false, max_facts = null, max_rounds = null, edge_limit = null, exclude_claims = null, describe = false } = {}) {
     if (!Array.isArray(rules) || !rules.length) throw new Error('rules is required');
     return this._request('POST', `${this.prototypeApiPrefix}/logic-ir/joins`, {
-      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit })
+      json: withoutNulls({ rules, includeAlleged: include_alleged === true ? true : null, maxFacts: max_facts, maxRounds: max_rounds, edgeLimit: edge_limit, ...proofViewFields(exclude_claims, describe) })
     });
   }
 
@@ -1724,6 +1911,78 @@ export class KnowShowGoClient {
     });
   }
 
+  // ===== Knowledge packs (PK1; needs a server newer than 0.2.59) =====
+  /**
+   * Export a chosen set of prototypes (uuid or name), procedures and facts as
+   * one `ksg-pack/1`: a file with a name, a semver version, a license, a
+   * source and provenance on every item. Returns `{ ok, pack, summary }`; the
+   * `pack` is what you save or hand to `install_pack`. Read-only.
+   *
+   * `name`, `version` and `license` are required (there is no default
+   * license). Name the items as `prototypes` / `procedures` / `facts`, or
+   * pass `select: { prototypes, procedures, facts }` yourself.
+   *
+   * An item you may not read answers as a missing one (404) and fails the
+   * whole export. Your own private items are held back: the server answers
+   * 400 and lists them unless you pass `include_private: true`. That is an
+   * explicit opt-in, off by default, and only the literal `true` turns it
+   * on; use it only when the owner has said those items may leave their
+   * scope. Secret-shaped values are redacted on the way out
+   * (`summary.redactions`); read a pack before you publish it.
+   */
+  export_pack({
+    name, version, license,
+    description = null, source = null,
+    prototypes = null, procedures = null, facts = null, select = null,
+    include_private = false
+  } = {}) {
+    if (!name) throw new Error('name is required');
+    if (!version) throw new Error('version is required (semver, for example 1.0.0)');
+    if (!license) throw new Error('license is required (for example CC-BY-4.0)');
+    const chosen = withoutNulls({
+      prototypes: prototypes ?? select?.prototypes ?? null,
+      procedures: procedures ?? select?.procedures ?? null,
+      facts: facts ?? select?.facts ?? null
+    });
+    if (!Object.values(chosen).some((list) => Array.isArray(list) && list.length > 0)) {
+      throw new Error('name at least one prototype, procedure or fact to export');
+    }
+    return this._request('POST', '/api2.0/packs/export', {
+      json: {
+        ...withoutNulls({ name, version, license, description, source }),
+        select: chosen,
+        ...(include_private === true ? { includePrivate: true } : {})
+      }
+    });
+  }
+
+  /**
+   * Install a `ksg-pack/1` (the object `export_pack` returned as `pack`, or
+   * the file's JSON text) into the caller's own scope. Needs an owner token.
+   * `dry_run: true` returns the plan and writes nothing; run it first.
+   *
+   * A pack grants no trust. Installed procedures are your private candidates
+   * with no runs: do not recall them as trusted until a verified run is
+   * recorded. Installed facts are third-party candidates that keep what the
+   * pack stated under `provenance`; only `confirm_fact` makes one confirmed.
+   * The same pack again changes nothing; a newer version supersedes what it
+   * replaces and deletes nothing; the same version with other contents, or
+   * an older version, is 409. Returns `{ ok, dryRun, pack, previous, counts,
+   * prototypes, procedures, facts, superseded, kept, warnings, redactions }`.
+   */
+  install_pack(pack, { dry_run = false } = {}) {
+    let body = pack;
+    if (typeof body === 'string') {
+      try { body = JSON.parse(body); } catch { body = null; }
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new Error('pack is required: a ksg-pack/1 object or its JSON text');
+    }
+    return this._request('POST', '/api2.0/packs/install', {
+      json: { pack: body, ...(dry_run === true ? { dryRun: true } : {}) }
+    });
+  }
+
   // ===== Nodes with Documents =====
   /**
    * Create a node with an attached document.
@@ -1892,12 +2151,46 @@ export class KnowShowGoClient {
     });
   }
 
-  get_assertions({ subject = null, predicate = null, obj = undefined } = {}) {
+  /**
+   * Claims by subject / predicate / object, or one claim by `uuid`.
+   * `why: true` (WHY1) gives each claim a `why` block: sources with tier and
+   * speaker, version chain, contested peers, model or Logic IR rule, status
+   * with the reason. Another owner's private claim is simply absent.
+   */
+  get_assertions({ subject = null, predicate = null, obj = undefined, uuid = null, why = false } = {}) {
     const params = {};
     if (subject !== null && subject !== undefined) params.subject = subject;
     if (predicate !== null && predicate !== undefined) params.predicate = predicate;
     if (obj !== undefined) params.object = obj;
+    if (uuid) params.uuid = uuid;
+    if (why === true) params.why = 'true';
     return this._request('GET', '/api/assertions', { params }).then(r => r.assertions);
+  }
+
+  /**
+   * WHY1 / KSG-1: "why do we believe this?" for one claim. Returns the claim
+   * with its `why` block (`sources`, `versions`, `contested`, `inference`,
+   * `status: { state, stored, reason }`), or null when there is no such claim
+   * the caller may read.
+   */
+  explain_claim(claim_uuid) {
+    return this._request('GET', '/api2.0/assertions', { params: { uuid: claim_uuid, why: 'true' } })
+      .then(r => (Array.isArray(r?.assertions) && r.assertions[0]) || null);
+  }
+
+  /**
+   * WHY1 / KSG-2: the contradiction inbox — open contested sets the caller may
+   * read (their own private ones and the public ones), each side with its
+   * source and tier, highest tier first. Returns `{ contradictions, total,
+   * truncated }`. Resolve one with `confirm_fact(side_uuid)` (keep that side)
+   * or `correct_fact(side_uuid, { obj })` (another value): a new version
+   * supersedes every side; nothing is deleted.
+   */
+  list_contradictions({ visibility = null, limit = null } = {}) {
+    const params = { contested: 'true' };
+    if (visibility) params.visibility = visibility;
+    if (limit !== null && limit !== undefined) params.limit = limit;
+    return this._request('GET', '/api2.0/assertions', { params });
   }
 
   vote_assertion(assertion_id, { delta = 1 } = {}) {
@@ -2632,6 +2925,25 @@ export class KnowShowGoClient {
    * Unified knowledge search over concepts (incl. episodic chunks) + typed
    * objects (Document / Idea / …). Canonical path `/api2.0/knowledge/search`
    * with `/api` alias. Pass owner identity so private docs are visible.
+   *
+   * CM1: with `where`, a typed question instead of a fuzzy one — the instances
+   * of a category whose stored claims satisfy constraints:
+   *
+   *   search_knowledge({ where: { type: 'Requirement',
+   *     all: [{ predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' }],
+   *     not: [{ predicate: 'form_code', op: 'starts_with', value: 'W-8' }] } })
+   *
+   * Operators: eq, in, starts_with, contains, gt, gte, lt, lte, exists; groups
+   * all / any / not / knownNot / excludeKnown nest. Each constraint is true,
+   * false or unknown per candidate (not(unknown) is unknown; a candidate or
+   * model-inferred claim never matches). `results` holds only candidates known
+   * to satisfy every constraint, each with `match` (constraints, claim ids,
+   * tiers, a ranking score that is not a probability). Candidates that are
+   * unknown on a constraint come back apart in `unknown`: never report those,
+   * or the nearest text hit, as a match. `where.outcome` is `matched`,
+   * `unknown_only` or `none`. With `where`, `query` is optional and only ranks;
+   * `semantic_fallback: true` also proposes what resembles the query, flagged.
+   * Without `where` the call and its result are unchanged.
    */
   search_knowledge({
     query,
@@ -2643,8 +2955,34 @@ export class KnowShowGoClient {
     owner_user_id = null,
     agent_session_id = null,
     knowledgeApiPrefix = null,
+    where = null,
+    semantic_fallback = false,
+    max_candidates = null,
+    explain = true,
   } = {}) {
     const prefix = knowledgeApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    if (where && typeof where === 'object') {
+      return this._request('POST', `${prefix}/knowledge/search`, {
+        json: {
+          ...(query !== undefined && query !== null ? { query } : {}),
+          topK: top_k,
+          similarityThreshold: similarity_threshold,
+          where,
+          ...(semantic_fallback === true ? { semanticFallback: true } : {}),
+          ...(max_candidates != null ? { maxCandidates: max_candidates } : {}),
+          ...(explain === false ? { explain: false } : {}),
+        },
+        owner_user_id,
+        agent_session_id,
+      }).then((r) => ({
+        ok: r.ok !== false,
+        query: r.query ?? query ?? null,
+        count: r.count ?? (r.results || []).length,
+        results: r.results || [],
+        unknown: r.unknown || [],
+        where: r.where || null,
+      }));
+    }
     return this._request('POST', `${prefix}/knowledge/search`, {
       json: {
         query,
@@ -2791,15 +3129,31 @@ export class KnowShowGoClient {
     term = undefined,
     role = undefined,
     mentions = undefined,
+    method = undefined,
+    k = undefined,
+    margin = undefined,
+    targets = undefined,
+    items = undefined,
+    floor = undefined,
     owner_user_id = null,
     agent_session_id = null,
     semanticApiPrefix = null,
   } = {}) {
-    if (!claim && !term) throw new Error('ground requires claim {subject, predicate, object} or term');
+    // R6a (server 0.2.62+): `method: 'centroid'` answers the top-k candidates
+    // with similarity and the top-1/top-2 margin (`ambiguous` below the
+    // threshold); `items: [{ term, expect? }]` grounds a labelled list (E1).
+    // R6c (server 0.2.63+): `floor` — top-1 below it answers `none`.
+    // Reads only.
+    if (items !== undefined && method !== 'centroid') throw new Error("items needs method: 'centroid'");
+    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term');
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    const centroid = method === 'centroid'
+      ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, floor: floor ?? null, ...(items !== undefined ? { items } : {}) })
+      : (method !== undefined ? { method } : {});
     return this._request('POST', `${prefix}/ground`, {
       json: {
-        ...(claim ? { claim } : { term, ...(role ? { role } : {}) }),
+        ...(claim ? { claim } : term !== undefined ? { term, ...(role ? { role } : {}) } : {}),
+        ...centroid,
         ...(mentions !== undefined ? { mentions } : {}),
         ownerUserId: owner_user_id,
       },

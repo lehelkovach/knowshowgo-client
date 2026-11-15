@@ -4,6 +4,7 @@ KnowShowGo Python REST API Client
 Provides a Python client for the KnowShowGo REST API.
 """
 
+import copy
 import os
 import re
 import requests
@@ -337,9 +338,28 @@ class EntityProxy:
 _UNSET = object()
 
 
+def _camel(key: str) -> str:
+    """snake_case option name → the server's camelCase body key."""
+    head, *rest = key.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in rest)
+
+
 def _without_nulls(body: Dict[str, Any]) -> Dict[str, Any]:
     """``body`` without the keys whose value is ``None``: send only what was given."""
     return {k: v for k, v in body.items() if v is not None}
+
+
+def _proof_view_fields(exclude_claims: Optional[List[str]], describe: bool) -> Dict[str, Any]:
+    """KA4b: the proof-view fields of close_relation / evaluate_joins, absent unless asked for;
+    ``describe`` only when it is the literal True."""
+    out: Dict[str, Any] = {}
+    if exclude_claims is not None:
+        if isinstance(exclude_claims, (str, bytes)) or not isinstance(exclude_claims, (list, tuple)):
+            raise ValueError("exclude_claims must be a list of claim uuids")
+        out["excludeClaims"] = [str(c) for c in exclude_claims]
+    if describe is True:
+        out["describe"] = True
+    return out
 
 
 def matches_route(template: str, actual: str) -> bool:
@@ -956,6 +976,165 @@ class KnowShowGoClient:
         """CE3d counters: model propositions proposed, reused, refused, confirmed, contradicted."""
         return self._request("GET", f"{self.prototype_api_prefix}/propositions/inferred/stats")
 
+    # ===== CS1: the rest of the agent-facing routes (server capability manifest) =====
+
+    def reconcile_inferred_propositions(self, label: str) -> Dict[str, Any]:
+        """CE3d: check the model's proposals about a name against higher-tier claims."""
+        return self._request("POST", f"{self.prototype_api_prefix}/propositions/reconcile", json={"label": label})
+
+    def list_value_types(self) -> Dict[str, Any]:
+        """TB2/KV1: the closed list of property value types and external-id schemes."""
+        return self._request("GET", f"{self.prototype_api_prefix}/value-types")
+
+    def search_predicates(self, query: str = "", limit: Optional[int] = None) -> Dict[str, Any]:
+        """TB2: declared properties whose name matches ``query``."""
+        return self._request("GET", f"{self.prototype_api_prefix}/predicates", params=_without_nulls({"q": query, "limit": limit}))
+
+    def declare_predicate(
+        self,
+        name: str,
+        value_type: str,
+        cardinality: Optional[str] = None,
+        range: Optional[List[str]] = None,
+        options: Optional[List[Any]] = None,
+        description: Optional[str] = None,
+        attach_to: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: declare a property; an existing name is returned, not duplicated."""
+        body = _without_nulls({
+            "name": name, "valueType": value_type, "cardinality": cardinality, "range": range,
+            "options": options, "description": description, "attachTo": attach_to,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/predicates/declare", json=body)
+
+    def get_prototype_fields(self, uuid: str) -> Dict[str, Any]:
+        """TB2: a prototype's own and inherited properties (its create form)."""
+        return self._request("GET", f"{self.prototype_api_prefix}/prototypes/{uuid}/fields")
+
+    def search_articles(self, query: str = "", range: Optional[List[str]] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+        """TB2: topics (articles) whose title matches ``query``."""
+        params = _without_nulls({"q": query, "range": ",".join(range) if range else None, "limit": limit})
+        return self._request("GET", f"{self.prototype_api_prefix}/articles", params=params)
+
+    def get_article(self, uuid: str) -> Dict[str, Any]:
+        """TB2: one topic as an article, every version of every value with its provenance."""
+        return self._request("GET", f"{self.prototype_api_prefix}/articles/{uuid}")
+
+    def create_article(
+        self,
+        prototype_uuid: str,
+        title: str,
+        description: Optional[str] = None,
+        fields: Optional[List[Dict[str, Any]]] = None,
+        private: Optional[bool] = None,
+        allow_duplicate: Optional[bool] = None,
+        source_url: Optional[str] = None,
+        source_title: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: create a topic of a prototype with typed fields (signed-in owner only)."""
+        body = _without_nulls({
+            "prototypeUuid": prototype_uuid, "title": title, "description": description, "fields": fields,
+            "private": private, "allowDuplicate": allow_duplicate, "sourceUrl": source_url,
+            "sourceTitle": source_title, "note": note,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/articles", json=body)
+
+    def amend_article(
+        self,
+        uuid: str,
+        predicate: str,
+        value_type: Optional[str] = None,
+        value: Any = None,
+        object_uuid: Optional[str] = None,
+        unit: Optional[str] = None,
+        lang: Optional[str] = None,
+        precision: Optional[str] = None,
+        scheme: Optional[str] = None,
+        replaces_claim: Optional[str] = None,
+        source_url: Optional[str] = None,
+        source_title: Optional[str] = None,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """TB2: amend a topic with one typed claim; ``replaces_claim`` versions an old value."""
+        body = _without_nulls({
+            "predicate": predicate, "valueType": value_type, "value": value, "objectUuid": object_uuid,
+            "unit": unit, "lang": lang, "precision": precision, "scheme": scheme, "replacesClaim": replaces_claim,
+            "sourceUrl": source_url, "sourceTitle": source_title, "note": note,
+        })
+        return self._request("POST", f"{self.prototype_api_prefix}/articles/{uuid}/claims", json=body)
+
+    def get_taxonomy_duplicates(self) -> Dict[str, Any]:
+        """DH1: public prototype names with more than one active prototype."""
+        return self._request("GET", f"{self.prototype_api_prefix}/taxonomy/duplicates")
+
+    def resolve_concept(self, label: str, **options: Any) -> Dict[str, Any]:
+        """Resolve a label to its preferred concept without creating anything."""
+        body = _without_nulls({"label": label, **{_camel(k): v for k, v in options.items()}})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/resolve", json=body)
+
+    def find_or_create_concept(self, label: str, **options: Any) -> Dict[str, Any]:
+        """The existing concept for this label, or a new one."""
+        body = _without_nulls({"label": label, **{_camel(k): v for k, v in options.items()}})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/find-or-create", json=body)
+
+    def merge_concepts(self, survivor: str, members: List[str], score: Optional[float] = None, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Merge duplicate concepts into a survivor (reversible with ``unmerge_concept``)."""
+        body = _without_nulls({"survivor": survivor, "members": members, "score": score, "reason": reason})
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/merge", json=body)
+
+    def unmerge_concept(self, uuid: str, reason: Optional[str] = None) -> Dict[str, Any]:
+        """Take one member back out of a merge."""
+        return self._request("POST", f"{self.prototype_api_prefix}/concepts/{uuid}/unmerge", json=_without_nulls({"reason": reason}))
+
+    def get_concept_variants(self, uuid: str) -> Dict[str, Any]:
+        """The concepts merged into this one."""
+        return self._request("GET", f"{self.prototype_api_prefix}/concepts/{uuid}/variants")
+
+    def get_derivation(self, uuid: str) -> Dict[str, Any]:
+        """One recorded Logic IR derivation, explained."""
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/derivations/{uuid}")
+
+    def get_derivation_tree(self, uuid: str, max_depth: Optional[int] = None) -> Dict[str, Any]:
+        """The proof tree under a derivation."""
+        kwargs = {"params": {"maxDepth": max_depth}} if max_depth else {}
+        return self._request("GET", f"{self.prototype_api_prefix}/logic-ir/derivations/{uuid}/tree", **kwargs)
+
+    def assimilate_exemplar(self, subject: str, category: str, evidence: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Add a confirmed member to a category's exemplars. R6b (server 0.2.62+): ``evidence``
+        ({"kind", "ref"}) names what confirmed it; candidate or inferred membership is refused
+        (409 M006), a private exemplar never moves a shared centroid (409 M007)."""
+        body: Dict[str, Any] = {"subject": subject, "category": category}
+        if evidence:
+            body["evidence"] = evidence
+        return self._request("POST", f"{self.prototype_api_prefix}/prototypes/assimilate", json=body)
+
+    def hydrate_entity(self, entity_id: str, top_k: Optional[int] = None, threshold: Optional[float] = None) -> Dict[str, Any]:
+        """The raw one-trip hydration payload for an entity."""
+        params = _without_nulls({"topK": top_k, "threshold": threshold})
+        return self._request("GET", f"{self.prototype_api_prefix}/entities/{entity_id}/hydrate", params=params)
+
+    def for_owner(
+        self,
+        auth_token: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        agent_session_id: Optional[str] = None,
+    ) -> "KnowShowGoClient":
+        """KT1: a copy of this client that acts as one owner (its token on every call).
+
+        Without ``auth_token`` the copy keeps this client's token. This client is
+        not changed; the HTTP session is shared.
+        """
+        view = copy.copy(self)
+        if auth_token is not None:
+            view.auth_token = auth_token
+            view.token_provider = None
+        if owner_user_id is not None:
+            view.default_owner_user_id = owner_user_id
+        if agent_session_id is not None:
+            view.default_agent_session_id = agent_session_id
+        return view
+
     def resolve_slots(
         self,
         labels: List[str],
@@ -1300,22 +1479,32 @@ class KnowShowGoClient:
 
     def close_relation(self, predicate: str, as_: Optional[str] = None, include_alleged: bool = False,
                        max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
-                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
-        """KA4: transitive closure of one relation; each fact names the claims on its path."""
+                       edge_limit: Optional[int] = None, exclude_claims: Optional[List[str]] = None,
+                       describe: bool = False) -> Dict[str, Any]:
+        """KA4: transitive closure of one relation; each fact names the claims on its path and
+        (KA4b) its rule (``closure.base`` / ``closure.extend``).
+
+        KA4b (server 0.2.61+): ``exclude_claims`` re-runs with those claims read as absent
+        (``excluded.dropped``); ``describe=True`` adds ``claimsById`` and entity ``labels``.
+        An edge with a live opposing claim is ``contested`` with ``opposing``."""
         if not predicate:
             raise ValueError("predicate is required")
         body = _without_nulls({"predicate": predicate, "as": as_, "includeAlleged": True if include_alleged else None,
-                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit,
+                               **_proof_view_fields(exclude_claims, describe)})
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/closure", json=body)
 
     def evaluate_joins(self, rules: List[Dict[str, Any]], include_alleged: bool = False,
                        max_facts: Optional[int] = None, max_rounds: Optional[int] = None,
-                       edge_limit: Optional[int] = None) -> Dict[str, Any]:
-        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written."""
+                       edge_limit: Optional[int] = None, exclude_claims: Optional[List[str]] = None,
+                       describe: bool = False) -> Dict[str, Any]:
+        """KA4: rules over binary relations with joins (``[{"name", "ir"}]``), run in memory; nothing written.
+        KA4b: ``exclude_claims`` and ``describe`` as on :meth:`close_relation`."""
         if not rules:
             raise ValueError("rules is required")
         body = _without_nulls({"rules": list(rules), "includeAlleged": True if include_alleged else None,
-                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit})
+                               "maxFacts": max_facts, "maxRounds": max_rounds, "edgeLimit": edge_limit,
+                               **_proof_view_fields(exclude_claims, describe)})
         return self._request("POST", f"{self.prototype_api_prefix}/logic-ir/joins", json=body)
 
     def ensure_predicate(self, name: str, create: bool = True) -> Dict[str, Any]:
@@ -1684,6 +1873,83 @@ class KnowShowGoClient:
         body = _without_nulls({"object": obj, "provenance": provenance})
         return self._request("POST", f"{self.prototype_api_prefix}/facts/{fact_id}/correct", json=body)
 
+    # ===== Knowledge packs (PK1; needs a server newer than 0.2.59) =====
+
+    def export_pack(
+        self,
+        name: str,
+        version: str,
+        license: str,
+        prototypes: Optional[List[str]] = None,
+        procedures: Optional[List[str]] = None,
+        facts: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        source: Optional[Dict[str, Any]] = None,
+        include_private: bool = False,
+    ) -> Dict[str, Any]:
+        """Export a chosen set as one ``ksg-pack/1``: ``{ok, pack, summary}``.
+
+        ``prototypes`` are uuids or names; ``procedures`` and ``facts`` are
+        ids. ``name``, ``version`` (semver) and ``license`` are required;
+        there is no default license. Read-only.
+
+        An item you may not read answers as a missing one (404) and fails the
+        whole export. Your own private items are held back: the server answers
+        400 and lists them unless ``include_private=True``. That is an
+        explicit opt-in, off by default, and only the literal ``True`` turns
+        it on; use it only when the owner has said those items may leave their
+        scope. Secret-shaped values are redacted (``summary["redactions"]``);
+        read a pack before you publish it.
+        """
+        if not name:
+            raise ValueError("name is required")
+        if not version:
+            raise ValueError("version is required (semver, for example 1.0.0)")
+        if not license:
+            raise ValueError("license is required (for example CC-BY-4.0)")
+        select = _without_nulls({"prototypes": prototypes, "procedures": procedures, "facts": facts})
+        if not any(isinstance(items, list) and items for items in select.values()):
+            raise ValueError("name at least one prototype, procedure or fact to export")
+        body = _without_nulls({
+            "name": name,
+            "version": version,
+            "license": license,
+            "description": description,
+            "source": source,
+        })
+        body["select"] = select
+        if include_private is True:
+            body["includePrivate"] = True
+        return self._request("POST", "/api2.0/packs/export", json=body)
+
+    def install_pack(self, pack: Any, dry_run: bool = False) -> Dict[str, Any]:
+        """Install a ``ksg-pack/1`` (a dict, or the file's JSON text) into the caller's own scope.
+
+        Needs an owner token. ``dry_run=True`` returns the plan and writes
+        nothing; run it first.
+
+        A pack grants no trust. Installed procedures are your private
+        candidates with no runs: do not recall them as trusted until a
+        verified run is recorded. Installed facts are third-party candidates
+        that keep what the pack stated under ``provenance``; only
+        ``confirm_fact`` makes one confirmed. The same pack again changes
+        nothing; a newer version supersedes what it replaces and deletes
+        nothing; the same version with other contents, or an older version,
+        is 409.
+        """
+        body = pack
+        if isinstance(body, str):
+            try:
+                body = json.loads(body)
+            except ValueError:
+                body = None
+        if not isinstance(body, dict) or not body:
+            raise ValueError("pack is required: a ksg-pack/1 dict or its JSON text")
+        payload: Dict[str, Any] = {"pack": body}
+        if dry_run is True:
+            payload["dryRun"] = True
+        return self._request("POST", "/api2.0/packs/install", json=payload)
+
     # camelCase aliases: the JS client exposes both spellings, and agents port
     # call sites between the two SDKs. Parity is cheaper than a translation table.
     evaluatePrototypeMatch = evaluate_prototype_match
@@ -1870,9 +2136,16 @@ class KnowShowGoClient:
         self,
         subject: Optional[str] = None,
         predicate: Optional[str] = None,
-        obj: Optional[Any] = None
+        obj: Optional[Any] = None,
+        uuid: Optional[str] = None,
+        why: bool = False,
     ) -> List[Dict[str, Any]]:
-        """Get assertions with optional filters"""
+        """Get assertions with optional filters, or one claim by ``uuid``.
+
+        ``why=True`` (WHY1) gives each claim a ``why`` block: sources with tier
+        and speaker, version chain, contested peers, model or Logic IR rule,
+        status with the reason. Another owner's private claim is simply absent.
+        """
         params = {}
         if subject:
             params["subject"] = subject
@@ -1880,8 +2153,43 @@ class KnowShowGoClient:
             params["predicate"] = predicate
         if obj is not None:
             params["object"] = obj
+        if uuid:
+            params["uuid"] = uuid
+        if why:
+            params["why"] = "true"
         result = self._request("GET", "/api/assertions", params=params)
         return result["assertions"]
+
+    def explain_claim(self, claim_uuid: str) -> Optional[Dict[str, Any]]:
+        """WHY1 / KSG-1: "why do we believe this?" for one claim.
+
+        Returns the claim with its ``why`` block (``sources``, ``versions``,
+        ``contested``, ``inference``, ``status``) or None when there is no such
+        claim the caller may read.
+        """
+        result = self._request("GET", "/api2.0/assertions", params={"uuid": claim_uuid, "why": "true"})
+        rows = result.get("assertions") if isinstance(result, dict) else None
+        return rows[0] if rows else None
+
+    def list_contradictions(
+        self,
+        visibility: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """WHY1 / KSG-2: the contradiction inbox.
+
+        Open contested sets the caller may read (their own private ones and
+        the public ones), each side with its source and tier, highest tier
+        first: ``{contradictions, total, truncated}``. Resolve one with
+        ``confirm_fact(side_uuid)`` or ``correct_fact(side_uuid, obj=...)``;
+        a new version supersedes every side, nothing is deleted.
+        """
+        params: Dict[str, Any] = {"contested": "true"}
+        if visibility:
+            params["visibility"] = visibility
+        if limit is not None:
+            params["limit"] = limit
+        return self._request("GET", "/api2.0/assertions", params=params)
 
     def vote_assertion(
         self,
@@ -2868,7 +3176,7 @@ class KnowShowGoClient:
 
     def search_knowledge(
         self,
-        query: str,
+        query: Optional[str] = None,
         top_k: int = 10,
         similarity_threshold: float = 0.55,
         categories: Optional[List[str]] = None,
@@ -2877,9 +3185,61 @@ class KnowShowGoClient:
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
         knowledge_api_prefix: Optional[str] = None,
+        where: Optional[Dict[str, Any]] = None,
+        semantic_fallback: bool = False,
+        max_candidates: Optional[int] = None,
+        explain: bool = True,
     ) -> Dict[str, Any]:
-        """Unified search over concepts (incl. episodic) + Document/typed objects."""
+        """Unified search over concepts (incl. episodic) + Document/typed objects.
+
+        CM1: with ``where``, a typed question instead of a fuzzy one — the
+        instances of a category whose stored claims satisfy constraints::
+
+            search_knowledge(where={"type": "Requirement",
+                "all": [{"predicate": "portal", "op": "eq", "value": "Contoso Supplier Portal"}],
+                "not": [{"predicate": "form_code", "op": "starts_with", "value": "W-8"}]})
+
+        Operators: eq, in, starts_with, contains, gt, gte, lt, lte, exists;
+        groups all / any / not / knownNot / excludeKnown nest. Each constraint
+        is true, false or unknown per candidate (not(unknown) is unknown; a
+        candidate or model-inferred claim never matches). ``results`` holds
+        only candidates known to satisfy every constraint, each with ``match``
+        (constraints, claim ids, tiers, a ranking score that is not a
+        probability). Candidates that are unknown on a constraint come back
+        apart in ``unknown``: never report those, or the nearest text hit, as
+        a match. With ``where``, ``query`` is optional and only ranks. Without
+        ``where`` the call and its result are unchanged.
+        """
         prefix = knowledge_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        if isinstance(where, dict) and where:
+            data: Dict[str, Any] = {
+                "topK": top_k,
+                "similarityThreshold": similarity_threshold,
+                "where": where,
+            }
+            if query is not None:
+                data["query"] = query
+            if semantic_fallback is True:
+                data["semanticFallback"] = True
+            if max_candidates is not None:
+                data["maxCandidates"] = max_candidates
+            if explain is False:
+                data["explain"] = False
+            result = self._request(
+                "POST",
+                f"{prefix}/knowledge/search",
+                json=data,
+                owner_user_id=owner_user_id,
+                agent_session_id=agent_session_id,
+            )
+            return {
+                "ok": result.get("ok", True),
+                "query": result.get("query", query),
+                "count": result.get("count", len(result.get("results") or [])),
+                "results": result.get("results") or [],
+                "unknown": result.get("unknown") or [],
+                "where": result.get("where"),
+            }
         data = {
             "query": query,
             "topK": top_k,
@@ -2996,23 +3356,41 @@ class KnowShowGoClient:
         owner_user_id: Optional[str] = None,
         agent_session_id: Optional[str] = None,
         semantic_api_prefix: Optional[str] = None,
+        method: Optional[str] = None,
+        k: Optional[int] = None,
+        margin: Optional[float] = None,
+        targets: Optional[str] = None,
+        items: Optional[List[Dict[str, Any]]] = None,
+        floor: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
+        """R6a (server 0.2.62+): ``method="centroid"`` answers the top-k candidates with
+        similarity and the top-1/top-2 margin (``ambiguous`` below the threshold); ``items``
+        grounds a labelled list (E1). Reads only.
+
+        Ground a claim's terms, or one term, to concepts (``POST /api2.0/ground``,
         knowshowgo >= 0.2.24). Pass ``claim={"subject", "predicate", "object"}`` or
         ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
         ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
         ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
         ``mentions`` are concept uuids already in the conversation. Reads only."""
-        if not claim and not term:
+        if items is not None and method != "centroid":
+            raise ValueError("items needs method='centroid'")
+        if not claim and not term and items is None:
             raise ValueError("ground requires claim {subject, predicate, object} or term")
         prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
         body: Dict[str, Any] = {"ownerUserId": owner_user_id}
         if claim:
             body["claim"] = claim
-        else:
+        elif term is not None:
             body["term"] = term
             if role is not None:
                 body["role"] = role
+        if method is not None:
+            body["method"] = method
+        if method == "centroid":
+            body.update(_without_nulls({"k": k, "margin": margin, "targets": targets, "floor": floor}))
+            if items is not None:
+                body["items"] = list(items)
         if mentions is not None:
             body["mentions"] = mentions
         return self._request(

@@ -1681,6 +1681,71 @@ test('search_knowledge posts to /api2.0/knowledge/search with owner headers', as
   );
 });
 
+test('search_knowledge without where sends the same body as before and returns the same shape', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, query: 'Acme', count: 0, results: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.search_knowledge({ query: 'Acme', top_k: 5 });
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    query: 'Acme', topK: 5, similarityThreshold: 0.55, categories: null, includeConcepts: true, includeObjects: true,
+  });
+  assert.deepEqual(Object.keys(out).sort(), ['count', 'ok', 'query', 'results']);
+});
+
+test('search_knowledge with where sends the typed constraints and keeps unknown apart from results (CM1)', async () => {
+  const calls = [];
+  const where = {
+    type: 'Requirement',
+    all: [{ predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' }, { predicate: 'status', op: 'eq', value: 'current' }],
+    not: [{ predicate: 'form_code', op: 'starts_with', value: 'W-8' }],
+  };
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({
+      ok: true,
+      query: null,
+      count: 1,
+      results: [{ kind: 'concept', uuid: 'r1', title: 'Contoso tax form (2026)', source: 'where', score: 0.8, match: { truth: 'true', by: 'structure', matched: [], failed: [], unknown: [] } }],
+      unknown: [{ kind: 'concept', uuid: 'r2', title: 'Contoso tax form (draft)', source: 'where', score: 0.4, match: { truth: 'unknown', by: 'structure' } }],
+      where: { revision: 'knowledge-where@0.1.0', outcome: 'matched', truthValues: ['true', 'false', 'unknown'], candidates: { considered: 3, matched: 1, unknown: 1, failed: 1, bound: 200, complete: true } },
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock, defaultOwnerUserId: 'slack:U1' });
+  const out = await client.search_knowledge({ where, top_k: 3 });
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body.where, where);
+  assert.equal(body.topK, 3);
+  assert.equal('query' in body, false, 'no query is sent when none is given');
+  assert.equal('semanticFallback' in body, false);
+  assert.equal(out.results.length, 1);
+  assert.equal(out.unknown.length, 1);
+  assert.equal(out.unknown[0].match.truth, 'unknown');
+  assert.equal(out.where.outcome, 'matched');
+  assert.equal(out.query, null);
+  assert.match(calls[0].url, /\/api2\.0\/knowledge\/search/);
+
+  await client.search_knowledge({ query: 'tax form', where, semantic_fallback: true, max_candidates: 50, explain: false });
+  const second = JSON.parse(calls[1].options.body);
+  assert.equal(second.query, 'tax form');
+  assert.equal(second.semanticFallback, true);
+  assert.equal(second.maxCandidates, 50);
+  assert.equal(second.explain, false);
+});
+
+test('search_knowledge with where answers unknown as an empty list when the server sends none', async () => {
+  const fetchMock = async () => makeJsonResponse({ ok: true, query: null, count: 0, results: [], where: { outcome: 'none' } });
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.search_knowledge({ where: { type: 'Requirement' } });
+  assert.deepEqual(out.unknown, []);
+  assert.equal(out.where.outcome, 'none');
+});
+
 test('get_entity_properties hits /api2.0 and EntityProxy exposes winner + claims', async () => {
   const calls = [];
   const payload = {
@@ -2238,4 +2303,145 @@ test('search_concepts passes scope, props and kind through to the server body, a
   assert.equal('scope' in plain, false);
   assert.equal('props' in plain, false);
   assert.equal('kind' in plain, false);
+});
+
+test('WHY1: explain_claim reads one claim with why=true and returns it (null when absent)', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse(calls.length === 1
+      ? { assertions: [{ uuid: 'c1', why: { status: { state: 'contested' } } }] }
+      : { assertions: [] });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const claim = await client.explain_claim('c1');
+  assert.equal(claim.why.status.state, 'contested');
+  assert.equal(calls[0].options.method, 'GET');
+  assert.match(calls[0].url, /\/api2\.0\/assertions\?/);
+  assert.match(calls[0].url, /uuid=c1/);
+  assert.match(calls[0].url, /why=true/);
+  assert.equal(await client.explain_claim('missing'), null);
+});
+
+test('WHY1: get_assertions passes uuid, why and contested', async () => {
+  const calls = [];
+  const fetchMock = async (url) => { calls.push(url); return makeJsonResponse({ assertions: [] }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.get_assertions({ subject: 's1', predicate: 'birth_date', why: true });
+  assert.match(calls[0], /subject=s1/);
+  assert.match(calls[0], /why=true/);
+  await client.get_assertions({ uuid: 'c1' });
+  assert.match(calls[1], /uuid=c1/);
+  assert.doesNotMatch(calls[1], /why=/);
+});
+
+test('KSG-2: list_contradictions reads the inbox with visibility and limit and returns the whole answer', async () => {
+  const calls = [];
+  const fetchMock = async (url) => {
+    calls.push(url);
+    return makeJsonResponse({ assertions: [], contradictions: [{ id: 'c1', sides: [{ uuid: 'a' }, { uuid: 'b' }] }], total: 1, truncated: false });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const box = await client.list_contradictions({ visibility: 'private', limit: 10 });
+  assert.equal(box.total, 1);
+  assert.equal(box.contradictions[0].sides.length, 2);
+  assert.match(calls[0], /\/api2\.0\/assertions\?/);
+  assert.match(calls[0], /contested=true/);
+  assert.match(calls[0], /visibility=private/);
+  assert.match(calls[0], /limit=10/);
+});
+
+// ===== PK1: knowledge packs (server after 0.2.59) =====
+
+const PACK_HEAD = { name: 'contoso-supplier-onboarding', version: '1.0.0', license: 'CC-BY-4.0' };
+
+test('PK1: export_pack posts the header and the selection, and leaves includePrivate out by default', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options });
+    return makeJsonResponse({ ok: true, pack: { format: 'ksg-pack/1', ...PACK_HEAD }, summary: { counts: { prototypes: 1, procedures: 1, facts: 2 }, private: 0, redactions: 0, digest: 'sha256:abc' } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const out = await client.export_pack({
+    ...PACK_HEAD,
+    description: 'Supplier onboarding, sample data',
+    source: { publisher: 'Contoso (example)' },
+    prototypes: ['SupplierPortal'],
+    procedures: ['p1'],
+    facts: ['f1', 'f2']
+  });
+  assert.equal(out.pack.format, 'ksg-pack/1');
+  assert.equal(out.summary.counts.facts, 2);
+  assert.equal(calls[0].options.method, 'POST');
+  assert.match(calls[0].url, /\/api2\.0\/packs\/export$/);
+  const body = JSON.parse(calls[0].options.body);
+  assert.deepEqual(body, {
+    ...PACK_HEAD,
+    description: 'Supplier onboarding, sample data',
+    source: { publisher: 'Contoso (example)' },
+    select: { prototypes: ['SupplierPortal'], procedures: ['p1'], facts: ['f1', 'f2'] }
+  });
+  assert.equal('includePrivate' in body, false);
+});
+
+test('PK1: export_pack sends includePrivate only for an explicit include_private: true', async () => {
+  const bodies = [];
+  const fetchMock = async (url, options) => { bodies.push(JSON.parse(options.body)); return makeJsonResponse({ ok: true, pack: {}, summary: {} }); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.export_pack({ ...PACK_HEAD, select: { procedures: ['p1'] }, include_private: true });
+  assert.equal(bodies[0].includePrivate, true);
+  assert.deepEqual(bodies[0].select, { procedures: ['p1'] });
+  // Truthy is not an opt-in; only the literal true is.
+  for (const value of [false, undefined, null, 'true', 1, 'yes']) {
+    await client.export_pack({ ...PACK_HEAD, select: { procedures: ['p1'] }, include_private: value });
+    assert.equal('includePrivate' in bodies[bodies.length - 1], false, `include_private: ${String(value)}`);
+  }
+});
+
+test('PK1: export_pack refuses a missing name, version, license or selection before any request', async () => {
+  let called = 0;
+  const fetchMock = async () => { called += 1; return makeJsonResponse({}); };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const ok = { ...PACK_HEAD, procedures: ['p1'] };
+  for (const [patch, pattern] of [
+    [{ name: '' }, /name/],
+    [{ version: undefined }, /version/],
+    [{ license: null }, /license/],
+    [{ procedures: [] }, /at least one/]
+  ]) {
+    assert.throws(() => client.export_pack({ ...ok, ...patch }), pattern);
+  }
+  assert.equal(called, 0);
+});
+
+test('PK1: install_pack posts the pack, takes a pack as JSON text, and marks a dry run', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body), method: options.method });
+    return makeJsonResponse({ ok: true, dryRun: calls.length === 2, counts: { procedures: { created: 1 } } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  const pack = { format: 'ksg-pack/1', ...PACK_HEAD, source: {}, contents: { procedures: [], facts: [], prototypes: [] } };
+
+  const done = await client.install_pack(pack);
+  assert.equal(done.counts.procedures.created, 1);
+  assert.equal(calls[0].method, 'POST');
+  assert.match(calls[0].url, /\/api2\.0\/packs\/install$/);
+  assert.deepEqual(calls[0].body, { pack });
+
+  const plan = await client.install_pack(JSON.stringify(pack), { dry_run: true });
+  assert.equal(plan.dryRun, true);
+  assert.deepEqual(calls[1].body, { pack, dryRun: true });
+
+  assert.throws(() => client.install_pack(null), /pack/);
+  assert.throws(() => client.install_pack('not json'), /pack/);
+  assert.throws(() => client.install_pack([pack]), /pack/);
+  assert.equal(calls.length, 2);
 });
