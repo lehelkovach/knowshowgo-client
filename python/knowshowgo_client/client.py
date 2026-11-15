@@ -2969,8 +2969,13 @@ class KnowShowGoClient:
         guards: Optional[Dict[str, Any]] = None,
         extra_props: Optional[Dict[str, Any]] = None,
         dag_json: Optional[Dict[str, Any]] = None,
+        visibility: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Create a Procedure DAG with steps and dependencies (stores canonical dagJson)."""
+        """Create a Procedure DAG with steps and dependencies (stores canonical dagJson).
+
+        KSG 0.2.64: with an owner the new procedure is private to that owner;
+        ``visibility="public"`` makes a commons one.
+        """
         data = {
             "title": title,
             "description": description,
@@ -2983,6 +2988,8 @@ class KnowShowGoClient:
             data["extraProps"] = extra_props
         if dag_json is not None:
             data["dagJson"] = dag_json
+        if visibility is not None:
+            data["visibility"] = visibility
         return self._request("POST", "/api/procedures", json=data)
 
     def get_procedure(
@@ -3060,7 +3067,8 @@ class KnowShowGoClient:
         title: str,
         description: str = "",
         mode: str = "schema_only",
-        provenance: Optional[Dict[str, Any]] = None
+        provenance: Optional[Dict[str, Any]] = None,
+        visibility: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a generalized reusable variant of a Procedure DAG"""
         data = {
@@ -3069,6 +3077,8 @@ class KnowShowGoClient:
             "mode": mode,
             "provenance": provenance
         }
+        if visibility is not None:
+            data["visibility"] = visibility
         return self._request(
             "POST",
             f"/api/procedures/{procedure_uuid}/generalize",
@@ -3122,7 +3132,8 @@ class KnowShowGoClient:
         self,
         procedure: Dict[str, Any],
         form_element_category_prototype_uuid: Optional[str] = None,
-        provenance: Optional[Dict[str, Any]] = None
+        provenance: Optional[Dict[str, Any]] = None,
+        visibility: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Import a naive JSON procedure definition into a linked DAG"""
         data = {
@@ -3130,6 +3141,8 @@ class KnowShowGoClient:
             "formElementCategoryPrototypeUuid": form_element_category_prototype_uuid,
             "provenance": provenance
         }
+        if visibility is not None:
+            data["visibility"] = visibility
         return self._request("POST", "/api/procedures/import-json", json=data)
 
     # ===== Concept Objects (v0.2.2) =====
