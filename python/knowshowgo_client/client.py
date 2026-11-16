@@ -1702,6 +1702,7 @@ class KnowShowGoClient:
         site: Optional[str] = None,
         include: Optional[Union[str, List[str]]] = None,
         limit: Optional[int] = None,
+        achieves: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Verified procedural recall: semantic on ``goal``, exact on ``site``.
 
@@ -1710,11 +1711,24 @@ class KnowShowGoClient:
         ``state`` and, when the procedure has versions, ``currentVersion``.
         Returns ``{ ok, query, results, excluded, scanned }``. Distinct from
         ``search_procedures`` (POST, by meaning only).
+
+        ACT5a (server after 0.2.65): ``achieves`` is an action concept's uuid
+        (``ground(term=..., role="action")`` finds one). Only procedures linked
+        to that action, or to one under it, are returned: a procedure linked to
+        ``order`` is found under ``acquire``. A link is a proposition:
+        ``assert_proposition(subject_uuid=procedure, predicate="achieves",
+        object_uuid=action)``. With ``goal`` the link filters the ranked pool;
+        ``achieves`` alone (or with ``site``) enumerates the linked procedures.
+        The lifecycle filter applies either way. The answer then adds
+        ``query.achieves``, ``results[].achieves``, ``excluded.otherAction``
+        and ``unlinked`` (procedures in the pool with no live link; ``None``
+        without a goal): a procedure with no link is not absent, so search
+        without ``achieves`` before concluding there is none. Sent only when given.
         """
-        if not goal and not site:
-            raise ValueError("goal or site is required")
+        if not goal and not site and not achieves:
+            raise ValueError("goal or site is required (or achieves)")
         inc = ",".join(include) if isinstance(include, (list, tuple)) else include
-        params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit})
+        params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit, "achieves": achieves or None})
         return self._request("GET", f"{self.prototype_api_prefix}/procedures/search", params=params)
 
     # ===== Procedure versions (capability model) =====
@@ -3393,6 +3407,7 @@ class KnowShowGoClient:
         targets: Optional[str] = None,
         items: Optional[List[Dict[str, Any]]] = None,
         floor: Optional[float] = None,
+        utterance: Optional[str] = None,
     ) -> Dict[str, Any]:
         """R6a (server 0.2.62+): ``method="centroid"`` answers the top-k candidates with
         similarity and the top-1/top-2 margin (``ambiguous`` below the threshold); ``items``
@@ -3403,12 +3418,36 @@ class KnowShowGoClient:
         ``term`` with ``role`` (``entity`` | ``class`` | ``predicate``). Each term comes back
         ``resolved`` (uuid, ``definedness``), ``ambiguous`` (``candidates``: ask which one),
         ``undefined`` (nothing is created) or ``literal``; the predicate in canonical form.
-        ``mentions`` are concept uuids already in the conversation. Reads only."""
+        ``mentions`` are concept uuids already in the conversation. Reads only.
+
+        ACT2 (server after 0.2.65): ``role="action"`` grounds a verb form ("ordered",
+        "log in") to its action concept; ``entity`` and ``class`` never return one.
+
+        ACT3a (server after 0.2.65): ``utterance`` reads text into ``{"frames", "unread"}``.
+        Each frame has a ``kind`` (``command`` | ``report`` | ``rule``), the ``action`` with
+        its grounding status, ``roles`` (each slot ``resolved`` | ``ambiguous`` |
+        ``undefined`` | ``literal``), ``unassigned`` slots with their role candidates,
+        ``values`` and a ``pattern`` whose ``triples`` go to ``bind_pattern``. Rules and the
+        action lexicon only: no model, no vector, nothing written. A ``rule`` frame is
+        returned, not compiled or stored. Treat ``undefined`` and ``unassigned`` as questions
+        to ask, never as answers. ``utterance`` is read on its own."""
         if items is not None and method != "centroid":
             raise ValueError("items needs method='centroid'")
-        if not claim and not term and items is None:
-            raise ValueError("ground requires claim {subject, predicate, object} or term")
         prefix = semantic_api_prefix or getattr(self, "prototype_api_prefix", None) or "/api2.0"
+        if utterance is not None:
+            if not isinstance(utterance, str) or not utterance.strip():
+                raise ValueError("utterance must be a non-empty string")
+            if claim or term is not None or items is not None or method is not None:
+                raise ValueError("utterance is read on its own: do not combine it with claim, term, method or items")
+            return self._request(
+                "POST",
+                f"{prefix}/ground",
+                json={"utterance": utterance, "ownerUserId": owner_user_id},
+                owner_user_id=owner_user_id,
+                agent_session_id=agent_session_id,
+            )
+        if not claim and not term and items is None:
+            raise ValueError("ground requires claim {subject, predicate, object} or term (or utterance)")
         body: Dict[str, Any] = {"ownerUserId": owner_user_id}
         if claim:
             body["claim"] = claim
@@ -3768,6 +3807,27 @@ class KnowShowGoClient:
     def seed_social_layer(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
         return self._request("POST", f"{prefix}/seed/social-layer", json={})
+
+    def seed_action_concepts(self, dry_run: bool = False, api_prefix: str = "/api2.0") -> Dict[str, Any]:
+        """ACT1: seed the action vocabulary (operators only; a write).
+
+        One concept per verb MEANING (``order (action)``, keyed by
+        ``senseKey: "action:<id>"``, with ``verbForms`` and ``is_a`` parents),
+        the role predicates (agent, patient, ...) and the link predicates
+        ``takes_role``, ``achieves``, ``acts_on``, ``performs``. Idempotent: a
+        second run writes nothing.
+
+        ``dry_run=True`` returns the report of what a run would write
+        (``report["writes"]``, ``report["preflight"]["lemmasAlreadyNamed"]``)
+        and writes nothing; run it first. When more than one active ``Action``
+        prototype exists the server refuses (409), dry run or not.
+        """
+        prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"
+        return self._request(
+            "POST",
+            f"{prefix}/seed/action-concepts",
+            json={"dryRun": True} if dry_run is True else {},
+        )
 
     def seed_logic_ir_primitives(self, api_prefix: str = "/api2.0") -> Dict[str, Any]:
         prefix = (api_prefix or "/api2.0").rstrip("/") or "/api2.0"

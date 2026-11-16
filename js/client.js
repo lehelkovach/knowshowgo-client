@@ -1797,12 +1797,25 @@ export class KnowShowGoClient {
    * list). Each result carries `status`, `state` and, when the procedure has
    * versions, `currentVersion`. Resolves to `{ ok, query, results, excluded,
    * scanned }`. Distinct from `search_procedures` (POST, by meaning only).
+   *
+   * ACT5a (server after 0.2.65): `achieves` is an action concept's uuid
+   * (`ground({ term, role: 'action' })` finds one). Only procedures linked to
+   * that action, or to one under it, are returned: a procedure linked to
+   * `order` is found under `acquire`. A link is a proposition:
+   * `assert_proposition({ subject_uuid: procedure, predicate: 'achieves',
+   * object_uuid: action })`. With `goal` the link filters the ranked pool;
+   * `achieves` alone (or with `site`) enumerates the linked procedures. The
+   * lifecycle filter applies either way. The answer then adds
+   * `query.achieves`, `results[].achieves`, `excluded.otherAction` and
+   * `unlinked` (procedures in the pool with no live link; `null` without a
+   * goal): a procedure with no link is not absent, so search without
+   * `achieves` before concluding there is none. Sent only when given.
    */
-  search_verified_procedures({ goal, site, include, limit } = {}) {
-    if (!goal && !site) throw new Error('goal or site is required');
+  search_verified_procedures({ goal, site, include, limit, achieves } = {}) {
+    if (!goal && !site && !achieves) throw new Error('goal or site is required (or achieves)');
     const inc = Array.isArray(include) ? include.join(',') : include;
     return this._request('GET', `${this.prototypeApiPrefix}/procedures/search`, {
-      params: { goal, site, include: inc, limit }
+      params: { goal, site, include: inc, limit, ...(achieves ? { achieves } : {}) }
     });
   }
 
@@ -3138,11 +3151,27 @@ export class KnowShowGoClient {
    * names it; nothing is created) or `literal`; the predicate in canonical
    * form (`is a` → `is_a`). `mentions` are concept uuids already in the
    * conversation, a discourse cue. Reads only.
+   *
+   * ACT2 (server after 0.2.65): `role: 'action'` grounds a verb form
+   * ("ordered", "log in") to its action concept; `entity` and `class` never
+   * return one.
+   *
+   * ACT3a (server after 0.2.65): `utterance` reads text into
+   * `{ frames, unread }`. Each frame has a `kind` (`command` | `report` |
+   * `rule`), the `action` with its grounding status, `roles` (each slot
+   * `resolved` | `ambiguous` | `undefined` | `literal`), `unassigned` slots
+   * with their role candidates, `values`, and a `pattern` whose `triples` go
+   * to `bind_pattern`. Rules and the action lexicon only: no model, no
+   * vector, nothing written. A `rule` frame is returned, not compiled or
+   * stored. Treat `undefined` and `unassigned` as questions to ask, never as
+   * answers. `utterance` is read on its own: it is not combined with
+   * `claim`, `term`, `method` or `items`.
    */
   ground({
     claim = undefined,
     term = undefined,
     role = undefined,
+    utterance = undefined,
     mentions = undefined,
     method = undefined,
     k = undefined,
@@ -3160,8 +3189,19 @@ export class KnowShowGoClient {
     // R6c (server 0.2.63+): `floor` — top-1 below it answers `none`.
     // Reads only.
     if (items !== undefined && method !== 'centroid') throw new Error("items needs method: 'centroid'");
-    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term');
     const prefix = semanticApiPrefix || this.prototypeApiPrefix || '/api2.0';
+    if (utterance !== undefined) {
+      if (typeof utterance !== 'string' || !utterance.trim()) throw new Error('utterance must be a non-empty string');
+      if (claim || term !== undefined || items !== undefined || method !== undefined) {
+        throw new Error('utterance is read on its own: do not combine it with claim, term, method or items');
+      }
+      return this._request('POST', `${prefix}/ground`, {
+        json: { utterance, ownerUserId: owner_user_id },
+        owner_user_id,
+        agent_session_id,
+      });
+    }
+    if (!claim && !term && items === undefined) throw new Error('ground requires claim {subject, predicate, object} or term (or utterance)');
     const centroid = method === 'centroid'
       ? withoutNulls({ method, k: k ?? null, margin: margin ?? null, targets: targets ?? null, floor: floor ?? null, ...(items !== undefined ? { items } : {}) })
       : (method !== undefined ? { method } : {});
@@ -3347,6 +3387,26 @@ export class KnowShowGoClient {
   seed_social_layer({ api_prefix = '/api2.0' } = {}) {
     const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
     return this._request('POST', `${prefix}/seed/social-layer`, { json: {} });
+  }
+
+  /**
+   * ACT1: seed the action vocabulary: one concept per verb MEANING
+   * (`order (action)`, keyed by `senseKey: "action:<id>"`, with `verbForms`
+   * and `is_a` parents), the role predicates (agent, patient, …) and the link
+   * predicates `takes_role`, `achieves`, `acts_on`, `performs`. Operators
+   * only; a write. Idempotent: a second run writes nothing.
+   *
+   * `dry_run: true` returns the report of what a run would write
+   * (`report.writes`, `report.preflight.lemmasAlreadyNamed`) and writes
+   * nothing; run it first. When more than one active `Action` prototype
+   * exists the server refuses, dry run or not: the call throws with
+   * `status` 409 and the report in `err.body.report.refused`.
+   */
+  seed_action_concepts({ dry_run = false, dryRun = false, api_prefix = '/api2.0' } = {}) {
+    const prefix = String(api_prefix || '/api2.0').replace(/\/+$/, '') || '/api2.0';
+    return this._request('POST', `${prefix}/seed/action-concepts`, {
+      json: dry_run === true || dryRun === true ? { dryRun: true } : {}
+    });
   }
 
   seed_logic_ir_primitives({ api_prefix = '/api2.0' } = {}) {

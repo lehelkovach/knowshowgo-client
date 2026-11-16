@@ -82,6 +82,33 @@ class TestKnowShowGoClient(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.ground()
 
+    def test_ground_utterance_posts_the_text_alone(self):
+        client = KnowShowGoClient("https://example.test")
+        client.session.request = MagicMock(
+            return_value=FakeResponse({
+                "ok": True, "revision": "action-reader@0.1.0", "writes": 0, "unread": [],
+                "frames": [{"kind": "command", "action": {"term": "order", "status": "resolved", "uuid": "a-order"}, "roles": {}, "unassigned": []}],
+            })
+        )
+        out = client.ground(utterance="order a pizza from Domino's", owner_user_id="u1")
+        self.assertEqual(out["frames"][0]["kind"], "command")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/api2.0/ground"))
+        self.assertEqual(kwargs["json"], {"utterance": "order a pizza from Domino's", "ownerUserId": "u1"})
+        for bad in ("", "   ", 42):
+            with self.assertRaises(ValueError):
+                client.ground(utterance=bad)
+        with self.assertRaises(ValueError):
+            client.ground(utterance="pay", term="pay")
+        with self.assertRaises(ValueError):
+            client.ground(utterance="pay", method="centroid")
+        self.assertEqual(client.session.request.call_count, 1)
+        # ACT2: role action is sent as given; the term body is unchanged.
+        client.ground(term="ordered", role="action")
+        args, kwargs = client.session.request.call_args
+        self.assertEqual(kwargs["json"], {"ownerUserId": None, "term": "ordered", "role": "action"})
+
     def test_reinforce_assertion_posts_claim_and_speaker(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
@@ -1461,6 +1488,34 @@ class TestKnowShowGoClient(unittest.TestCase):
             client.explain_derivation("")
         with self.assertRaises(ValueError):
             client.list_derivations("")
+
+    def test_seed_action_concepts_posts_to_api2_and_dry_run_is_explicit(self):
+        client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret
+        client.session.request = MagicMock(
+            return_value=FakeResponse({"ok": True, "report": {"dryRun": False, "writes": 0}})
+        )
+        result = client.seed_action_concepts()
+        self.assertTrue(result["ok"])
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/action-concepts",
+            json={},
+        )
+        client.session.request.reset_mock()
+        client.seed_action_concepts(dry_run=True, api_prefix="/api")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api/seed/action-concepts",
+            json={"dryRun": True},
+        )
+        client.session.request.reset_mock()
+        # Only the literal True is a dry run.
+        client.seed_action_concepts(dry_run="yes")
+        client.session.request.assert_called_once_with(
+            "POST",
+            "https://example.test/api2.0/seed/action-concepts",
+            json={},
+        )
 
     def test_seed_logic_ir_primitives_posts_to_api2(self):
         client = KnowShowGoClient("https://example.test")  # pragma: allowlist secret

@@ -1537,6 +1537,39 @@ test('seed_social_layer posts to /api2.0/seed/social-layer by default', async ()
   assert.equal(calls[1].url, 'https://example.test/api/seed/social-layer');
 });
 
+test('seed_action_concepts posts to /api2.0/seed/action-concepts; dry_run sends dryRun only when asked; a refusal throws 409 with the report', async () => {
+  const calls = [];
+  let refuse = false;
+  const fetchMock = async (url, options) => {
+    calls.push({ url, options, body: JSON.parse(options.body) });
+    if (refuse) {
+      return makeJsonResponse({ ok: false, error: '2 active prototypes are named "Action"', code: 'ACT001', report: { refused: { code: 'ACT001' } } }, 409);
+    }
+    return makeJsonResponse({ ok: true, report: { dryRun: Boolean(JSON.parse(options.body).dryRun), writes: 0 } });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+  await client.seed_action_concepts();
+  assert.equal(calls[0].url, 'https://example.test/api2.0/seed/action-concepts');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.deepEqual(calls[0].body, {});
+  const dry = await client.seed_action_concepts({ dry_run: true });
+  assert.deepEqual(calls[1].body, { dryRun: true });
+  assert.equal(dry.report.dryRun, true);
+  await client.seed_action_concepts({ dryRun: true, api_prefix: '/api' });
+  assert.equal(calls[2].url, 'https://example.test/api/seed/action-concepts');
+  assert.deepEqual(calls[2].body, { dryRun: true });
+  // Only the literal true is a dry run.
+  await client.seed_action_concepts({ dry_run: 'yes' });
+  assert.deepEqual(calls[3].body, {});
+  refuse = true;
+  await assert.rejects(() => client.seed_action_concepts({ dry_run: true }), (err) => {
+    assert.equal(err.status, 409);
+    assert.equal(err.body.report.refused.code, 'ACT001');
+    return true;
+  });
+});
+
 test('seed_logic_ir_primitives posts to /api2.0/seed/logic-ir-primitives by default', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
@@ -2190,6 +2223,40 @@ test('ground posts a claim or a term to /api2.0/ground and returns the grounding
   const body2 = JSON.parse(calls[1].options.body);
   assert.deepEqual(body2, { term: 'dog', role: 'class', mentions: ['x'], ownerUserId: null });
   assert.throws(() => client.ground({}), /claim .* or term/);
+});
+
+test('ground({ utterance }) posts the text alone and returns frames; role action passes through', async () => {
+  const calls = [];
+  const fetchMock = async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return makeJsonResponse({
+      ok: true,
+      revision: 'action-reader@0.1.0',
+      writes: 0,
+      frames: [{ kind: 'command', action: { term: 'order', status: 'resolved', uuid: 'a-order' }, roles: { patient: { term: 'pizza', status: 'undefined' } }, unassigned: [], values: [], pattern: { ok: true, triples: [] } }],
+      unread: [],
+    });
+  };
+  const KnowShowGoClient = await loadClientClass();
+  const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
+
+  const out = await client.ground({ utterance: "order a pizza from Domino's", owner_user_id: 'u1' });
+  assert.match(calls[0].url, /\/api2\.0\/ground(\?|$)/);
+  assert.deepEqual(calls[0].body, { utterance: "order a pizza from Domino's", ownerUserId: 'u1' });
+  assert.equal(out.frames[0].kind, 'command');
+  assert.equal(out.frames[0].roles.patient.status, 'undefined');
+  assert.equal(out.writes, 0);
+
+  // An utterance is read on its own, and must be text.
+  assert.throws(() => client.ground({ utterance: '' }), /non-empty string/);
+  assert.throws(() => client.ground({ utterance: 42 }), /non-empty string/);
+  assert.throws(() => client.ground({ utterance: 'pay', term: 'pay' }), /on its own/);
+  assert.throws(() => client.ground({ utterance: 'pay', method: 'centroid' }), /on its own/);
+  assert.equal(calls.length, 1);
+
+  // ACT2: role action is sent as given; the term body is unchanged.
+  await client.ground({ term: 'ordered', role: 'action' });
+  assert.deepEqual(calls[1].body, { term: 'ordered', role: 'action', ownerUserId: null });
 });
 
 test('semantic_remember / recall / ask hit /api2.0/semantic/*', async () => {

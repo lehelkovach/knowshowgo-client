@@ -95,6 +95,8 @@ fake data. `c` is a client; `avery` is `c.for_owner({ auth_token: averyToken })`
 | Topics and tags (`topics-tags`) | Resolve a free-text tag to a topic before making a new one | `await c.resolve_topic_tag({ tag: 'vendor onboarding' })` |
 | Knowledge search (`knowledge-search`, `kl2-vector-search`) | A fuzzy question across concepts and objects (vector rows) | `await avery.search_knowledge({ query: 'Contoso tax form' })` |
 | Typed constraints in knowledge search (`cm1-where`) | A typed question: instances of a category whose stored claims satisfy constraints. `results` are matches with their evidence; `unknown` is "not established"; an empty `results` is "no verified match" | `await avery.search_knowledge({ where: { type: 'Requirement', all: [{ predicate: 'portal', op: 'eq', value: 'Contoso Supplier Portal' }], not: [{ predicate: 'status', op: 'eq', value: 'superseded' }] } })` |
+| Ground a verb to its action (`act2-ground-action`) | A verb form in any inflection resolves to its action concept; a word with two meanings lists the other as a candidate; a verb the vocabulary lacks is `undefined`. Grounding a noun is unchanged | `await avery.ground({ term: 'ordered', role: 'action' })` |
+| Read an utterance into frames (`act3a-read-utterance`) | A command, a report or a rule, read by rules: the action, each role slot with its status, and a pattern for `bind_pattern`. Nothing is written; `undefined` and `unassigned` are questions to ask, never answers | `await avery.ground({ utterance: "order a pizza from Domino's" })` |
 | Grounding by centroid, with a margin (`r6a-centroid-ground`) | The top candidates for a token with their similarity and the top-1/top-2 margin; below the threshold it is `ambiguous`, so ask, never pick silently. `items` grounds a labelled list (E1), writing nothing | `await avery.ground({ term: 'tin', method: 'centroid', k: 5 })` |
 | Centroid moves: confirmed, versioned, isolated (`r6b-centroid-versions`) | Fold a confirmed member and say what confirmed it; candidate or inferred membership is refused, a private exemplar never moves a shared centroid, every move keeps the old state as a version | `await avery.assimilate_exemplar({ subject, category, evidence: { kind: 'owner_confirmed', ref: 'chat:1' } })` |
 | Verification (`verification`) | Check an answer against stored evidence before stating it; "unknown" means say so | `await avery.verify_answer({ claims: [{ subject: 'Contoso', predicate: 'hq', object: 'Example City' }] })` |
@@ -103,6 +105,7 @@ fake data. `c` is a client; `avery` is `c.for_owner({ auth_token: averyToken })`
 | Prototypes (`prototypes`, `match-prototypes`, `check-membership`, `sx1-exemplars`) | Type an unknown thing (ranked, with typicality); membership needs evidence | `await c.match_prototypes({ object: { label: 'Contoso', properties: { website: 'https://contoso.example.test' } } })` |
 | Taxonomy (`taxonomy`, `taxonomy-reader`, `dh1-supersede`) | Browse categories and what one means; check duplicates before seeding (duplicates are superseded, never deleted) | `await c.get_taxonomy_prototype(organizationUuid)` |
 | Objects (`objects`) | A record with a stable identity (a company, a portal) | `await avery.upsert_object({ title: 'Contoso supplier portal', category_name: 'WebSite' })` |
+| Procedures by action (`act5a-achieves-filter`) | Procedures linked to an action or to one under it (linked to `order`, found under `acquire`), lifecycle-filtered as always; `unlinked` says how many the filter could not see | `await avery.search_verified_procedures({ achieves: orderActionUuid, goal: 'order a pizza' })` |
 | Procedures (`procedures`, `kl1-procedure-search`, `rp1-retired-opt-in`) | Recall verified procedures (retired only to audit; follow `replacedBy`); record every run with an independent signal | `await avery.search_verified_procedures({ goal: 'register as a supplier', site: 'portal.example.test' })` |
 | Knowledge packs (`packs`) | Hand a workflow to another store as one versioned, licensed file; installed items arrive untrusted (procedures as candidates, facts as third-party candidates). Needs a server newer than 0.2.59. Private items leave only with the explicit `include_private: true` | `const { pack } = await avery.export_pack({ name: 'contoso-supplier-onboarding', version: '1.0.0', license: 'CC-BY-4.0', procedures: [procedureUuid] })` · `await blake.install_pack(pack, { dry_run: true })` |
 | Social (`social`) | Multi-agent or marketplace flows only | `await c.post_channel_message({ channel_tag: 'suppliers', actor_id: 'agent-1', message: 'Contoso registered' })` |
@@ -110,7 +113,10 @@ fake data. `c` is a client; `avery` is `c.for_owner({ auth_token: averyToken })`
 | Feedback (`feedback`) | File a ticket when KSG answers wrongly (MCP `feedback` tool) | — |
 
 Operator-only capabilities (seeds including `schemaorg-seed`, admin and ops)
-have no client methods; the server's `docs/CAPABILITIES.md` lists them.
+mostly have no client methods; the server's `docs/CAPABILITIES.md` lists them.
+One that does: `act1-action-concepts`, the action vocabulary (one concept per
+verb meaning, with roles), seeded with `seed_action_concepts({ dry_run: true })`
+first, which reports what a run would write and writes nothing.
 
 ## Install
 
