@@ -1218,12 +1218,13 @@
       "id": "admin-ops",
       "title": "Admin and ops",
       "audience": "admin",
-      "since": "0.2.27",
-      "summary": "Access-gate counters, graph stats, usage, search-miss ledger and lookup drain.",
+      "since": "0.2.27; 0.2.66 (KSG-RESCOPE1 rescope)",
+      "summary": "Access-gate counters, graph stats, usage, search-miss ledger and lookup drain; making named public, ownerless records private to one owner (`POST /admin/rescope`, dry run by default).",
       "whenToUse": "Operators with the admin secret; not for agents.",
       "routes": [
         "GET /admin/access-gate",
         "GET /admin/graph-stats",
+        "POST /admin/rescope",
         "GET /admin/usage",
         "POST /concepts/lookup/drain-misses",
         "GET /ops/search-misses",
@@ -1238,6 +1239,7 @@
         ]
       },
       "noClient": {
+        "POST /admin/rescope": "admin (rewrites scope; the admin token and a quoted order)",
         "POST /concepts/lookup/drain-misses": "admin"
       }
     },
