@@ -362,9 +362,9 @@
       "id": "concepts",
       "title": "Concepts and lookup (CE3a / CE3c)",
       "audience": "agent",
-      "since": "0.2.8; 0.2.46 (lookup writes propositions)",
+      "since": "0.2.8; 0.2.46 (lookup writes propositions); 0.2.66 (merge owner check)",
       "summary": "Find, create, resolve, merge and unmerge concepts; look an unknown term up in Wikidata (links written as propositions) and ConceptNet (`commonly_a` edges as weighted, attributed claims).",
-      "whenToUse": "Resolve a name before creating (`resolve_concept`, then `find_or_create_concept`); `lookup_concept` for a public term the graph lacks; merge duplicates with `merge_concepts` (reversible with `unmerge_concept`).",
+      "whenToUse": "Resolve a name before creating (`resolve_concept`, then `find_or_create_concept`); `lookup_concept` for a public term the graph lacks; merge duplicates with `merge_concepts` (reversible with `unmerge_concept`): your own private concepts only; a public concept needs the curator (admin) token, and another owner's answers as a missing one.",
       "routes": [
         "POST /concepts",
         "GET /concepts/:uuid",
@@ -491,7 +491,7 @@
       "id": "knowledge-search",
       "title": "Knowledge search (KL2 vectors, CM1 where), query, grounding",
       "audience": "agent",
-      "since": "0.2.34; 0.2.51 (vector reads); 0.2.61 (CM1: where)",
+      "since": "0.2.34; 0.2.51 (vector reads); 0.2.61 (CM1: where); 0.2.66 (ACT2: role action; ACT3a: utterance)",
       "summary": "Semantic search over knowledge (vector rows by default), typed constraints over instances (`where`), structured query, grounding and slot resolution.",
       "whenToUse": "Use `search_knowledge` for a fuzzy question. For a typed one (\"the current requirement for this portal\", \"dogs with black ears whose name starts with H, not German Shepherds\") pass `where: { type, all, any, not }`: `results` holds only instances whose every constraint is known to hold on stated claims, each with the claim ids, tiers and statuses behind it; instances that are unknown on a constraint come back apart under `unknown` and must never be reported as matches. For joins across several things prefer `bind_pattern`. `ground` to tie a phrase to known concepts.",
       "routes": [
@@ -907,7 +907,7 @@
       "id": "procedures",
       "title": "Procedures (KL1 search, RP1 lifecycle, versions)",
       "audience": "agent",
-      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1); 0.2.64 (owner-private)",
+      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1); 0.2.64 (owner-private); 0.2.66 (ACT5a: achieves filter)",
       "summary": "Stored procedures with runs, versions (candidate → validated → promoted → retired) and lifecycle-safe search. A procedure created with an owner is private to that owner, with its steps, versions and claims; a commons one is public only when marked `visibility: \"public\"`.",
       "whenToUse": "Recall with `search_verified_procedures` (verified only) or `search_procedures` (verified + drafts; `include: \"retired\"|\"all\"` only to audit). Follow a retired hit’s `replacedBy`. Record every run (`record_procedure_run`) with an independent outcome signal.",
       "routes": [
@@ -1166,9 +1166,9 @@
       "id": "seed",
       "title": "Seeds (schema.org, SX1 exemplars, primitives, action concepts)",
       "audience": "admin",
-      "since": "0.2.46 (schema.org); 0.2.50 (SX1); unreleased (ACT1 action concepts)",
+      "since": "0.2.46 (schema.org); 0.2.50 (SX1); 0.2.66 (ACT1 action concepts; seeds take the admin token, a write token for social-layer and procedure-run-primitives)",
       "summary": "Idempotent seeds: schema.org prototypes, Wikidata exemplars and centroids, agent and logic primitives, and the action vocabulary (one concept per verb meaning, with roles).",
-      "whenToUse": "Operators and boot only; agents read the result through taxonomy and prototypes. `seed_action_concepts({ dry_run: true })` reports what a run would write and refuses when more than one active `Action` prototype exists.",
+      "whenToUse": "Operators and boot only: every seed route takes the admin token (`KSG_API_TOKEN_ADMIN`; 401 without credentials, 403 with any other token, `dry_run` included), except two that a write token may call: `seed_procedure_run_primitives`, to read the `ProcedureRun` / `StepRun` prototype uuids, and `seed_social_layer`, which the Builder calls before it saves a profile or a topic subscription (seven fixed public categories; a second run writes nothing; it needs a token: 401 without one, 403 with a read token). Agents read the result through taxonomy and prototypes. `seed_action_concepts({ dry_run: true })` reports what a run would write and refuses when more than one active `Action` prototype exists.",
       "routes": [
         "POST /seed/action-concepts",
         "POST /seed/logic-ir-primitives",
@@ -1218,12 +1218,13 @@
       "id": "admin-ops",
       "title": "Admin and ops",
       "audience": "admin",
-      "since": "0.2.27",
-      "summary": "Access-gate counters, graph stats, usage, search-miss ledger and lookup drain.",
+      "since": "0.2.27; 0.2.66 (KSG-RESCOPE1 rescope)",
+      "summary": "Access-gate counters, graph stats, usage, search-miss ledger and lookup drain; making named public, ownerless records private to one owner (`POST /admin/rescope`, dry run by default).",
       "whenToUse": "Operators with the admin secret; not for agents.",
       "routes": [
         "GET /admin/access-gate",
         "GET /admin/graph-stats",
+        "POST /admin/rescope",
         "GET /admin/usage",
         "POST /concepts/lookup/drain-misses",
         "GET /ops/search-misses",
@@ -1238,6 +1239,7 @@
         ]
       },
       "noClient": {
+        "POST /admin/rescope": "admin (rewrites scope; the admin token and a quoted order)",
         "POST /concepts/lookup/drain-misses": "admin"
       }
     },
@@ -1346,7 +1348,7 @@
       "since": "0.2.46",
       "capability": "seed",
       "client": [],
-      "whenToUse": "Operators seed; agents use the categories through taxonomy and prototypes."
+      "whenToUse": "Operators seed (admin token); agents use the categories through taxonomy and prototypes."
     },
     {
       "id": "taxonomy-reader",
@@ -1515,7 +1517,7 @@
     {
       "id": "act5a-achieves-filter",
       "title": "Find procedures by the action they accomplish (ACT5a)",
-      "since": "unreleased (ACT5a)",
+      "since": "0.2.66 (ACT5a)",
       "capability": "procedures",
       "client": [
         "search_verified_procedures",
@@ -1526,7 +1528,7 @@
     {
       "id": "act3a-read-utterance",
       "title": "Read an utterance into frames (ACT3a)",
-      "since": "unreleased (ACT3a)",
+      "since": "0.2.66 (ACT3a)",
       "capability": "knowledge-search",
       "client": [
         "ground"
@@ -1536,7 +1538,7 @@
     {
       "id": "act2-ground-action",
       "title": "Ground a verb to its action concept (ACT2)",
-      "since": "unreleased (ACT2)",
+      "since": "0.2.66 (ACT2)",
       "capability": "knowledge-search",
       "client": [
         "ground"
@@ -1546,7 +1548,7 @@
     {
       "id": "act1-action-concepts",
       "title": "Action concepts: one concept per verb meaning, with roles (ACT1)",
-      "since": "unreleased (ACT1)",
+      "since": "0.2.66 (ACT1)",
       "capability": "seed",
       "client": [
         "seed_action_concepts"

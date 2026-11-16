@@ -187,7 +187,7 @@ supported).
 | `supersede_node` | `(uuid, { reason?, order?, superseded_by? })` — retire one of the caller's own private nodes by versioning (KSG NODE-SUPERSEDE1) |
 | `resolve_concept` | `{ label, ...options }` → the preferred concept (and the caller's personal one) without creating anything. Options go to the server camelCased (`prototype_name` → `prototypeName`) |
 | `find_or_create_concept` | `{ label, ...options }` the identity path: the existing concept for this label, or a new one |
-| `merge_concepts` | `{ survivor, members, score?, reason? }` merge duplicates into a survivor; reversible |
+| `merge_concepts` | `{ survivor, members, score?, reason? }` merge duplicates into a survivor; reversible. KSG 0.2.66: your own private concepts only; a public or ownerless concept needs the curator (admin) token (403 `MG005` otherwise), and another owner's private concept answers as a missing one |
 | `unmerge_concept` | `(uuid, { reason? })` take one member back out of a merge |
 | `get_concept_variants` | `(uuid)` → the concepts merged into this one |
 
@@ -373,7 +373,7 @@ every decision and casting is an explicit act. Explained in
 | `cast_object` / `castObject` | `{ objectRevisionUuid, prototypeRevisionUuid, requireMatch = true, title?, objectLineageKey? }` → a **new** object under that prototype with a `cast_from` edge; 409 when `requireMatch` and the decision is not `match` |
 | `get_object(uuid, { match_prototypes: true, prototype_revision_uuids? })` | lazy list on read; never casts |
 | `logic_ir_prototypes` / `logicIrPrototypes` | `()` → `{ Concept: uuid, Proposition: uuid, Claim: uuid, … }` for the seeded Logic IR categories, without seeding |
-| `seed_logic_ir_primitives` | `()` seed them (a write; needed once on a fresh local server) |
+| `seed_logic_ir_primitives` | `()` seed them (a write; needed once on a fresh local server; admin token on a host with token auth, KSG 0.2.66) |
 
 ---
 
@@ -548,8 +548,8 @@ through `upsert_object` with `sensitivity` / `private` set; see
 
 | Method | Purpose |
 |---|---|
-| `seed_osl_agent` / `seed_openclaw_agent` / `seed_social_layer` / `seed_procedure_run_primitives` | Seed ontology prototypes on a fresh server |
-| `seed_action_concepts` | `({ dry_run? })` seed the action vocabulary (ACT1): one concept per verb meaning (`order (action)`, `senseKey: "action:<id>"`, `verbForms`, `is_a` parents), role predicates and `takes_role` / `achieves` / `acts_on` / `performs`. Operators only. `dry_run: true` reports what a run would write and writes nothing; more than one active `Action` prototype is a 409 |
+| `seed_osl_agent` / `seed_openclaw_agent` / `seed_social_layer` / `seed_procedure_run_primitives` | Seed ontology prototypes on a fresh server. On a host with token auth (KSG 0.2.66) a seed takes the admin token: pass it as the client's token; any other token gets 403, no token 401. Two exceptions take a write token: `seed_social_layer` (seven fixed public categories; a second run writes nothing) and `seed_procedure_run_primitives` |
+| `seed_action_concepts` | `({ dry_run? })` seed the action vocabulary (ACT1): one concept per verb meaning (`order (action)`, `senseKey: "action:<id>"`, `verbForms`, `is_a` parents), role predicates and `takes_role` / `achieves` / `acts_on` / `performs`. Operators only (admin token, `dry_run` included, on a host with token auth). `dry_run: true` reports what a run would write and writes nothing; more than one active `Action` prototype is a 409 |
 | `query_graph` | `{ search: { text, topK }, traverse: { edgeTypes, depth }, match_prototypes? }` seed + traverse in one call |
 | `create_api_token` / `list_api_tokens` / `revoke_api_token` | Mint (value returned once), list records, revoke by `jti` |
 | `create_knode` | Legacy knode create (Python; deprecated) |
