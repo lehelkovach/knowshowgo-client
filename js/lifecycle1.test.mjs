@@ -170,3 +170,9 @@ test('get_procedure_lifecycle: a missing procedure still throws 404; no uuid thr
   assert.equal(calls.length, 2);
   assert.throws(() => client.get_procedure_lifecycle(''), /procedure_uuid is required/);
 }));
+
+test('the package entry exports TRUSTED_PROCEDURE_STATES', timed(async () => {
+  const pkg = await import('./index.js');
+  assert.deepEqual([...pkg.TRUSTED_PROCEDURE_STATES], ['validated', 'promoted']);
+  assert.ok(Object.isFrozen(pkg.TRUSTED_PROCEDURE_STATES));
+}));

@@ -7,5 +7,6 @@ export {
   matchesRoute,
   objectToMatchText,
   objectProperties,
-  PROPERTY_OVERLAP_WEIGHT
+  PROPERTY_OVERLAP_WEIGHT,
+  TRUSTED_PROCEDURE_STATES
 } from './client.js';

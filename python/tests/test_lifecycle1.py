@@ -172,6 +172,10 @@ class TestLifecycle1(unittest.TestCase):
         with self.assertRaises(ValueError):
             client.get_procedure_lifecycle("")
 
+    def test_package_exports_trusted_states(self):
+        import knowshowgo_client
+        self.assertEqual(tuple(knowshowgo_client.TRUSTED_PROCEDURE_STATES), ("validated", "promoted"))
+
 
 if __name__ == "__main__":
     unittest.main()
