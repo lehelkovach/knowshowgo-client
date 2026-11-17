@@ -11,10 +11,11 @@ from .client import *  # noqa: F401,F403
 from .client import (  # explicit re-exports for tooling
     EntityProxy,
     KnowShowGoClient,
+    KnowShowGoRateLimited,
     LOCAL_API_BASE_URL,
     PUBLIC_API_BASE_URL,
     matches_route,
     resolve_base_url,
 )
 
-__version__ = "0.2.38"
+__version__ = "0.2.39"

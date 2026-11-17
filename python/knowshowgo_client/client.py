@@ -7,6 +7,8 @@ Provides a Python client for the KnowShowGo REST API.
 import copy
 import os
 import re
+import time
+from email.utils import parsedate_to_datetime
 import requests
 from typing import Dict, Any, List, Optional, Union
 import json
@@ -511,6 +513,59 @@ def _security_class_field(security_class: Optional[str], scope: Optional[str]) -
     return {} if value is None else {"securityClass": value}
 
 
+class KnowShowGoRateLimited(requests.HTTPError):
+    """KSG-RATE1: the server refused the call with 429.
+
+    ``retry_after`` is the wait in seconds from ``Retry-After`` (None when the
+    server sent none), ``rate_limit`` the RateLimit-* values, ``body`` the JSON
+    body. A subclass of ``requests.HTTPError`` so existing handlers still catch it.
+    """
+
+    def __init__(self, message, response=None, retry_after=None, rate_limit=None, body=None):
+        super().__init__(message, response=response)
+        self.status_code = 429
+        self.retry_after = retry_after
+        self.rate_limit = rate_limit
+        self.body = body
+
+
+def _retry_after_seconds(value, now=None) -> Optional[float]:
+    """Retry-After as seconds (delta seconds or an HTTP date); None when absent or unreadable."""
+    if value is None or str(value).strip() == "":
+        return None
+    v = str(value).strip()
+    try:
+        return max(0.0, float(v))
+    except ValueError:
+        pass
+    try:
+        at = parsedate_to_datetime(v).timestamp()
+    except (TypeError, ValueError, IndexError):
+        return None
+    return max(0.0, at - (time.time() if now is None else now))
+
+
+def _rate_limit_headers(headers) -> Optional[Dict[str, Any]]:
+    """The IETF RateLimit-* fields of a response, or None when it sent none."""
+    if headers is None:
+        return None
+
+    def get(name):
+        v = headers.get(name)
+        return None if v is None or v == "" else str(v)
+
+    def num(v):
+        try:
+            return int(v) if v is not None else None
+        except ValueError:
+            return None
+
+    limit, remaining, reset, policy = (get("RateLimit-Limit"), get("RateLimit-Remaining"), get("RateLimit-Reset"), get("RateLimit-Policy"))
+    if limit is None and remaining is None and reset is None and policy is None:
+        return None
+    return {"limit": num(limit), "remaining": num(remaining), "reset_seconds": num(reset), "policy": policy}
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -528,9 +583,18 @@ class KnowShowGoClient:
         token_provider=None,
         admin_secret: Optional[str] = None,
         auto_connect: bool = False,
+        rate_limit_retries: int = 1,
+        max_retry_after: float = 5.0,
     ):
         self.base_url = resolve_base_url(base_url).rstrip('/')
         self.session = requests.Session()
+        # KSG-RATE1: a short Retry-After is slept and the call sent again, at most
+        # ``rate_limit_retries`` times (a refused request was never processed, so a
+        # retried write is not a duplicate); a longer one raises KnowShowGoRateLimited.
+        self.rate_limit_retries = max(0, int(rate_limit_retries))
+        self.max_retry_after = max(0.0, float(max_retry_after))
+        self.sleep = time.sleep
+        self.last_rate_limit: Optional[Dict[str, Any]] = None
         # New features live under the /api2.0 namespace by default; set this to
         # "/api" to fall back to the retained backward-compatible alias.
         self.prototype_api_prefix = prototype_api_prefix
@@ -635,7 +699,25 @@ class KnowShowGoClient:
                 body["agentSessionId"] = agent_session_id
             kwargs["json"] = body
 
-        response = self.session.request(method, url, **kwargs)
+        attempt = 0
+        while True:
+            response = self.session.request(method, url, **kwargs)
+            limits = _rate_limit_headers(getattr(response, "headers", None))
+            if limits:
+                self.last_rate_limit = limits
+            if getattr(response, "status_code", None) != 429:
+                break
+            wait = _retry_after_seconds(response.headers.get("Retry-After"))
+            if wait is not None and attempt < self.rate_limit_retries and wait <= self.max_retry_after:
+                attempt += 1
+                self.sleep(wait)
+                continue
+            try:
+                body = response.json()
+            except ValueError:
+                body = None
+            message = body.get("error") if isinstance(body, dict) and body.get("error") else f"429 rate limited: {method} {endpoint}"
+            raise KnowShowGoRateLimited(message, response=response, retry_after=wait, rate_limit=limits, body=body)
         response.raise_for_status()
         return response.json()
 
