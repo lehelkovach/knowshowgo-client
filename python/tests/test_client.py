@@ -755,16 +755,18 @@ class TestKnowShowGoClient(unittest.TestCase):
     def test_search_procedures_unwraps_results(self):
         client = KnowShowGoClient("https://example.test")
         client.session.request = MagicMock(
-            return_value=FakeResponse({"results": [{"uuid": "proc-1"}]})
+            return_value=FakeResponse({"results": [{"uuid": "proc-1", "status": "verified", "state": "validated"}]})
         )
 
         results = client.search_procedures("apply to job", top_k=3)
 
         self.assertEqual(results[0]["uuid"], "proc-1")
+        self.assertIs(results[0]["trusted"], True)
+        # LIFECYCLE1 (was KSG-L1 "verified"): only trusted procedures unless the caller opts in.
         client.session.request.assert_called_once_with(
             "POST",
             "https://example.test/api/procedures/search",
-            json={"query": "apply to job", "topK": 3, "include": "verified"},
+            json={"query": "apply to job", "topK": 3, "include": "trusted"},
         )
 
     def test_search_procedures_include_opt_in(self):

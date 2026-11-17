@@ -730,7 +730,7 @@ test('search_procedures unwraps results and maps top_k', async () => {
   const calls = [];
   const fetchMock = async (url, options) => {
     calls.push({ url, options });
-    return makeJsonResponse({ results: [{ uuid: 'proc-1' }] });
+    return makeJsonResponse({ results: [{ uuid: 'proc-1', status: 'verified', state: 'validated' }] });
   };
   const KnowShowGoClient = await loadClientClass();
   const client = new KnowShowGoClient({ baseUrl: 'https://example.test', fetchImpl: fetchMock });
@@ -741,8 +741,9 @@ test('search_procedures unwraps results and maps top_k', async () => {
   const body = JSON.parse(calls[0].options.body);
   assert.equal(body.query, 'apply to job');
   assert.equal(body.topK, 3);
-  // KSG-L1: only verified (replayable) procedures unless the caller opts in.
-  assert.equal(body.include, 'verified');
+  // LIFECYCLE1 (was KSG-L1 'verified'): only trusted procedures unless the caller opts in.
+  assert.equal(body.include, 'trusted');
+  assert.equal(results[0].trusted, true);
 });
 
 test('search_procedures: include opts in to drafts, retired or all (KSG-L1)', async () => {

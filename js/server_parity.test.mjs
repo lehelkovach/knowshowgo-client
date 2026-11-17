@@ -340,7 +340,8 @@ test('search_verified_procedures sends goal, site, include and passes currentVer
   const reply = { ok: true, query: { goal: 'register supplier', site: 'portal.example.test', include: ['verified', 'draft'] }, results: [hit], excluded: { draft: 0, retired: 0, otherSite: 0 }, scanned: 4 };
   const { client, calls } = await recordingClient(() => reply);
   const out = await client.search_verified_procedures({ goal: 'register supplier', site: 'portal.example.test', include: ['drafts'], limit: 3 });
-  assert.deepEqual(out, reply);
+  // LIFECYCLE1: every hit comes back labelled `trusted` (validated or promoted); otherwise untouched.
+  assert.deepEqual(out, { ...reply, results: [{ ...hit, trusted: true }] });
   const url = new URL(calls[0].url);
   assert.equal(calls[0].method, 'GET');
   assert.equal(url.pathname, '/api2.0/procedures/search');
@@ -356,15 +357,17 @@ test('search_verified_procedures sends goal, site, include and passes currentVer
 // searchProcedures, _achievesLinks): procedures linked to the action or one under it; with a goal
 // it filters the ranked pool, without one it enumerates from the links.
 test('search_verified_procedures sends achieves only when given, alone or with a goal', async () => {
-  const hit = { id: U(30), status: 'verified', score: null, achieves: [{ uuid: U(41), label: 'order (action)' }] };
+  const hit = { id: U(30), status: 'verified', state: 'validated', score: null, achieves: [{ uuid: U(41), label: 'order (action)' }] };
   const reply = { ok: true, query: { goal: null, site: null, include: ['verified'], achieves: { uuid: U(40), label: 'acquire (action)', actions: 5, complete: true } }, results: [hit], excluded: { draft: 0, retired: 1, otherSite: 0, otherAction: 1 }, unlinked: null, scanned: 3 };
   const { client, calls } = await recordingClient(() => reply);
   const out = await client.search_verified_procedures({ achieves: U(40) });
-  assert.deepEqual(out, reply);
+  assert.deepEqual(out, { ...reply, results: [{ ...hit, trusted: true }] });
   let url = new URL(calls[0].url);
   assert.equal(url.pathname, '/api2.0/procedures/search');
   assert.equal(url.searchParams.get('achieves'), U(40));
   assert.equal(url.searchParams.has('goal'), false);
+  // LIFECYCLE1: the default include is `trusted`.
+  assert.equal(url.searchParams.get('include'), 'trusted');
   await client.search_verified_procedures({ goal: 'order a pizza', achieves: U(40), include: 'all', limit: 10 });
   url = new URL(calls[1].url);
   assert.equal(url.searchParams.get('goal'), 'order a pizza');
