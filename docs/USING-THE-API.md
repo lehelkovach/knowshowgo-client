@@ -62,6 +62,12 @@ const client = KnowShowGoClient.publicApi({ defaultOwnerUserId: 'alice', authTok
 client = KnowShowGoClient.public_api(default_owner_user_id="alice", auth_token=os.environ["KSG_API_TOKEN"])
 ```
 
+Calls are free and rate limited (per minute: 60 reads / 10 writes per IP
+without a token, 600 / 120 per token owner). Past the limit the API answers
+429 with `Retry-After`; the client waits out a short one and throws a long one
+as `KSG_RATE_LIMITED` / `KnowShowGoRateLimited` with the wait. Details:
+[API reference, Rate limits](API.md#rate-limits-ksg-rate1).
+
 ## 3. CRUD, as it works today
 
 The rules that hold for every row of the table:

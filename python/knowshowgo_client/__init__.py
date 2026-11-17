@@ -11,6 +11,7 @@ from .client import *  # noqa: F401,F403
 from .client import (  # explicit re-exports for tooling
     EntityProxy,
     KnowShowGoClient,
+    KnowShowGoRateLimited,
     LOCAL_API_BASE_URL,
     PUBLIC_API_BASE_URL,
     matches_route,
