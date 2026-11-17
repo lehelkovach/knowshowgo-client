@@ -589,6 +589,31 @@ function logicIrNameFromLineage(lineage) {
   return slug.charAt(0).toUpperCase() + slug.slice(1);
 }
 
+/** KSG-RATE1: Retry-After (delta seconds or an HTTP date) in ms; null when absent or unreadable. */
+function retryAfterMs(value, now = Date.now()) {
+  if (value == null || String(value).trim() === '') return null;
+  const v = String(value).trim();
+  if (/^\d+(\.\d+)?$/.test(v)) return Math.round(Number(v) * 1000);
+  const at = Date.parse(v);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, at - now);
+}
+
+/** KSG-RATE1: the IETF RateLimit-* fields of a response, or null when it sent none. */
+function readRateLimitHeaders(headers) {
+  const get = (n) => {
+    const v = headers?.get?.(n);
+    return v == null || v === '' ? null : String(v);
+  };
+  const num = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
+  const limit = get('ratelimit-limit');
+  const remaining = get('ratelimit-remaining');
+  const reset = get('ratelimit-reset');
+  const policy = get('ratelimit-policy');
+  if (limit == null && remaining == null && reset == null && policy == null) return null;
+  return { limit: num(limit), remaining: num(remaining), resetSeconds: num(reset), policy };
+}
+
 export class KnowShowGoClient {
   /**
    * @param {Object} options
@@ -608,7 +633,10 @@ export class KnowShowGoClient {
     apiToken = null,
     tokenProvider = null,
     adminSecret = null,
-    timeoutMs = Number(globalThis?.process?.env?.KSG_TIMEOUT_MS ?? 30000)
+    timeoutMs = Number(globalThis?.process?.env?.KSG_TIMEOUT_MS ?? 30000),
+    rateLimitRetries = 1,
+    maxRetryAfterMs = 5000,
+    sleepImpl = null
   } = {}) {
     this.baseUrl = resolveBaseUrl(baseUrl).replace(/\/+$/, '');
     // Bound every request. 30s is above a healthy p99 and well under the agent's
@@ -636,6 +664,16 @@ export class KnowShowGoClient {
     // X-KSG-Admin. Without it a caller can only mint for the owner they already
     // hold a token for, which leaves no way to issue the first one.
     this.adminSecret = adminSecret || null;
+    // KSG-RATE1: a 429 says how long to wait (Retry-After). A short wait is
+    // slept and the request sent again, at most `rateLimitRetries` times; a
+    // refused request was never processed, so a retried write is not a
+    // duplicate. A longer wait is thrown (code KSG_RATE_LIMITED) for the
+    // caller to schedule. `lastRateLimit` keeps the last RateLimit-* seen.
+    this.rateLimitRetries = Math.max(0, Number.isFinite(Number(rateLimitRetries)) ? Math.floor(Number(rateLimitRetries)) : 1);
+    this.maxRetryAfterMs = Math.max(0, Number(maxRetryAfterMs) || 0);
+    this._sleep = typeof sleepImpl === 'function' ? sleepImpl : ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    /** @type {null|{limit:number|null, remaining:number|null, resetSeconds:number|null, policy:string|null}} */
+    this.lastRateLimit = null;
     this._contract = null;
     this._enforceContract = false;
     this._connectPromise = auto_connect ? this.connect() : null;
@@ -808,14 +846,39 @@ export class KnowShowGoClient {
       if (agentSessionId != null && bodyJson.agentSessionId == null) bodyJson.agentSessionId = agentSessionId;
     }
 
-    const res = await this._fetchWithTimeout(url.toString(), {
+    const init = {
       method,
       headers,
       body: bodyJson ? JSON.stringify(bodyJson) : undefined
-    }, `${method} ${endpoint}`);
-
-    const contentType = res.headers.get('content-type') || '';
-    const payload = contentType.includes('application/json') ? await res.json() : await res.text();
+    };
+    let res;
+    let payload;
+    for (let attempt = 0; ; attempt += 1) {
+      res = await this._fetchWithTimeout(url.toString(), init, `${method} ${endpoint}`);
+      const contentType = res.headers.get('content-type') || '';
+      payload = contentType.includes('application/json') ? await res.json() : await res.text();
+      const limits = readRateLimitHeaders(res.headers);
+      if (limits) this.lastRateLimit = limits;
+      if (res.status !== 429) break;
+      const waitMs = retryAfterMs(res.headers.get('retry-after'));
+      if (waitMs != null && attempt < this.rateLimitRetries && waitMs <= this.maxRetryAfterMs) {
+        await this._sleep(waitMs);
+        continue;
+      }
+      // Same message as any other error (callers may match on it); the wait is in the fields.
+      const message =
+        typeof payload === 'object' && payload && payload.error
+          ? payload.error
+          : `Request failed: ${method} ${endpoint} (429)`;
+      const err = new Error(message);
+      err.status = 429;
+      err.code = 'KSG_RATE_LIMITED';
+      err.retryAfterMs = waitMs;
+      err.retryAfterSeconds = waitMs == null ? null : Math.ceil(waitMs / 1000);
+      err.rateLimit = limits;
+      err.body = payload;
+      throw err;
+    }
 
     if (!res.ok) {
       const message =

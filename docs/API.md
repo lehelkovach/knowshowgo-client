@@ -57,6 +57,9 @@ the HTTP status and server message.
 | `tokenProvider` / `token_provider` | `null` | Function returning the current token, for rotation |
 | `adminSecret` / — | `null` | `X-KSG-Admin`, only for minting a token for another owner |
 | `timeoutMs` / — | `30000` (env `KSG_TIMEOUT_MS`) | Per-request timeout (JS). Python uses the `requests` default |
+| `rateLimitRetries` / `rate_limit_retries` | `1` | On a 429 whose `Retry-After` is at most `maxRetryAfterMs`, sleep and send the call again, this many times. `0` never retries. See [Rate limits](#rate-limits-ksg-rate1) |
+| `maxRetryAfterMs` / `max_retry_after` (seconds) | `5000` / `5.0` | The longest `Retry-After` the client waits out itself; a longer one is thrown |
+| `sleepImpl` / `client.sleep` | `setTimeout` / `time.sleep` | Inject the wait (tests) |
 
 ### `KnowShowGoClient.publicApi(options)` / `public_api(**kwargs)`
 
@@ -86,6 +89,59 @@ and `/auth/tokens` needs a bearer token; an anonymous call gets **401**
 |---|---|
 | `set_auth_token` | `(token)` swap the token on this client (after minting or rotating one) |
 | `for_owner` | `({ auth_token?, owner_user_id?, agent_session_id? })` → a view of this client that sends that owner's token and id on **every** method; the parent client is unchanged. One process, many owners: `client.for_owner({ auth_token: tokenFor('avery') }).search_procedures('order lunch')`. Without `auth_token` the view keeps the parent's token |
+
+### Rate limits (KSG-RATE1)
+
+The KnowShowGo API is free and rate limited. Per minute (a fixed window), on the hosted API:
+
+| Caller | Keyed by | Reads | Writes |
+|---|---|---|---|
+| No token | IP address | 60 | 10 |
+| Bearer token | token **owner** (all of an owner's tokens share one budget) | 600 | 120 |
+| MCP `tools/call` | token | 120 tool calls, on top of the above | |
+
+Reads and writes are separate budgets; search-shaped POSTs (`/search`,
+`/query`, `/match`, …) count as reads. `/health` and `/api/release` are never
+limited. The numbers in force are in the release manifest:
+`get_release_manifest().api.rateLimits` (they are server config, so a
+self-hosted server may differ). Need more? Ask for a higher limit.
+
+Every limited response carries `RateLimit-Limit`, `RateLimit-Remaining`,
+`RateLimit-Reset` (seconds until the window resets) and `RateLimit-Policy`
+(`600;w=60`), plus the older `X-RateLimit-*`. Past the limit the answer is
+**429** with `Retry-After` (seconds) and `retryAfterSeconds` in the body; MCP
+answers JSON-RPC error `-32029` with `data.retryAfterSeconds`.
+
+What the client does with a 429:
+
+- A wait of at most `maxRetryAfterMs` (5 s) is slept and the call is sent
+  again, once (`rateLimitRetries`). A refused request was not processed, so a
+  retried write is not a duplicate.
+- A longer wait, or a second 429, is thrown: JS `err.status === 429`,
+  `err.code === 'KSG_RATE_LIMITED'`, `err.retryAfterMs`,
+  `err.retryAfterSeconds`, `err.rateLimit`, `err.body`; Python
+  `KnowShowGoRateLimited` (a `requests.HTTPError`) with `retry_after`
+  (seconds), `rate_limit`, `body`. Schedule the call after the wait; do not
+  loop on it.
+- `client.lastRateLimit` / `client.last_rate_limit` keeps the last
+  `RateLimit-*` values seen (`limit`, `remaining`, `resetSeconds` /
+  `reset_seconds`, `policy`), for pacing a batch.
+
+```js
+try {
+  await client.create_assertion({ subject, predicate, object });
+} catch (err) {
+  if (err.code === 'KSG_RATE_LIMITED') scheduleRetry(err.retryAfterMs ?? 60_000);
+  else throw err;
+}
+```
+
+```python
+try:
+    client.create_assertion(subject, predicate, obj)
+except KnowShowGoRateLimited as err:
+    schedule_retry(err.retry_after or 60)
+```
 
 ---
 
