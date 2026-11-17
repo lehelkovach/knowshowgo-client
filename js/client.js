@@ -71,6 +71,40 @@ function toSnakeCase(name) {
  * Resolve a property key from a JS-friendly name against a properties map.
  * Accepts exact, snake_case, and case-insensitive matches.
  */
+// ===== LIFECYCLE1: trust on procedure recall =====
+//
+// KSG's one procedure lifecycle is candidate → validated → promoted, and
+// retired from any of them, computed from run marks (osl-oc-agent
+// procedure-ir.md Part 2). Only validated and promoted procedures may be
+// recalled as trusted; a `verified` status is not enough (IR-S3: a procedure
+// verified only by the page is a candidate).
+
+/** The procedure states a recall may hand over as trusted. */
+export const TRUSTED_PROCEDURE_STATES = Object.freeze(['validated', 'promoted']);
+
+const includeTokens = (include) => (Array.isArray(include) ? include : String(include ?? '').split(','))
+  .map((v) => String(v).trim().toLowerCase()).filter(Boolean);
+
+/** A hit labelled `trusted`: the server's label, else computed from `state`. */
+function labelTrusted(hit) {
+  if (!hit || typeof hit !== 'object') return hit;
+  const trusted = typeof hit.trusted === 'boolean' ? hit.trusted : TRUSTED_PROCEDURE_STATES.includes(hit.state);
+  return { ...hit, trusted: trusted && TRUSTED_PROCEDURE_STATES.includes(hit.state) };
+}
+
+/**
+ * Every hit labelled; with `include` exactly `trusted`, untrusted hits are
+ * dropped too, so a server older than LIFECYCLE1 (which reads `trusted` as
+ * `verified`) never hands a candidate over as trusted. Returns `{ results, dropped }`.
+ */
+function trustFilter(results, include) {
+  const labelled = (Array.isArray(results) ? results : []).map(labelTrusted);
+  const tokens = includeTokens(include);
+  if (!(tokens.length === 1 && tokens[0] === 'trusted')) return { results: labelled, dropped: 0 };
+  const kept = labelled.filter((h) => h?.trusted === true);
+  return { results: kept, dropped: labelled.length - kept.length };
+}
+
 export function resolvePropertyKey(name, properties = {}) {
   if (!name || !properties) return null;
   if (Object.prototype.hasOwnProperty.call(properties, name)) return name;
@@ -1874,12 +1908,54 @@ export class KnowShowGoClient {
    * goal): a procedure with no link is not absent, so search without
    * `achieves` before concluding there is none. Sent only when given.
    */
-  search_verified_procedures({ goal, site, include, limit, achieves } = {}) {
+  search_verified_procedures({ goal, site, include = 'trusted', limit, achieves } = {}) {
     if (!goal && !site && !achieves) throw new Error('goal or site is required (or achieves)');
-    const inc = Array.isArray(include) ? include.join(',') : include;
+    const inc = Array.isArray(include) ? include.join(',') : (include || 'trusted');
     return this._request('GET', `${this.prototypeApiPrefix}/procedures/search`, {
       params: { goal, site, include: inc, limit, ...(achieves ? { achieves } : {}) }
+    }).then((r) => {
+      if (!r || !Array.isArray(r.results)) return r;
+      const { results, dropped } = trustFilter(r.results, inc);
+      const excluded = dropped ? { ...(r.excluded || {}), candidate: (Number(r.excluded?.candidate) || 0) + dropped } : r.excluded;
+      return { ...r, results, ...(excluded !== undefined ? { excluded } : {}) };
     });
+  }
+
+  /**
+   * LIFECYCLE1: one procedure's lifecycle on KSG's one set. Reads
+   * `GET /procedures/:uuid?source=dagjson` (no graph compile; a procedure
+   * stored without a dagJson is read in full). Resolves to `{ procedureId,
+   * status, state, trusted, legacy, legacyReason, promotion, validation,
+   * currentVersion, runCount, lifecycle }`: `state` is candidate | validated |
+   * promoted | retired, computed by KSG from the run marks; `trusted` is true
+   * only for validated or promoted. A missing procedure (or another owner's
+   * private one) throws 404.
+   */
+  get_procedure_lifecycle(procedure_uuid) {
+    if (!procedure_uuid) throw new Error('procedure_uuid is required');
+    const path = `${this.prototypeApiPrefix}/procedures/${encodeURIComponent(procedure_uuid)}`;
+    return this._request('GET', path, { params: { source: 'dagjson' } })
+      .catch((e) => {
+        if (e?.status === 404) return this._request('GET', path);
+        throw e;
+      })
+      .then((r) => {
+        const lc = r?.lifecycle || {};
+        const state = r?.state ?? lc.state ?? null;
+        return {
+          procedureId: r?.id ?? procedure_uuid,
+          status: r?.status ?? lc.status ?? null,
+          state,
+          trusted: TRUSTED_PROCEDURE_STATES.includes(state),
+          legacy: Boolean(lc.legacy ?? r?.legacy),
+          legacyReason: lc.legacyReason ?? r?.legacyReason ?? null,
+          promotion: lc.promotion ?? null,
+          validation: lc.validation ?? null,
+          currentVersion: lc.currentVersion ?? r?.currentVersion ?? null,
+          runCount: Array.isArray(r?.runs) ? r.runs.length : 0,
+          lifecycle: r?.lifecycle ?? null
+        };
+      });
   }
 
   // ===== Procedure versions (capability model) =====
@@ -2971,14 +3047,14 @@ export class KnowShowGoClient {
     });
   }
 
-  search_procedures(query, { top_k = 5, include = 'verified' } = {}) {
-    // KSG-L1: only verified (replayable) procedures unless the caller opts in
-    // with include: 'drafts' | 'retired' | 'all' (or a list). Each hit carries
-    // its lifecycle `status`.
-    const inc = Array.isArray(include) ? include.join(',') : (include || 'verified');
+  search_procedures(query, { top_k = 5, include = 'trusted' } = {}) {
+    // LIFECYCLE1: only trusted (validated or promoted) procedures unless the
+    // caller opts in with include: 'verified' | 'drafts' | 'retired' | 'all'
+    // (or a list). Each hit carries `status`, `state` and `trusted`.
+    const inc = Array.isArray(include) ? include.join(',') : (include || 'trusted');
     return this._request('POST', '/api/procedures/search', {
       json: { query, topK: top_k, include: inc }
-    }).then(r => r.results);
+    }).then((r) => trustFilter(r.results, inc).results);
   }
 
   import_procedure_json({ procedure, form_element_category_prototype_uuid = null, provenance = null, visibility } = {}) {
