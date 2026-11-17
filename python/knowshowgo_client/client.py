@@ -566,6 +566,40 @@ def _rate_limit_headers(headers) -> Optional[Dict[str, Any]]:
     return {"limit": num(limit), "remaining": num(remaining), "reset_seconds": num(reset), "policy": policy}
 
 
+# ===== LIFECYCLE1: trust on procedure recall =====
+#
+# KSG's one procedure lifecycle is candidate -> validated -> promoted, and
+# retired from any of them, computed from run marks (osl-oc-agent
+# procedure-ir.md Part 2). Only validated and promoted procedures may be
+# recalled as trusted; a ``verified`` status is not enough (IR-S3).
+
+TRUSTED_PROCEDURE_STATES = ("validated", "promoted")
+
+
+def _include_tokens(include: Any) -> List[str]:
+    raw = include if isinstance(include, (list, tuple)) else str(include or "").split(",")
+    return [str(v).strip().lower() for v in raw if str(v).strip()]
+
+
+def _label_trusted(hit: Any) -> Any:
+    if not isinstance(hit, dict):
+        return hit
+    in_state = hit.get("state") in TRUSTED_PROCEDURE_STATES
+    trusted = hit["trusted"] if isinstance(hit.get("trusted"), bool) else in_state
+    return {**hit, "trusted": bool(trusted and in_state)}
+
+
+def _trust_filter(results: Any, include: Any) -> tuple:
+    """Every hit labelled; with ``include`` exactly ``trusted``, untrusted hits
+    are dropped too (a server older than LIFECYCLE1 reads ``trusted`` as
+    ``verified``). Returns ``(results, dropped)``."""
+    labelled = [_label_trusted(h) for h in (results if isinstance(results, list) else [])]
+    if _include_tokens(include) != ["trusted"]:
+        return labelled, 0
+    kept = [h for h in labelled if isinstance(h, dict) and h.get("trusted") is True]
+    return kept, len(labelled) - len(kept)
+
+
 class KnowShowGoClient:
     """Python client for KnowShowGo REST API"""
 
@@ -1782,15 +1816,16 @@ class KnowShowGoClient:
         self,
         goal: Optional[str] = None,
         site: Optional[str] = None,
-        include: Optional[Union[str, List[str]]] = None,
+        include: Optional[Union[str, List[str]]] = "trusted",
         limit: Optional[int] = None,
         achieves: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Verified procedural recall: semantic on ``goal``, exact on ``site``.
 
-        Verified procedures only unless ``include`` names ``"drafts"``,
-        ``"retired"`` or ``"all"`` (or a list). Each result carries ``status``,
-        ``state`` and, when the procedure has versions, ``currentVersion``.
+        LIFECYCLE1: trusted (validated or promoted) procedures only unless
+        ``include`` names ``"verified"``, ``"drafts"``, ``"retired"`` or
+        ``"all"`` (or a list). Each result carries ``status``, ``state``,
+        ``trusted`` and, when the procedure has versions, ``currentVersion``.
         Returns ``{ ok, query, results, excluded, scanned }``. Distinct from
         ``search_procedures`` (POST, by meaning only).
 
@@ -1809,9 +1844,55 @@ class KnowShowGoClient:
         """
         if not goal and not site and not achieves:
             raise ValueError("goal or site is required (or achieves)")
-        inc = ",".join(include) if isinstance(include, (list, tuple)) else include
+        inc = ",".join(include) if isinstance(include, (list, tuple)) else (include or "trusted")
         params = _without_nulls({"goal": goal, "site": site, "include": inc, "limit": limit, "achieves": achieves or None})
-        return self._request("GET", f"{self.prototype_api_prefix}/procedures/search", params=params)
+        out = self._request("GET", f"{self.prototype_api_prefix}/procedures/search", params=params)
+        if not isinstance(out, dict) or not isinstance(out.get("results"), list):
+            return out
+        results, dropped = _trust_filter(out["results"], inc)
+        out = {**out, "results": results}
+        if dropped:
+            excluded = dict(out.get("excluded") or {})
+            excluded["candidate"] = int(excluded.get("candidate") or 0) + dropped
+            out["excluded"] = excluded
+        return out
+
+    def get_procedure_lifecycle(self, procedure_uuid: str) -> Dict[str, Any]:
+        """LIFECYCLE1: one procedure's lifecycle on KSG's one set.
+
+        Reads ``GET /procedures/:uuid?source=dagjson`` (no graph compile; a
+        procedure stored without a dagJson is read in full). Returns
+        ``{ procedureId, status, state, trusted, legacy, legacyReason,
+        promotion, validation, currentVersion, runCount, lifecycle }``:
+        ``state`` is candidate | validated | promoted | retired, computed by KSG
+        from the run marks; ``trusted`` is true only for validated or promoted.
+        A missing procedure (or another owner's private one) raises 404.
+        """
+        if not procedure_uuid:
+            raise ValueError("procedure_uuid is required")
+        path = f"{self.prototype_api_prefix}/procedures/{procedure_uuid}"
+        try:
+            r = self._request("GET", path, params={"source": "dagjson"})
+        except requests.HTTPError as e:
+            if getattr(getattr(e, "response", None), "status_code", None) != 404:
+                raise
+            r = self._request("GET", path)
+        r = r if isinstance(r, dict) else {}
+        lc = r.get("lifecycle") if isinstance(r.get("lifecycle"), dict) else {}
+        state = r.get("state", lc.get("state"))
+        return {
+            "procedureId": r.get("id") or procedure_uuid,
+            "status": r.get("status", lc.get("status")),
+            "state": state,
+            "trusted": state in TRUSTED_PROCEDURE_STATES,
+            "legacy": bool(lc.get("legacy", r.get("legacy"))),
+            "legacyReason": lc.get("legacyReason", r.get("legacyReason")),
+            "promotion": lc.get("promotion"),
+            "validation": lc.get("validation"),
+            "currentVersion": lc.get("currentVersion", r.get("currentVersion")),
+            "runCount": len(r["runs"]) if isinstance(r.get("runs"), list) else 0,
+            "lifecycle": r.get("lifecycle"),
+        }
 
     # ===== Procedure versions (capability model) =====
     # Every version read carries ``state`` (candidate | validated | promoted |
@@ -3226,21 +3307,22 @@ class KnowShowGoClient:
         self,
         query: str,
         top_k: int = 5,
-        include: Union[str, List[str]] = "verified",
+        include: Union[str, List[str]] = "trusted",
     ) -> List[Dict[str, Any]]:
         """Search for Procedure DAGs by semantic similarity.
 
-        KSG-L1: only verified (replayable) procedures unless ``include`` opts in
-        to ``"drafts"``, ``"retired"`` or ``"all"`` (or a list of them). Each hit
-        carries its lifecycle ``status``.
+        LIFECYCLE1: only trusted (validated or promoted) procedures unless
+        ``include`` opts in to ``"verified"``, ``"drafts"``, ``"retired"`` or
+        ``"all"`` (or a list of them). Each hit carries ``status``, ``state``
+        and ``trusted``.
         """
-        inc = ",".join(include) if isinstance(include, (list, tuple)) else (include or "verified")
+        inc = ",".join(include) if isinstance(include, (list, tuple)) else (include or "trusted")
         result = self._request(
             "POST",
             "/api/procedures/search",
             json={"query": query, "topK": top_k, "include": inc}
         )
-        return result["results"]
+        return _trust_filter(result["results"], inc)[0]
 
     def import_procedure_json(
         self,
