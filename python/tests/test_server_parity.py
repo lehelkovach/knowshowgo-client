@@ -269,7 +269,8 @@ class TestProcedureRunsAndVersions(unittest.TestCase):
         hit = {"id": U(30), "status": "verified", "state": "validated", "currentVersion": {"uuid": U(31), "version": 2, "state": "validated", "stateBasis": "runs"}}
         reply = {"ok": True, "query": {"goal": "register supplier"}, "results": [hit], "excluded": {}, "scanned": 4}
         client = make_client(reply)
-        self.assertEqual(client.search_verified_procedures(goal="register supplier", site="portal.example.test", include=["drafts"], limit=3), reply)
+        # LIFECYCLE1: every hit comes back labelled ``trusted``; otherwise untouched.
+        self.assertEqual(client.search_verified_procedures(goal="register supplier", site="portal.example.test", include=["drafts"], limit=3), {**reply, "results": [{**hit, "trusted": True}]})
         method, url, kwargs = last_call(client)
         self.assertEqual((method, url), ("GET", f"{BASE}/api2.0/procedures/search"))
         self.assertEqual(kwargs["params"], {"goal": "register supplier", "site": "portal.example.test", "include": "drafts", "limit": 3})
@@ -283,12 +284,13 @@ class TestProcedureRunsAndVersions(unittest.TestCase):
         self.assertEqual(client.search_verified_procedures(achieves=U(40)), reply)
         method, url, kwargs = last_call(client)
         self.assertEqual((method, url), ("GET", f"{BASE}/api2.0/procedures/search"))
-        self.assertEqual(kwargs["params"], {"achieves": U(40)})
+        # LIFECYCLE1: the default include is ``trusted``.
+        self.assertEqual(kwargs["params"], {"achieves": U(40), "include": "trusted"})
         client.search_verified_procedures(goal="order a pizza", achieves=U(40), include="all", limit=10)
         self.assertEqual(last_call(client)[2]["params"], {"goal": "order a pizza", "include": "all", "limit": 10, "achieves": U(40)})
-        # Without achieves the query is what it was.
+        # Without achieves the query is what it was (plus LIFECYCLE1's default include).
         client.search_verified_procedures(goal="order a pizza")
-        self.assertEqual(last_call(client)[2]["params"], {"goal": "order a pizza"})
+        self.assertEqual(last_call(client)[2]["params"], {"goal": "order a pizza", "include": "trusted"})
 
     # POST /api/procedures/search hits carry currentVersion (rest-api.js:11584).
     def test_search_procedures_passes_current_version(self):

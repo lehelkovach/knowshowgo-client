@@ -907,9 +907,9 @@
       "id": "procedures",
       "title": "Procedures (KL1 search, RP1 lifecycle, versions)",
       "audience": "agent",
-      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1); 0.2.64 (owner-private); 0.2.66 (ACT5a: achieves filter)",
+      "since": "0.2.31; 0.2.47 (KL1); 0.2.48 (RP1); 0.2.64 (owner-private); 0.2.66 (ACT5a: achieves filter); 0.2.69 (LIFECYCLE1: trusted filter)",
       "summary": "Stored procedures with runs, versions (candidate → validated → promoted → retired) and lifecycle-safe search. A procedure created with an owner is private to that owner, with its steps, versions and claims; a commons one is public only when marked `visibility: \"public\"`.",
-      "whenToUse": "Recall with `search_verified_procedures` (verified only) or `search_procedures` (verified + drafts; `include: \"retired\"|\"all\"` only to audit). Follow a retired hit’s `replacedBy`. Record every run (`record_procedure_run`) with an independent outcome signal.",
+      "whenToUse": "Recall with `search_verified_procedures` or `search_procedures` with `include: \"trusted\"` (validated or promoted only; each hit says `state` and `trusted`); `verified` adds page-only candidates, `drafts` and `include: \"retired\"|\"all\"` only to audit. Follow a retired hit’s `replacedBy`. Record every run (`record_procedure_run`) with an independent outcome signal.",
       "routes": [
         "GET /procedure-versions/:uuid",
         "POST /procedure-versions/:uuid/status",
@@ -1396,12 +1396,12 @@
     {
       "id": "rp1-retired-opt-in",
       "title": "Retired procedures are opt-in",
-      "since": "0.2.48",
+      "since": "0.2.48; 0.2.69 (LIFECYCLE1: trusted)",
       "capability": "procedures",
       "client": [
         "search_procedures"
       ],
-      "whenToUse": "Default search leaves retired procedures out; `include: \"retired\"|\"all\"` only to audit."
+      "whenToUse": "Default search leaves retired procedures out; `include: \"retired\"|\"all\"` only to audit. Every hit carries `state` and `trusted`; `include: \"trusted\"` (LIFECYCLE1) keeps only validated or promoted procedures, and is what MCP and the SDKs ask for by default."
     },
     {
       "id": "kl2-vector-search",
