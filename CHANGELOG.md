@@ -4,7 +4,11 @@ Client changes, newest first. Each client release is paired with the knowshowgo
 server release of the same `X.Y.Z` (the server's `docs/CHANGELOG.md` is the
 running record of both; the pairing law is its `docs/VERSION-MATRIX.md`).
 
-## Unreleased (`dev`, for 0.2.40, paired with KSG 0.2.69)
+## Unreleased (`dev`)
+
+## [0.2.40] - 2026-11-18 (paired with KSG 0.2.69)
+
+- **Release commit:** version 0.2.40 in `package.json`, `package-lock.json`, `python/pyproject.toml` and `python/knowshowgo_client/__init__.py`; `js/capabilities.json` synced from the KSG 0.2.69 release commit (LIFECYCLE1 `whenToUse` text and `since` 0.2.69 stamps). To `main` and the release bundle only; not published to npm or PyPI.
 
 - **LIFECYCLE1: recall never hands over a candidate or a retired procedure as trusted.** KSG's one lifecycle is candidate → validated → promoted, and retired from any of them, computed from run marks. Only validated or promoted procedures are trusted; since IR-S3 a `verified` status can still be a candidate (the page alone verified it).
   - **JS (npm):** `search_procedures(query, { include = 'trusted' })` and `search_verified_procedures({ include = 'trusted' })` (were `'verified'`). Every hit carries `trusted`. With `include: 'trusted'` alone the client also drops untrusted hits, so a server older than KSG 0.2.69 cannot hand one over; `search_verified_procedures` counts them in `excluded.candidate`. New `get_procedure_lifecycle(uuid)` → `{ procedureId, status, state, trusted, legacy, legacyReason, promotion, validation, currentVersion, runCount, lifecycle }`; new export `TRUSTED_PROCEDURE_STATES`. Tests: `js/lifecycle1.test.mjs` (11), `js/lifecycle1_live.test.mjs` (4, needs `KSG_LIVE_URL`).
